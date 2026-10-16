@@ -1,0 +1,600 @@
+{
+ "source": "Track B B3_VECTORS_2026-10-16.json sha12 d563728bba54 (md 316bb9fa4aac); 42 rows from 31 public judgments; printed dates only, no quotes",
+ "rows": [
+  {
+   "row": 1,
+   "court": "Supreme Court",
+   "year": 2013,
+   "title": "Kamlesh Kumar vs State Of Bihar Anr",
+   "step": "notice 30d after RE-PRESENTATION",
+   "dates_as_printed": {
+    "presented": "25.10.2008",
+    "notice1": "27.10.2008",
+    "represented": "10.11.2008",
+    "notice2": "17.12.2008",
+    "complaint": "7.01.2009"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "NOTICE OUT OF TIME (30 days run from the second dishonour)"
+  },
+  {
+   "row": 2,
+   "court": "Supreme Court",
+   "year": 2013,
+   "title": "Kamlesh Kumar vs State Of Bihar Anr",
+   "step": "which dishonour starts the clock",
+   "dates_as_printed": {
+    "presented": "25.10.2008",
+    "notice1": "27.10.2008",
+    "represented": "10.11.2008"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "CLOCK RUNS FROM THE LAST PRESENTATION, NOT THE FIRST NOTICE"
+  },
+  {
+   "row": 3,
+   "court": "Supreme Court",
+   "year": 2013,
+   "title": "M S Econ Antri Ltd vs M S Rom Industries Ltd Anr",
+   "step": "complaint within one month: day of cause of action excluded",
+   "dates_as_printed": {
+    "cause_of_action": "15/10/1995",
+    "complaint": "15/11/1995"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (first day excluded)"
+  },
+  {
+   "row": 4,
+   "court": "Supreme Court",
+   "year": 2013,
+   "title": "M S Econ Antri Ltd vs M S Rom Industries Ltd Anr",
+   "step": "notice receipt, 15 days, one month, late complaint",
+   "dates_as_printed": {
+    "notice_received": "11/6/1996",
+    "payment_expired": "26/7/1996 (one-month limit as stated)",
+    "complaint": "8/8/1996"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT OUT OF TIME"
+  },
+  {
+   "row": 5,
+   "court": "Supreme Court",
+   "year": 1999,
+   "title": "M S Saketh India Limited And Others vs M S India Securities Limited",
+   "step": "complaint within one month: first day excluded (the rule's source)",
+   "dates_as_printed": {
+    "fifteen_days_expired": "14th October, 1995",
+    "cause_of_action": "15th October, 1995",
+    "complaint": "15th November, 1995"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME"
+  },
+  {
+   "row": 6,
+   "court": "Supreme Court",
+   "year": 2001,
+   "title": "Dalmia Cement Bharat Ltd vs M S Galaxy Trades Agencies Ltd Ors",
+   "step": "first notice and the contended limitation",
+   "dates_as_printed": {
+    "cheque": "26th May, 1998",
+    "bank_informed": "2.6.1998",
+    "notice": "13.6.1998",
+    "contended_last_day": "15th July, 1998",
+    "complaint": "9th September, 1998"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "CONTENDED: COMPLAINT TIME-BARRED (respondents' argument; the court did not decide on the first notice)"
+  },
+  {
+   "row": 7,
+   "court": "Supreme Court",
+   "year": 2001,
+   "title": "Dalmia Cement Bharat Ltd vs M S Galaxy Trades Agencies Ltd Ors",
+   "step": "re-presentation, second notice received, appeal allowed",
+   "dates_as_printed": {
+    "represented": "1.7.98",
+    "dishonoured": "2.7.98",
+    "notice_received": "27.7.98",
+    "complaint": "9th September, 1998"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT NOT QUASHED (second dishonour and notice start a fresh clock)"
+  },
+  {
+   "row": 8,
+   "court": "Supreme Court",
+   "year": 2006,
+   "title": "D Vinod Shivappa vs Nanda Belliappa",
+   "step": "same facts as recited in another judgment (US-style date words)",
+   "dates_as_printed": {
+    "dishonoured": "May 28, 1998",
+    "intimation": "June 2, 1998"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO OUTCOME ON THIS STEP"
+  },
+  {
+   "row": 9,
+   "court": "Supreme Court",
+   "year": 2014,
+   "title": "Yogendra Pratap Singh vs Savitri Pandey Anr",
+   "step": "complaint before the 15 days ended (premature)",
+   "dates_as_printed": {
+    "notice_served": "23rd September, 2008",
+    "complaint": "7th October, 2008"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT PREMATURE (filed on day 14 after service)"
+  },
+  {
+   "row": 10,
+   "court": "Supreme Court",
+   "year": 2014,
+   "title": "Yogendra Pratap Singh vs Savitri Pandey Anr",
+   "step": "the same cheque as recited in a later judgment (Narsingh Das Tapadia facts)",
+   "dates_as_printed": {
+    "presented": "3-10-1994",
+    "dishonoured": "6-10-1994",
+    "notice_received": "26-10-1994",
+    "complaint": "8-11-1994"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "COMPLAINT PREMATURE per the High Court, as recited"
+  },
+  {
+   "row": 11,
+   "court": "Supreme Court",
+   "year": 2000,
+   "title": "Narsingh Das Tapadia vs Goverdhan Das Partani Anr",
+   "step": "complaint before the 15 days ended (the High Court's view as recited)",
+   "dates_as_printed": {
+    "notice_received": "26th October, 1994",
+    "complaint": "8.11.1994"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "COMPLAINT PREMATURE per the High Court, as recited by the Supreme Court"
+  },
+  {
+   "row": 12,
+   "court": "Supreme Court",
+   "year": 2008,
+   "title": "Subodh S Salaskar vs Jayprakash M Shah Anr",
+   "step": "payment window: 15 days counted from service (recited worked example)",
+   "dates_as_printed": {
+    "notice_sent": "4-1-1997",
+    "served": "10-1-1997",
+    "expired": "25-1-1997"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "PAYMENT WINDOW ENDS 25-1-1997 (15 days, day of service excluded)"
+  },
+  {
+   "row": 13,
+   "court": "Supreme Court",
+   "year": 2008,
+   "title": "Subodh S Salaskar vs Jayprakash M Shah Anr",
+   "step": "complaint within one month, cause-of-action day excluded (recited worked example)",
+   "dates_as_printed": {
+    "cause_of_action": "26-1-1997",
+    "counted_from": "27-1-1997",
+    "complaint": "26-2-1997"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME"
+  },
+  {
+   "row": 14,
+   "court": "Supreme Court",
+   "year": 2008,
+   "title": "Subodh S Salaskar vs Jayprakash M Shah Anr",
+   "step": "deemed service 30 days after issue; complaint 20.04.2001 out of time",
+   "dates_as_printed": {
+    "notice_sent": "17.01.2001",
+    "deemed_served": "16.02.2001",
+    "payment_due": "2.03.2001",
+    "complaint": "20.04.2001",
+    "filed_by": "2.04.2001"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT OUT OF TIME (barred)"
+  },
+  {
+   "row": 15,
+   "court": "Himachal Pradesh High Court",
+   "year": null,
+   "title": "Narinder Kumar vs Harnam Singh on 25 June, 1999",
+   "step": "15-day payment window from receipt",
+   "dates_as_printed": {
+    "presented": "5-1 -1990",
+    "notice_sent": "17-1-1990",
+    "notice_received": "22-1-1990",
+    "expired": "6th of February, 1990"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "PAYMENT WINDOW ENDED 6 FEBRUARY 1990"
+  },
+  {
+   "row": 16,
+   "court": "Himachal Pradesh High Court",
+   "year": null,
+   "title": "Narinder Kumar vs Harnam Singh on 25 June, 1999",
+   "step": "complaint within one month",
+   "dates_as_printed": {
+    "limitation_started": "7th February, 1990",
+    "complaint": "21-2-1990"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME"
+  },
+  {
+   "row": 17,
+   "court": "Himachal Pradesh High Court",
+   "year": null,
+   "title": "Narinder Kumar vs Harnam Singh on 25 June, 1999",
+   "step": "lower court's contrary reading (reversed on appeal)",
+   "dates_as_printed": {
+    "notice_sent": "17-1-1990"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT NOT BARRED (the Sessions Judge's 'barred' statement was held wrong)"
+  },
+  {
+   "row": 18,
+   "court": "Chattisgarh High Court",
+   "year": null,
+   "title": "Dr Premish Verma vs Lokesh Sharma on 13 November, 2007",
+   "step": "notice on day 31 or day 30 (first day excluded?) per the Additional Sessions Judge",
+   "dates_as_printed": {
+    "information_received": "23-08- 2003",
+    "notice": "22-09-2003"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "NOTICE OUT OF TIME per the Additional Sessions Judge (counting the information day)"
+  },
+  {
+   "row": 19,
+   "court": "Chattisgarh High Court",
+   "year": null,
+   "title": "Dr Premish Verma vs Lokesh Sharma on 13 November, 2007",
+   "step": "same dates, the High Court excludes the information day",
+   "dates_as_printed": {
+    "information_received": "23-08- 2003",
+    "notice": "22-09-2003"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "NOTICE IN TIME (day 30 with the first day excluded)"
+  },
+  {
+   "row": 20,
+   "court": "Bombay High Court",
+   "year": null,
+   "title": "Mr. Rajesh Bhalchandra Chalke vs State Of Maharashtra on 7 December, 2010",
+   "step": "notice within 30 days of information (pleaded, recited)",
+   "dates_as_printed": {
+    "memo": "10th September 2009",
+    "bank_informed": "11th September 2009",
+    "notice": "19th September 2009"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "NOTICE IN TIME (the complainant's pleading as recited)"
+  },
+  {
+   "row": 21,
+   "court": "Bombay High Court",
+   "year": null,
+   "title": "Mr. Rajesh Bhalchandra Chalke vs State Of Maharashtra on 7 December, 2010",
+   "step": "notice received and complaint date (pleaded, recited)",
+   "dates_as_printed": {
+    "notice_received": "08-10-2009",
+    "complaint": "16th November 2009"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO FINDING ON THIS STEP IN THE SENTENCES READ"
+  },
+  {
+   "row": 22,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Seniors Builders Ltd vs . Shourya Towers Pvt Ltd & Another on 26 August, 2014",
+   "step": "two presentations, notice, reply, complaint",
+   "dates_as_printed": {
+    "first_presented": "around 9th October, 2006",
+    "represented": "17th November, 2006",
+    "notice": "18.11.2006",
+    "reply": "2.12.2006",
+    "complaint": "22.12.2006"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (stated in one line, no calculation)"
+  },
+  {
+   "row": 23,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Archana vs . Jagmohan on 4 March, 2014",
+   "step": "memo, notice, complaint",
+   "dates_as_printed": {
+    "cheque": "12.03.2013",
+    "memo": "13.03.2013",
+    "notice": "10.04.2013",
+    "complaint": "01.05.2013"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (one-line statement)"
+  },
+  {
+   "row": 24,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Ramakant Mittal vs . M/S Mak Mangalam & on 9 September, 2014",
+   "step": "memo, notice, complaint",
+   "dates_as_printed": {
+    "cheque": "31.05.2013",
+    "memo": "05.06.2013",
+    "notice": "03.07.2013",
+    "complaint": "16.08.2013"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (one-line statement)"
+  },
+  {
+   "row": 25,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Apparel Exports vs . Dutt C Arya Impex on 3 June, 2014",
+   "step": "two memos, notice, complaint",
+   "dates_as_printed": {
+    "memos": "23.11.2004 and 25.11.2004",
+    "notice": "01.12.2004",
+    "complaint": "11.01.2005"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (one-line statement)"
+  },
+  {
+   "row": 26,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Cc No. 126/14 Bhoopindra Kumar vs . Meenu Verma on 30 June, 2014",
+   "step": "memo, notice, complaint",
+   "dates_as_printed": {
+    "memo": "08.05.2013",
+    "notice": "05.06.2013",
+    "complaint": "12.07.2013"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT IN TIME (one-line statement)"
+  },
+  {
+   "row": 27,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Case No. : 5054/14 Surender Kumar vs . Surat Singh Page 1/12 on 22 July, 2014",
+   "step": "memo, notice, reply, institution, conviction (no limitation statement)",
+   "dates_as_printed": {
+    "presented": "20.07.2011",
+    "memo": "21.07.2011",
+    "notice": "29.07.2011",
+    "reply": "19.08.2011",
+    "institution": "12.09.2011"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "CONVICTED; the court did not state a limitation finding"
+  },
+  {
+   "row": 28,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Case No. : 2815/12 Uma Shankar Goel vs Virender Singh Page No. 1/14 on 15 October, 2014",
+   "step": "cheque date, presentation, memo, notice posted, institution (no limitation statement)",
+   "dates_as_printed": {
+    "cheque": "18.04.2010",
+    "presented": "13.10.2010",
+    "memo": "15.10.2010",
+    "notice": "10.11.2010",
+    "notice_posted": "11.11.2010",
+    "institution": "21.12.2010"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "PAYMENT WITHIN 15 DAYS NOT MADE (court-stated); limitation not stated"
+  },
+  {
+   "row": 29,
+   "court": "Supreme Court",
+   "year": 2025,
+   "title": "Ashok Singh vs State Of U P",
+   "step": "cheque presented in time; notice within 30 days",
+   "dates_as_printed": {
+    "cheque": "17.03.2010",
+    "returned": "07.05.2010",
+    "notice": "18.05.2010"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "PRESENTED IN TIME; NOTICE IN TIME (11 days)"
+  },
+  {
+   "row": 30,
+   "court": "Supreme Court",
+   "year": 2012,
+   "title": "Msr Leathers vs S Palaniappan And Anr",
+   "step": "second presentation and notice",
+   "dates_as_printed": {
+    "represented": "21st January, 1997",
+    "memo2": "22nd January, 1997",
+    "notice": "28th January, 1997"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "SECOND DISHONOUR CAN FOUND A PROSECUTION"
+  },
+  {
+   "row": 31,
+   "court": "Jammu & Kashmir High Court",
+   "year": null,
+   "title": "Rajneesh Garg (Director) M/S ... vs Romesh Kumar Mengi on 28 September, 2017",
+   "step": "two presentations within six months; second notice",
+   "dates_as_printed": {
+    "cheques": "31.03.2006",
+    "memo": "22.8.2006",
+    "second_notice": "04.09.2006"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "PRESENTED TWICE WITHIN SIX MONTHS; COGNIZANCE UPHELD"
+  },
+  {
+   "row": 32,
+   "court": "Supreme Court",
+   "year": 2014,
+   "title": "Pawan Kumar Ralli vs Maninder Singh Narula",
+   "step": "informal handwritten notice vs formal notice; complaint delay",
+   "dates_as_printed": {
+    "first_notice": "27th April, 2012",
+    "formal_notice": "24th May, 2012"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "HIGH COURT: BARRED, counting from the handwritten notice (as recited); Supreme Court allowed the appeal and left condonation of delay to the trial court"
+  },
+  {
+   "row": 33,
+   "court": "Supreme Court",
+   "year": 2014,
+   "title": "Anil Gupta vs Star India Pvt Ltd Anr",
+   "step": "two notices on one dishonour",
+   "dates_as_printed": {
+    "first_notice": "14.01.2004",
+    "second_notice": "28.01.2004",
+    "reply": "3.02.2004",
+    "complaint": "17.03.2004"
+   },
+   "court_outcome_label": "court-recited (a party's or a lower court's statement as recited)",
+   "court_outcome": "HIGH COURT (as recited): first letter was a valid notice, so a complaint on the second was not maintainable against the company"
+  },
+  {
+   "row": 34,
+   "court": "Supreme Court",
+   "year": 2009,
+   "title": "Jugesh Sehgal vs Shamsher Singh Gogi",
+   "step": "three candidate dishonour dates",
+   "dates_as_printed": {
+    "cheque": "20.11.2000",
+    "returned": "29th December, 2000",
+    "memo": "29.12.2000",
+    "forwarding_letter": "03.01.2001",
+    "notice": "17th January, 2001"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO LIMITATION STATEMENT ON THESE DATES"
+  },
+  {
+   "row": 35,
+   "court": "Supreme Court",
+   "year": 2006,
+   "title": "D Vinod Shivappa vs Nanda Belliappa",
+   "step": "notice returned unserved",
+   "dates_as_printed": {
+    "notice_issued": "17.3.2004",
+    "returned_unserved": "25.3.2004"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT MAY PROCEED ON A RETURNED NOTICE (presumption of service; the drawer may rebut by evidence)"
+  },
+  {
+   "row": 36,
+   "court": "Supreme Court",
+   "year": 2024,
+   "title": "Bijoy Kumar Moni vs Paresh Manna",
+   "step": "two-digit years and mixed separators (no limitation outcome)",
+   "dates_as_printed": {
+    "cheque": "28.04.2006",
+    "memo": "27.7.06",
+    "banker_received": "03.08.2006",
+    "notice": "14.08.2006"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO LIMITATION STATEMENT; appeal dismissed on other grounds"
+  },
+  {
+   "row": 37,
+   "court": "High Court of Meghalaya",
+   "year": null,
+   "title": "Shri Samar Sarmah vs Shri Vivek Agarwala on 29 June, 2017",
+   "step": "two cheques in one notice; the second's memo date missing",
+   "dates_as_printed": {
+    "cheque1": "26.05.2015",
+    "memo1": "28.05.2015",
+    "cheque2": "02.06.2015",
+    "notice": "11.06.2015"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT MAINTAINABLE FOR THE CHEQUE WITH A STATED MEMO DATE (892545); NOT FOR THE OTHER (125335)"
+  },
+  {
+   "row": 38,
+   "court": "Supreme Court",
+   "year": 2022,
+   "title": "Dashrathbhai Trikambhai Patel vs Hitesh Mahendrabhai Patel",
+   "step": "cheque, presentation, notice, reply, complaint (no limitation statement)",
+   "dates_as_printed": {
+    "cheque": "17 March 2014",
+    "presented": "2 April 2014",
+    "notice": "10 April 2014",
+    "reply": "25 April 2014",
+    "complaint": "12 May 2014"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO LIMITATION STATEMENT (the Supreme Court decides an amended reply)"
+  },
+  {
+   "row": 39,
+   "court": "Supreme Court",
+   "year": 2021,
+   "title": "M S Gimpex Private Limited vs Manoj Goel",
+   "step": "a RANGE of notice dates for 18 cheques",
+   "dates_as_printed": {
+    "notices": "Between 22 September 2012 and 5 October 2012"
+   },
+   "court_outcome_label": "no court statement on this step",
+   "court_outcome": "NO OUTCOME ON THIS STEP"
+  },
+  {
+   "row": 40,
+   "court": "Delhi High Court",
+   "year": null,
+   "title": "M/S Alliance Infrastructure ... vs Vinay Mittal on 18 January, 2010",
+   "step": "notice demands more than the cheque amount",
+   "dates_as_printed": {
+    "notice": "23rd January, 2009",
+    "part_payment_by_RTGS": "7.10.2008"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "COMPLAINT QUASHED: the demand exceeded the amount due after a part payment"
+  },
+  {
+   "row": 41,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "The Navodit Cooperative Urban ... vs . on 22 September, 2014",
+   "step": "time-barred DEBT (not a notice period)",
+   "dates_as_printed": {
+    "cheque": "24.03.2012",
+    "agreement": "18.12.2004"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "DEBT TIME-BARRED, SO NOT LEGALLY ENFORCEABLE (the words 'time barred' do not concern the s.138 steps)"
+  },
+  {
+   "row": 42,
+   "court": "Delhi District Court",
+   "year": null,
+   "title": "Indiabulls Financial Services ... vs . on 27 May, 2014",
+   "step": "time-barred DEBT (not a notice period)",
+   "dates_as_printed": {
+    "agreement": "07.09.2005"
+   },
+   "court_outcome_label": "court-stated",
+   "court_outcome": "DEBT TIME-BARRED, SO NOT LEGALLY ENFORCEABLE"
+  }
+ ]
+}

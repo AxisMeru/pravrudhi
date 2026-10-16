@@ -1,0 +1,50 @@
+{
+ "record": "NI Act 1881 s.138 and s.139, held primary copy, and the settings B3 computes from them",
+ "lawyer_confirmed": false,
+ "provenance": {
+  "source": "India Code DSpace 7 REST API, official India Code, Ministry of Finance, Act 26 of 1881",
+  "item_url": "https://indiacode.gov.in/server/api/core/items/64a9a186-103f-46ff-b528-9894e1de534f",
+  "captured": "2026-09-24T08:16:43Z",
+  "held_copy": "corpus-raw/india_code/ni_act_1881_api/ (s138_text.txt, s139_text.txt)",
+  "s138_text_sha256": "e67eae9bbc65394590ee0bb00b987bcebc03132aa68059d71ca8f52f21b5c77a",
+  "s139_text_sha256": "882309608f1fa7348c91d50c6558506f8d80409ab8d066132f300f7346877993",
+  "footnotes": "1 = Ins. by Act 66 of 1988 s.4 w.e.f. 1-4-1989; 2 = Subs. by Act 55 of 2002 s.7 w.e.f. 6-2-2003; 3 = Subs. by Act 55 of 2002 s.7, for 'within fifteen days', w.e.f. 6-2-2003"
+ },
+ "s138_text": "1 [Where any cheque drawn by a person on an account maintained by him with a banker for payment of any amount of money to another person from out of that account for the discharge, in whole or in part, of any debt or other liability, is returned by the bank unpaid, either because of the amount of money standing to the credit of that account is insufficient to honour the cheque or that it exceeds the amount arranged to be paid from that account by an agreement made with that bank, such person shall be deemed to have committed an offence and shall, without prejudice to any other provision of this Act, be punished with imprisonment for 2 [a term which may be extended to two years], or with fine which may extend to twice the amount of the cheque, or with both: Provided that nothing contained in this section shall apply unless-- (a) the cheque has been presented to the bank within a period of six months from the date on which it is drawn or within the period of its validity, whichever is earlier; (b) the payee or the holder in due course of the cheque, as the case may be, makes a demand for the payment of the said amount of money by giving a notice; in writing, to the drawer of the cheque, 3 [within thirty days] of the receipt of information by him from the bank regarding the return of the cheque as unpaid; and (c) the drawer of such cheque fails to make the payment of the said amount of money to the payee or, as the case may be, to the holder in due course of the cheque, within fifteen days of the receipt of the said notice. Explanation .-- For the purposes of this section, debt of other liability means a legally enforceable debt or other liability.",
+ "s139_text": "It shall be presumed, unless the contrary is proved, that the holder of a cheque received the cheque of the nature referred to in section 138 for the discharge, in whole or in part, of any debt or other liability.",
+ "pinned_steps": {
+  "presentation": {
+   "clause": "(a)",
+   "months": 6,
+   "or_validity": true,
+   "rule": "the earlier of six months from the date on which the cheque is drawn and the period of its validity; the validity period is NOT in the section, so it is an input and a missing one is REFER (six months is the outer limit, never the default)"
+  },
+  "notice": {
+   "clause": "(b)",
+   "days": 30,
+   "from": "receipt of information by the payee or holder from the bank regarding the return of the cheque as unpaid"
+  },
+  "payment": {
+   "clause": "(c)",
+   "days": 15,
+   "from": "receipt of the said notice"
+  }
+ },
+ "conventions": {
+  "A": "first day excluded, last day included (default)",
+  "B": "first day included",
+  "rule": "every period is computed under both; when the status differs the step answers REFER with both counts and both statuses",
+  "month_end": "calendar-month arithmetic: a month from the 31st ends on the last day of a shorter month; leap years follow the calendar"
+ },
+ "pandemic_window_refer": {
+  "from": "2020-03-15",
+  "to": "2022-05-31",
+  "note": "any date in this span is REFER until a lawyer sets how the limitation-exclusion order is handled; the dates are a lawyer's to give, not ours"
+ },
+ "refer_only": [
+  "complaint window (NI Act s.142 is not held)",
+  "court holidays and the next-working-day rule (NI Act s.25 and Limitation Act s.4 are not held)",
+  "Limitation Act conventions (s.12 is not held)",
+  "the pandemic-era limitation-exclusion window"
+ ]
+}
