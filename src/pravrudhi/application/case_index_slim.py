@@ -23,7 +23,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,8 @@ from pravrudhi.application.citations import _SCC_SUPP, supp_key
 
 META_SCHEMA = "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
 SLIM_SCHEMA_ID = "slim-v1"
+MERGE_MAP_SCHEMA = "merge-map-508-v1"
+MERGE_EXT = "dedupe-508-v1"
 _CHUNK = 5000
 
 #: Own-citation table (own-supp-v1): which SCC supplementary-volume citation a judgment PRINTS IN ITS OWN HEADER. A citation in
@@ -87,6 +89,39 @@ class SlimBuildError(ValueError):
     """The build refused (a bad argument, an existing output, an empty selection, or text found in the output)."""
 
 
+def _read_merge_map(doc: Mapping[str, Any]) -> tuple[dict[int, int], dict[int, str], dict[int, str]]:
+    """`(dropped_to_kept, case_ids, titles)` of a merge-map document, refusing one that is malformed or points a row at a row that
+    is itself dropped."""
+    try:
+        if doc["schema"] != MERGE_MAP_SCHEMA:
+            raise SlimBuildError(f"the merge map schema is {doc['schema']!r}, not {MERGE_MAP_SCHEMA!r}")
+        dropped = {int(k): int(v) for k, v in doc["dropped_to_kept"].items()}
+        ids = {int(k): str(v) for k, v in doc["case_ids"].items()}
+        titles = {int(k): str(v) for k, v in doc["titles"].items()}
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        raise SlimBuildError(f"the merge map is malformed: {e!r}") from e
+    if any(v in dropped for v in dropped.values()) or any(k == v for k, v in dropped.items()):
+        raise SlimBuildError("the merge map keeps a row it also drops")
+    if not set(dropped) | set(dropped.values()) <= set(ids) or not set(ids) <= set(titles):
+        raise SlimBuildError("the merge map names a row without its case id and title")
+    return dropped, ids, titles
+
+
+def _check_merge_map_against(s: sqlite3.Connection, ids: Mapping[int, str], titles: Mapping[int, str]) -> None:
+    """Every row the map names must exist in the source with the same case id and title: a map built for another index refuses."""
+    rowids = sorted(ids)
+    seen = 0
+    for i in range(0, len(rowids), _CHUNK):
+        chunk = rowids[i : i + _CHUNK]
+        q = "SELECT rowid, case_id, title FROM cases WHERE rowid IN (" + ",".join("?" * len(chunk)) + ")"
+        for rowid, case_id, title in s.execute(q, chunk):
+            seen += 1
+            if case_id != ids[rowid] or (title or "") != titles[rowid]:
+                raise SlimBuildError(f"the merge map does not match the source at rowid {rowid} (case id or title differs)")
+    if seen != len(rowids):
+        raise SlimBuildError(f"the merge map names {len(rowids) - seen} row(s) the source does not hold")
+
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -102,12 +137,15 @@ def build_slim_index(
     sources: Iterable[str] | None = None,
     provenance_sha256: str = "",
     own_supp: bool = False,
+    merge_map: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write the slim index `out` from the full index `src` (opened READ-ONLY) and return the counts that went into `meta`.
     `sources` None = every source; otherwise only those `cases.source` values (see the module docstring for the alias rule).
     `own_supp` also writes the `case_citations` table (see `own_supp_citations`) from the text headers of `src` and records it in
     `meta` (`schema_ext` = own-supp-v1 and the counts); every other table is built exactly as without it.
-    Refuses to overwrite `out`."""
+    `merge_map` (the document `scripts/build_merge_map_508.py` writes; see `case_merge`) drops the `cases` rows it names, keeping
+    one row per judgment; aliases and own-supp keys of a dropped row follow the kept row. The map is checked against the source
+    (rowid, case id and title of every row it names) and the build refuses on any difference. Refuses to overwrite `out`."""
     src, out = Path(src), Path(out)
     if not src.is_file():
         raise SlimBuildError(f"the source index {src} does not exist")
@@ -116,6 +154,13 @@ def build_slim_index(
     wanted = None if sources is None else sorted({s.strip() for s in sources if s.strip()})
     if wanted is not None and not wanted:
         raise SlimBuildError("sources is empty: name at least one source or pass None for all")
+    if merge_map is not None and wanted is not None:
+        raise SlimBuildError("a merge map and a source filter cannot be combined (the kept row may be outside the selection)")
+    dropped: dict[int, int] = {}
+    map_ids: dict[int, str] = {}
+    map_titles: dict[int, str] = {}
+    if merge_map is not None:
+        dropped, map_ids, map_titles = _read_merge_map(merge_map)
     source_mtime_utc = datetime.fromtimestamp(src.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     s = sqlite3.connect(f"file:{src.resolve()}?mode=ro", uri=True)
     try:
@@ -124,14 +169,17 @@ def build_slim_index(
             raise SlimBuildError(f"unknown source(s) {sorted(set(wanted) - have)}; the index holds {sorted(have)}")
         keep_sql = "" if wanted is None else " WHERE source IN (" + ",".join("?" * len(wanted)) + ")"
         keep_args: tuple[str, ...] = () if wanted is None else tuple(wanted)
+        if merge_map is not None:
+            _check_merge_map_against(s, map_ids, map_titles)
         d = open_index(out)
         try:
             n_cases = 0
-            cur = s.execute(f"SELECT case_id, title, court, year, source FROM cases{keep_sql} ORDER BY rowid", keep_args)
+            cur = s.execute(f"SELECT rowid, case_id, title, court, year, source FROM cases{keep_sql} ORDER BY rowid", keep_args)
             while True:
-                rows = cur.fetchmany(_CHUNK)
-                if not rows:
+                fetched = cur.fetchmany(_CHUNK)
+                if not fetched:
                     break
+                rows = [r[1:] for r in fetched if r[0] not in dropped]
                 d.executemany(
                     "INSERT INTO cases (case_id, title, court, year, source, path_or_url, text) VALUES (?, ?, ?, ?, ?, '', '')",
                     rows,
@@ -139,6 +187,12 @@ def build_slim_index(
                 n_cases += len(rows)
             if n_cases == 0:
                 raise SlimBuildError("the selection holds no case")
+            # a dropped row's case id that no kept row carries: its aliases (mined from that judgment) follow the kept row
+            surviving = {r[0] for r in d.execute("SELECT DISTINCT case_id FROM cases")}
+            follow: dict[str, str] = {}
+            for rowid, kept in sorted(dropped.items()):
+                if map_ids[rowid] not in surviving:
+                    follow.setdefault(map_ids[rowid], map_ids[kept])
             alias_sql = "SELECT party_1, party_2, citation, case_id FROM citation_aliases"
             if wanted is not None:
                 # the citing judgment's source decides: an alias mined from a judgment outside the selection is not carried
@@ -150,7 +204,8 @@ def build_slim_index(
                 if not rows:
                     break
                 d.executemany(
-                    "INSERT OR IGNORE INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, ?)", rows
+                    "INSERT OR IGNORE INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, ?)",
+                    [(p1, p2, cit, follow.get(cid, cid)) for p1, p2, cit, cid in rows],
                 )
                 n_alias += len(rows)
             counts = {
@@ -166,11 +221,13 @@ def build_slim_index(
                 d.execute(OWN_CITATIONS_SCHEMA)
                 scanned = records = 0
                 cur = s.execute(
-                    f"SELECT case_id, title, year, substr(text, 1, {_HEADER_CHARS}) FROM cases{keep_sql} ORDER BY rowid",
+                    f"SELECT rowid, case_id, title, year, substr(text, 1, {_HEADER_CHARS}) FROM cases{keep_sql} ORDER BY rowid",
                     keep_args,
                 )
-                for case_id, title, year, head in cur:
+                for rowid, case_id, title, year, head in cur:
                     scanned += 1
+                    if rowid in dropped:
+                        case_id = map_ids[dropped[rowid]]  # a dropped copy's header keys belong to the judgment's kept row
                     try:
                         decided = int(year) if year not in (None, "") else None
                     except (TypeError, ValueError):
@@ -194,6 +251,12 @@ def build_slim_index(
                 "counts": json.dumps(counts, sort_keys=True),
                 "provenance_sha256": provenance_sha256,
             }
+            if merge_map is not None:
+                meta["dedupe_ext"] = MERGE_EXT
+                meta["merge_map_sha256"] = hashlib.sha256(json.dumps(merge_map, sort_keys=True).encode()).hexdigest()
+                meta["merge_counts"] = json.dumps(
+                    {"rows_dropped": len(dropped), "case_ids_followed": len(follow)}, sort_keys=True
+                )
             if own_supp:
                 meta["schema_ext"] = OWN_CITATIONS_EXT
                 meta["own_supp_counts"] = json.dumps(own_counts, sort_keys=True)
