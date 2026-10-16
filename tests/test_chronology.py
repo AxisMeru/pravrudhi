@@ -223,9 +223,14 @@ TYPES = [
 
 
 @pytest.mark.parametrize(("sentence", "label", "type_id"), TYPES)
-def test_each_of_the_thirteen_types_is_a_mention_with_its_label(sentence: str, label: str, type_id: str) -> None:
+def test_each_of_the_fourteen_types_is_a_mention_with_its_label(sentence: str, label: str, type_id: str) -> None:
     r = rows(build(("a.pdf", sentence)), "events")[0]
     assert r["mentions"] == label and r["event_type"] == type_id and r["normalised"] == "2024-06-13"
+
+
+def test_the_type_cases_cover_every_type_in_the_asset() -> None:
+    assert {t for _, _, t in TYPES} == {t["id"] for t in ASSET["types"]}
+    assert len(ASSET["types"]) == 14 and "14 types" in ASSET["note"]
 
 
 def test_a_date_with_no_type_phrase_is_a_date_only() -> None:

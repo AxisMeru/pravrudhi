@@ -1,6 +1,6 @@
 {
  "version": 2,
- "note": "CLOSED list of what a sentence MENTIONS (R1, #969): a label says the sentence mentions the topic, never that the thing happened. groupable = single_occurrence: only arrest, FIR registration, charge sheet filing and surrender may be offered as 'may be the same event'. A lawyer confirms the 13 types, the phrases and the cue words before launch.",
+ "note": "CLOSED list of what a sentence MENTIONS (R1, #969): a label says the sentence mentions the topic, never that the thing happened. groupable = single_occurrence: only arrest, FIR registration, charge sheet filing and surrender may be offered as 'may be the same event'. A lawyer confirms the 14 types, the phrases and the cue words before launch.",
  "types": [
   {
    "id": "arrest",
