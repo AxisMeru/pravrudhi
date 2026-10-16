@@ -496,12 +496,12 @@ class VerifyCitationResponse(BaseModel):
     #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
     #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
     coverage: dict[str, Any] | None = None
-    #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX that matched
-    #: the name, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other result, the quote
+    #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX where every typed
+    #: party matched, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other result, the quote
     #: path), which is therefore byte-identical to the reply before this field existed.
     name_compared: bool | None = Field(
         default=None,
-        description="True only when a case name typed in front of the citation was compared with the index (an IN_INDEX that matched the name, or NAME_MISMATCH); the field is absent from every other reply.",
+        description="True only when a case name typed in front of the citation was compared with the index: for an IN_INDEX, when every party typed matched a party of the indexed case (a party named only by common words matches only when it equals the case's own party), and for NAME_MISMATCH. The field is absent from every other reply, including an IN_INDEX where the name only partly matched.",
     )
 
 
