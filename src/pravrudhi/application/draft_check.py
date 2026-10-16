@@ -179,12 +179,25 @@ _OTHER_TOKEN = (
 _YEAR4 = r"(?:19|20)\d{2}"
 _OTHER_FORMS = re.compile(
     # year (bracketed or not), optional volume or part, reporter, optional (court), page:  (2012) 190 DLT 45 / 2008 (2) KLT 123
-    rf"(?:\(\s{{0,2}}{_YEAR4}\s{{0,2}}\)|{_YEAR4})\s{{0,2}}(?:\(\s{{0,2}}\d{{1,3}}\s{{0,2}}\)\s{{0,2}}|\d{{1,4}}\s{{0,2}})?"
-    rf"{_OTHER_TOKEN}\s{{0,2}}(?:\(\s{{0,2}}[A-Za-z]{{2,5}}\s{{0,2}}\)\s{{0,2}})?\d{{1,6}}\b"
+    rf"(?:\(\s{{0,2}}{_YEAR4}\s{{0,2}}\)|\[\s{{0,2}}{_YEAR4}\s{{0,2}}\]|{_YEAR4})\s{{0,2}}"
+    rf"(?:\(\s{{0,2}}\d{{1,3}}\s{{0,2}}\)\s{{0,2}}|\d{{1,4}}\s{{0,2}})?"
+    rf"{_OTHER_TOKEN}\.?\s{{0,2}}(?:\(\s{{0,2}}\d{{1,2}}\s{{0,2}}\)\s{{0,2}})?"
+    rf"(?:(?i:supp?l?)\.?\s{{0,2}}(?:\(\s{{0,2}}\d{{1,2}}\s{{0,2}}\)\s{{0,2}})?)?"
+    rf"(?:\(\s{{0,2}}[A-Za-z&.]{{1,6}}\s{{0,2}}\)\s{{0,2}})?\d{{1,6}}\b"
     # ILR (2009) 2 Del 34
     rf"|ILR\s{{0,2}}\(?{_YEAR4}\)?\s{{0,2}}(?:\d{{1,3}}\s{{0,2}})?[A-Z][A-Za-z.]{{1,14}}\s{{0,2}}\d{{1,5}}\b"
     # A.I.R. 2014 SC 1234
     rf"|A\.\s?I\.\s?R\.?\s{{0,2}}{_YEAR4}\s{{0,2}}[A-Za-z]{{2,6}}\s{{0,2}}\d{{1,6}}\b"
+    # AIR 2001 SUPREME COURT 1456 (the court written out) and the compact AIR2001SC1456
+    rf"|(?<![A-Za-z])AIR\s{{0,2}}\(?{_YEAR4}\)?\s{{0,2}}(?:[A-Z][A-Za-z.]{{1,14}}\s{{1,2}}){{1,4}}\d{{1,6}}\b"
+    rf"|(?<![A-Za-z])AIR\s{{0,2}}{_YEAR4}\s{{0,2}}[A-Za-z]{{2,6}}\s{{0,2}}\d{{1,6}}\b"
+    # JT 1987 (4) 665 and SCALE (2001) 3 345: the reporter first
+    rf"|(?<![A-Za-z])(?:JT|SCALE)\s{{0,2}}\(?{_YEAR4}\)?\s{{0,2}}"
+    rf"(?:\(\s{{0,2}}\d{{1,2}}\s{{0,2}}\)\s{{0,2}}|\d{{1,2}}\s{{1,2}})?\d{{1,6}}\b"
+    # (2005) AIR SCW 5560 / 2013 SCC online Del 3120 (any capitalisation of Online)
+    rf"|(?:\(\s{{0,2}}{_YEAR4}\s{{0,2}}\)|{_YEAR4})\s{{0,2}}AIR\s{{0,2}}[A-Za-z]{{2,6}}\s{{0,2}}\d{{1,6}}\b"
+    rf"|(?:\(\s{{0,2}}{_YEAR4}\s{{0,2}}\)|{_YEAR4})\s{{0,2}}SCC\s{{0,2}}(?i:on\s?-?line)\s{{0,2}}[A-Za-z]{{2,6}}"
+    r"\s{0,2}\d{1,6}\b"
 )
 #: the names shown for the recognised reporters (the report says which forms it reads)
 RECOGNISED_NOT_CHECKED = (
@@ -192,6 +205,10 @@ RECOGNISED_NOT_CHECKED = (
     "JCC", "GLR", "MLJ", "KLJ", "CLT", "SLR", "PLR", "MPLJ",
 )
 CHECKED_FORMS = ("SCC", "SCC Supp")
+#: SCC written in a spelling the lookup does not accept ("(2014) 8 S.C.C. 273", "(2014) 8 SC 273"): read, never normalised (that
+#: would be a guess), reported "not checked: unusual spelling"
+_SCC_SPELLING = re.compile(r"[(\[]?\d{4}[)\]]?\s{0,2}(?:\(\d{1,3}\)\s{0,2})?\d{0,4}\s{0,2}(?:S\.\s?C\.\s?C\.?|SCC|SC)\s{0,2}\d+")
+
 
 #: Upper-case anchors (case-sensitive: "air" and "scc" in prose are not anchors): the reporter tokens whose damaged spellings
 #: must be COUNTED as not read, and the forms the parser does not read.
@@ -209,6 +226,8 @@ _ANCHOR_CS = re.compile(
 _LOOSE = r"[\s\u00ad\u200b-\u200d\u2060\ufeff\-.]{0,3}"
 _ANCHOR_CI = re.compile(rf"\bOnLine\b|(?<![A-Za-z])Cri{_LOOSE}L{_LOOSE}J\b", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
+#: "SCC p. 238", "AIR p. 1370", "SCC pp. 147-48": a pinpoint into a case already cited, not a citation
+_PINPOINT = re.compile(r"\s{0,2},?\s{0,2}pp?\.?\s{0,2}\d")
 #: a year-like run with at least one real digit (OCR may put the letters O, o, l, I in a number)
 _YEARISH = re.compile(r"(?=[0-9OolI]*\d)[0-9OolI]{4}")
 _STRIP = re.compile(r"[\s­​-‍⁠﻿\-]+")
@@ -256,6 +275,8 @@ def like_citation_regions(text: str) -> list[LikeRegion]:
     for rx in (_ANCHOR_CS, _ANCHOR_CI):
         for m in rx.finditer(text):
             after = text[m.end() : m.end() + _REACH_AFTER]
+            if _PINPOINT.match(after):
+                continue
             before = text[max(0, m.start() - _REACH_BEFORE) : m.start()]
             digit_after = _DIGIT.search(after) is not None
             yms = list(_YEARISH.finditer(before))
@@ -400,12 +421,12 @@ def _summary(d: dict[str, Any], state: str, not_read_note: str) -> str:
         )
     parts: list[str] = []
     if checked == 0:
-        parts.append(f"No citation could be checked: {_n(read, 'citation was', 'citations were')} read" if read else
-                     "No citation could be checked")
+        parts.append(f"No citation could be checked ({read} read)" if read else "No citation could be checked")
     elif problems:
         parts.append(
-            f"{problems} of the {_n(checked, 'citation', 'citations')} checked need attention: {d['not_found']} not found in our "
-            f"index, {d['conflict']} ambiguous, {d['name_mismatch']} with a case name that did not match"
+            f"{problems} of the {_n(checked, 'citation', 'citations')} checked {'needs' if problems == 1 else 'need'} attention: "
+            f"{d['not_found']} not found in our index, {d['conflict']} ambiguous, "
+            f"{d['name_mismatch']} with a case name that did not match"
         )
     else:
         parts.append(f"No problems found among the {_n(checked, 'citation', 'citations')} checked")
@@ -414,6 +435,11 @@ def _summary(d: dict[str, Any], state: str, not_read_note: str) -> str:
             f"{_n(d['not_checked_reporter_not_in_index'], 'citation is', 'citations are')} of a kind the index does not hold "
             "(AIR, SCC OnLine, High Court reporters and the like) and "
             f"{'was' if d['not_checked_reporter_not_in_index'] == 1 else 'were'} not checked"
+        )
+    if d["not_checked_spelling"]:
+        parts.append(
+            f"{_n(d['not_checked_spelling'], 'possible SCC citation', 'possible SCC citations')} in a non-standard spelling; "
+            "not checked"
         )
     other = d["not_checked_cap"] + d["not_checked_lookup_failed"] + d["not_checked_no_index"]
     if other:
@@ -472,7 +498,8 @@ def check_draft(
     looked_up = 0
     for occ in occs:
         if occ.cite.reporter not in CHECKABLE_REPORTERS:
-            occ.status, occ.reason = "not_checked", "reporter_not_in_index"
+            occ.status = "not_checked"
+            occ.reason = "unusual_spelling" if _SCC_SPELLING.fullmatch(occ.raw.strip()) else "reporter_not_in_index"
             continue
         if lookup is None:  # this deployment has no citation index: nothing can be checked, and the report says so
             occ.status, occ.reason = "not_checked", "no_index"
@@ -506,8 +533,14 @@ def check_draft(
             occ.status = "conflict"
         elif result == "NAME_MISMATCH":
             occ.status, occ.name_state = "name_mismatch", "name_mismatch"
+        elif result == "MALFORMED":  # a form the lookup could not read as a citation (for example a compact "(2016)10SCC386")
+            occ.status = "malformed"
         else:
             occ.status, occ.reason = "not_checked", "lookup_failed"
+
+    # a string the lookup could not read as a citation is counted NOT READ, never "read" and never "lookup failure"
+    malformed = [o for o in occs if o.status == "malformed"]
+    occs = [o for o in occs if o.status != "malformed"]
 
     # the scanner: strings that look like citations but were not read
     covered = [c.span for c in cites]
@@ -522,6 +555,8 @@ def check_draft(
 
     nc = [o for o in occs if o.status == "not_checked"]
     nc_reporter = sum(1 for o in nc if o.reason == "reporter_not_in_index")
+    nc_spelling = sum(1 for o in nc if o.reason == "unusual_spelling")
+    n_unread = len(unread) + len(malformed)
     nc_cap = sum(1 for o in nc if o.reason in ("cap_reached", "time_cap"))
     nc_failed = sum(1 for o in nc if o.reason == "lookup_failed")
     nc_no_index = sum(1 for o in nc if o.reason == "no_index")
@@ -530,9 +565,10 @@ def check_draft(
     checked = found + not_found + conflict + mismatch
     checkable = sum(1 for o in occs if o.cite.reporter in CHECKABLE_REPORTERS)
     denominator: dict[str, Any] = {
-        "like_strings": read + len(unread),
+        "like_strings": read + n_unread,
         "read": read,
-        "not_read": len(unread),
+        "not_read": n_unread,
+        "not_read_could_not_be_read_as_a_citation": len(malformed),
         "checked": checked,
         "looked_up": looked_up,
         "found": found,
@@ -543,6 +579,7 @@ def check_draft(
         "name_mismatch": mismatch,
         "not_checked": len(nc),
         "not_checked_reporter_not_in_index": nc_reporter,
+        "not_checked_spelling": nc_spelling,
         "not_checked_cap": nc_cap,
         "not_checked_lookup_failed": nc_failed,
         "not_checked_no_index": nc_no_index,
@@ -552,19 +589,19 @@ def check_draft(
     }
     if denominator["like_strings"] != denominator["read"] + denominator["not_read"] or read != checked + len(nc):
         raise AssertionError("the denominator does not add up")  # a bug here must be loud, never a quietly wrong report
-    if read == 0 and not unread:
+    if read == 0 and not n_unread:
         state = "none_recognised"
     elif checked == 0:
         state = "nothing_checked"
-    elif unread or unread_pages or nc:
+    elif n_unread or unread_pages or nc:
         state = "incomplete"
     else:
         state = "complete"
-    one = len(unread) == 1
+    one = n_unread == 1
     not_read_note = ""
-    if unread:
+    if n_unread:
         not_read_note = (
-            f"{len(unread)} string{'' if one else 's'} that look{'s' if one else ''} like a citation "
+            f"{n_unread} string{'' if one else 's'} that look{'s' if one else ''} like a citation "
             f"{'was' if one else 'were'} not read"
         )
     if pages is not None and unread_pages:
@@ -596,6 +633,15 @@ def check_draft(
             "reason": "form_not_read",
         }
         for g in unread[:MAX_LISTED]
+    ] + [
+        {
+            "text": " ".join(o.raw.split())[:200],
+            "span": [o.cite.span[0], o.cite.span[1]],
+            "page": _page_of(starts, o.cite.span[0]),
+            "anchor": o.cite.reporter,
+            "reason": "could_not_be_read_as_a_citation",
+        }
+        for o in malformed[:MAX_LISTED]
     ]
     return {
         "run_id": run_id or f"draft-check-{os.urandom(5).hex()}",
@@ -610,7 +656,7 @@ def check_draft(
             "citations": listed,
             "not_read": unread_listed,
             "unread_pages": unread_pages,
-            "listing_truncated": len(occs) > MAX_LISTED or len(unread) > MAX_LISTED,
+            "listing_truncated": len(occs) > MAX_LISTED or n_unread > MAX_LISTED,
             "not_assessed": list(NOT_ASSESSED),
             "wording": "found in our index means the citation exists in the index, not that the case says what the draft says",
         },
