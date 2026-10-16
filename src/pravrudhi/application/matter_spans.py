@@ -20,7 +20,7 @@ Design, each point a rule from the reviewers' attack list (#959):
   data, not syntax. A closed list of function words is not required to match.
 * A document is searched only once it is committed (all spans in, or none: one transaction); a page with NO TEXT LAYER is
   recorded (`pages_without_text`), the document is `indexed_complete` only when every page had text, and every answer, found or
-  not, says how many pages had little or no text; a result list says "showing 10 of 40" when it is cut.
+  not, says how many pages had little or no text; a result list says "Showing 10 of 40" when it is cut.
 * DELETION: DELETE + FTS5 `optimize` + VACUUM (with `secure_delete` on), then every file of the matter (database, journal, -wal,
   -shm, temp and upload leftovers) is removed. The tests scan EVERY file under the store for the deleted secret bytes.
 * No claim of irrecoverability is made anywhere: a delete removes the matter from this service's store; what a disk or a backup
@@ -106,7 +106,7 @@ class MatterError(Exception):
 
 class MatterNotFound(MatterError):
     def __init__(self) -> None:
-        super().__init__("matter_not_found", "no such matter", 404)
+        super().__init__("matter_not_found", "No such set of papers", 404)
 
 
 # ---- requests -------------------------------------------------------------------------------------------------------------
@@ -164,7 +164,7 @@ def tenant_dir_name(tenant: str) -> str:
     """A directory name for a tenant id that cannot walk out of the store and does not put the id on disk: a readable class
     prefix plus a hash of the id."""
     if not tenant or len(tenant) > 200:
-        raise MatterError("bad_tenant", "no tenant", 403)
+        raise MatterError("bad_tenant", "Sign in to use stored papers", 403)
     kind = re.sub(r"[^a-z]", "", tenant.split(":", 1)[0].lower())[:8] or "t"
     return f"{kind}-{hashlib.sha256(tenant.encode()).hexdigest()[:24]}"
 
@@ -180,7 +180,7 @@ class MatterStore:
         anywhere but inside the store, is refused before anything is read, locked, scrubbed or removed."""
         d = self.base / tenant_dir_name(tenant)
         if d.is_symlink() or (d.exists() and self.base.resolve() not in d.resolve().parents):
-            raise MatterError("bad_path", "the tenant folder is not inside the store", 500)
+            raise MatterError("bad_path", "The stored papers could not be reached safely", 500)
         return d
 
     def _matter_dir(self, tenant: str, matter_id: str) -> Path:
@@ -225,9 +225,9 @@ class MatterStore:
         try:
             free = shutil.disk_usage(probe).free
         except OSError as e:
-            raise MatterError("store_unavailable", "the store cannot be measured", 503) from e
+            raise MatterError("store_unavailable", "The store cannot be measured", 503) from e
         if free - need < self.cfg.min_free_bytes:
-            raise MatterError("store_full", "the store has no room for this document", 503)
+            raise MatterError("store_full", "There is no room to store this document", 503)
 
     def _tenant_bytes(self, tenant: str) -> int:
         total = 0
@@ -282,14 +282,18 @@ class MatterStore:
                 return
             finally:
                 os.close(fd)  # closing the descriptor releases the lock
-        raise MatterError("store_busy", "the store is busy; try again", 503)
+        raise MatterError("store_busy", "The store is busy; try again", 503)
 
     def create_matter(self, tenant: str) -> str:
         tdir = self._tenant_dir(tenant)
         self._disk_floor(1_000_000)  # before anything is created
         with self._tenant_lock(tenant, create=True):
             if sum(1 for p in tdir.iterdir() if p.is_dir()) >= self.cfg.max_matters_per_tenant:
-                raise MatterError("too_many_matters", f"a tenant may hold at most {self.cfg.max_matters_per_tenant} matters", 409)
+                raise MatterError(
+                    "too_many_matters",
+                    f"Your organisation may hold at most {self.cfg.max_matters_per_tenant} sets of papers",
+                    409,
+                )
             matter_id = uuid.uuid4().hex
             mdir = tdir / matter_id
             self._private_dir(mdir)
@@ -313,18 +317,18 @@ class MatterStore:
     # -- documents
     def add_document(self, tenant: str, matter_id: str, text: str, name: str) -> dict[str, Any]:
         if not text.strip():
-            raise MatterError("no_text", "the document has no text to index (a scanned PDF has no text layer)")
+            raise MatterError("no_text", "The document has no text to index (a scanned PDF has no text layer)")
         if len(text) > self.cfg.max_chars:
-            raise MatterError("too_long", f"the document is longer than {self.cfg.max_chars} characters", 413)
+            raise MatterError("too_long", f"The document is longer than {self.cfg.max_chars} characters", 413)
         pages = text.split("\f")
         if len(pages) > 1 and pages[-1] == "":
             pages.pop()  # the form feed that ENDS the last page starts no page
         without_text = [i + 1 for i, pg in enumerate(pages) if sum(1 for ch in pg if not ch.isspace()) < UNREAD_PAGE_CHARS]
         spans = split_spans(text)
         if not spans:
-            raise MatterError("no_text", "the document has no text to index")
+            raise MatterError("no_text", "The document has no text to index")
         if len(spans) > self.cfg.max_spans_per_doc:
-            raise MatterError("too_many_spans", f"a document may hold at most {self.cfg.max_spans_per_doc} spans", 413)
+            raise MatterError("too_many_spans", f"A document may hold at most {self.cfg.max_spans_per_doc} passages", 413)
         with self._tenant_lock(tenant):
             return self._ingest(tenant, matter_id, text, name, pages, without_text, spans)
 
@@ -336,7 +340,7 @@ class MatterStore:
         tenant cannot both pass the cap."""
         need = len(text) * DISK_EXPANSION
         if self._tenant_bytes(tenant) + need > self.cfg.max_tenant_bytes:
-            raise MatterError("tenant_store_full", "this tenant's stored papers have reached their limit", 413)
+            raise MatterError("tenant_store_full", "Your stored papers have reached their limit", 413)
         self._disk_floor(need)
         doc_id = uuid.uuid4().hex
         sha = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
@@ -352,9 +356,13 @@ class MatterStore:
                     conn.execute("DELETE FROM document WHERE doc_id = ?", (o,))
                 docs = conn.execute("SELECT COUNT(*), COALESCE(SUM(n_chars), 0) FROM document").fetchone()
                 if docs[0] >= self.cfg.max_docs:
-                    raise MatterError("too_many_documents", f"a matter may hold at most {self.cfg.max_docs} documents", 409)
+                    raise MatterError(
+                        "too_many_documents", f"A set of papers may hold at most {self.cfg.max_docs} documents", 409
+                    )
                 if docs[1] + len(text) > self.cfg.max_total_chars:
-                    raise MatterError("matter_too_large", f"a matter may hold at most {self.cfg.max_total_chars} characters", 413)
+                    raise MatterError(
+                        "matter_too_large", f"A set of papers may hold at most {self.cfg.max_total_chars} characters", 413
+                    )
                 conn.execute(
                     "INSERT INTO document (doc_id, name, n_chars, n_pages, n_spans, sha256, created, ingest_done, "
                     "pages_without_text) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
@@ -400,7 +408,7 @@ class MatterStore:
         base = {
             "matter_id": matter_id,
             "terms": terms,
-            "searched_as_typed": "the words were searched as typed: not stemmed, not translated, not spell-corrected; "
+            "searched_as_typed": "The words were searched as typed: not stemmed, not translated, not spell-corrected; "
             "a quoted term with no letter or digit in it (a symbol, a section sign) cannot be searched and finds nothing",
             "documents": docs,
             "not_fully_indexed": [d["doc_id"] for d in docs if not d["ingest_done"]],
@@ -409,15 +417,15 @@ class MatterStore:
         tail = f"; {notes['pages_note']}" if notes["pages_note"] else ""
         if not rows:
             return {**base, "found": False, "total_matches": 0, "truncated": False,
-                    "message": "not found in the matter papers" + tail, "spans": []}
+                    "message": "Not found in the papers you added" + tail, "spans": []}
         spans = [
             {"span_id": r[0], "doc_id": r[1], "name": r[2], "page": r[3], "start": r[4], "end": r[5], "text": r[6]} for r in rows
         ]
         truncated = total > len(spans)
         head = (
-            f"showing {len(spans)} of {total} spans found in the matter papers"
+            f"Showing {len(spans)} of {total} passages found in the papers you added"
             if truncated
-            else f"{len(spans)} span{'' if len(spans) == 1 else 's'} found in the matter papers"
+            else f"{len(spans)} passage{'' if len(spans) == 1 else 's'} found in the papers you added"
         )
         return {**base, "found": True, "total_matches": total, "truncated": truncated, "message": head + tail, "spans": spans}
 
@@ -429,7 +437,7 @@ class MatterStore:
         nq = normalise_for_quote(quote)
         if len(nq) < MIN_QUOTE_CHARS and len(nq.split()) < MIN_QUOTE_WORDS:
             return {"ok": False, "reason": "quote_too_short",
-                    "detail": f"a quote needs at least {MIN_QUOTE_CHARS} characters or {MIN_QUOTE_WORDS} words"}
+                    "detail": f"A quote needs at least {MIN_QUOTE_CHARS} characters or {MIN_QUOTE_WORDS} words"}
         with self._open(self._db_path(tenant, matter_id)) as conn:
             row = conn.execute("SELECT text FROM span WHERE id = ? AND doc_id = ?", (span_id, doc_id)).fetchone()
         if row is None:
@@ -440,14 +448,14 @@ class MatterStore:
     # -- deletion (never behind the flag)
     def delete_document(self, tenant: str, matter_id: str, doc_id: str) -> dict[str, Any]:
         if not _DOC_ID.fullmatch(doc_id or ""):
-            raise MatterError("document_not_found", "no such document", 404)
+            raise MatterError("document_not_found", "No such document", 404)
         with self._open(self._db_path(tenant, matter_id)) as conn:
             if conn.execute("SELECT 1 FROM document WHERE doc_id = ?", (doc_id,)).fetchone() is None:
-                raise MatterError("document_not_found", "no such document", 404)
+                raise MatterError("document_not_found", "No such document", 404)
             _scrub_document(conn, doc_id)
             _compact(conn)
         return {"deleted": True, "matter_id": matter_id, "doc_id": doc_id,
-                "message": "the document and its spans were deleted from this service's store"}
+                "message": "The document was deleted from this service's store."}
 
     def _delete_matter_locked(self, tenant: str, matter_id: str) -> int:
         mdir = self._matter_dir(tenant, matter_id)
@@ -476,7 +484,7 @@ class MatterStore:
             with suppress(OSError):
                 self._tenant_dir(tenant).rmdir()  # only when no other matter of the tenant is left
         return {"deleted": True, "matter_id": matter_id, "documents": n,
-                "message": "the matter and its stored text were deleted from this service's store"}
+                "message": "The papers and their stored text were deleted from this service's store."}
 
     def delete_tenant(self, tenant: str) -> dict[str, Any]:
         """Every folder of the tenant goes, whether or not it holds a database (a failed create, a manual edit or a crash can
@@ -501,7 +509,7 @@ class MatterStore:
                 if tdir.is_dir():
                     _remove_tree(tdir, self.base)
         return {"deleted": True, "matters": n, "folders_without_database": bare, "symlinks_removed": links,
-                "message": "the tenant's matters were deleted from this service's store"}
+                "message": "All stored papers of your organisation were deleted from this service's store."}
 
 
 # ---- internals ------------------------------------------------------------------------------------------------------------
@@ -520,11 +528,11 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def _page_notes(docs: list[dict[str, Any]]) -> dict[str, Any]:
     """The denominator of what may not have been searched: pages with little or no text, per document and in total. Every
-    answer carries it, so "not found in the matter papers" is never read as "not in the pages we were given" when some pages
+    answer carries it, so "Not found in the papers you added" is never read as "not in the pages we were given" when some pages
     were not read."""
     total = sum(d["n_pages"] for d in docs)
     unread = sum(len(d["pages_without_text"]) for d in docs)
-    parts = [f"{len(d['pages_without_text'])} of {d['n_pages']} pages of {d['name']!r}" for d in docs if d["pages_without_text"]]
+    parts = [f'{len(d["pages_without_text"])} of {d["n_pages"]} pages of "{d["name"]}"' for d in docs if d["pages_without_text"]]
     note = ""
     if parts:
         shown = "; ".join(parts[:3]) + (f"; and {len(parts) - 3} more documents" if len(parts) > 3 else "")
@@ -556,7 +564,7 @@ def _remove_tree(path: Path, base: Path) -> None:
     that is not strictly inside the store, and never follows a symbolic link out of it."""
     real, root = path.resolve(), base.resolve()
     if real == root or root not in real.parents:
-        raise MatterError("bad_path", "refusing to delete outside the store", 500)
+        raise MatterError("bad_path", "The papers could not be reached safely", 500)
     shutil.rmtree(real)
 
 
@@ -591,7 +599,7 @@ def parse_query(q: str) -> list[str]:
     one term is required; at most MAX_QUERY_TERMS. Nothing of the user's text is passed to FTS5 except these terms, each of which
     the caller escapes and double-quotes."""
     if not isinstance(q, str) or not q.strip():
-        raise MatterError("empty_query", "ask with at least one word")
+        raise MatterError("empty_query", "Ask with at least one word")
     q = unicodedata.normalize("NFC", q)
     terms: list[str] = []
     rest = q
@@ -610,9 +618,9 @@ def parse_query(q: str) -> list[str]:
             seen.add(t.casefold())
             out.append(t)
     if not out:
-        raise MatterError("no_searchable_term", "the question has no searchable term (only function words)")
+        raise MatterError("no_searchable_term", "Ask with at least one word that is not a common word such as the, of or and")
     if len(out) > MAX_QUERY_TERMS or any(len(t) > MAX_TERM_CHARS for t in out):
-        raise MatterError("query_too_long", f"use at most {MAX_QUERY_TERMS} terms of at most {MAX_TERM_CHARS} characters")
+        raise MatterError("query_too_long", f"Use at most {MAX_QUERY_TERMS} terms of at most {MAX_TERM_CHARS} characters")
     return out
 
 
@@ -657,13 +665,13 @@ def read_document(req: DocumentRequest, cfg: MatterSpansConfig) -> str:
     from pravrudhi.application.draft_check import DraftRefused, pdf_text
 
     if len(req.pdf_base64) > (cfg.max_pdf_bytes * 4) // 3 + 16:
-        raise MatterError("pdf_too_large", f"the PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
+        raise MatterError("pdf_too_large", f"The PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
     try:
         data = base64.b64decode(req.pdf_base64, validate=True)
     except (binascii.Error, ValueError) as e:
-        raise MatterError("pdf_bad_encoding", "pdf_base64 is not valid base64") from e
+        raise MatterError("pdf_bad_encoding", "The PDF is not valid base64") from e
     if len(data) > cfg.max_pdf_bytes:
-        raise MatterError("pdf_too_large", f"the PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
+        raise MatterError("pdf_too_large", f"The PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
     try:
         return pdf_text(data, max_pages=cfg.max_pdf_pages, max_seconds=30.0, max_chars=cfg.max_chars)
     except DraftRefused as e:

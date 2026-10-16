@@ -184,7 +184,7 @@ def test_the_flow_create_ingest_query_list_delete(tmp_path: Path, monkeypatch: p
     q = c.post(f"{P}/query", json={"matter_id": m, "q": "non-bailable allegation"}).json()
     assert q["found"] is True and q["spans"][0]["doc_id"] == d and q["spans"][0]["page"] == 1
     miss = c.post(f"{P}/query", json={"matter_id": m, "q": "deposit flat"}).json()
-    assert miss["found"] is False and miss["message"] == "not found in the matter papers"
+    assert miss["found"] is False and miss["message"] == "Not found in the papers you added"
     assert [x["doc_id"] for x in c.post(f"{P}/list", json={"matter_id": m}).json()["documents"]] == [d]
     assert c.post(f"{P}/delete", json={"matter_id": m, "doc_id": d}).json()["deleted"] is True
     assert c.post(f"{P}/query", json={"matter_id": m, "q": "notice"}).json()["found"] is False

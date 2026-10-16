@@ -88,7 +88,7 @@ def test_a_span_is_a_hit_only_when_every_term_is_in_it(store: MatterStore) -> No
     )
     # "deposit" and "notice" never share a span: not found, however good each word alone would score
     miss = store.query(TENANT, m, "deposit notice")
-    assert miss["found"] is False and miss["message"] == "not found in the matter papers" and miss["spans"] == []
+    assert miss["found"] is False and miss["message"] == "Not found in the papers you added" and miss["spans"] == []
 
 
 def test_not_found_says_what_was_searched_and_how(store: MatterStore) -> None:
@@ -407,18 +407,18 @@ def test_every_answer_says_how_many_pages_were_not_read_found_or_not(store: Matt
     store.add_document(TENANT, m, SCANNED, "paper A")
     miss = store.query(TENANT, m, "deposit flat")
     assert miss["found"] is False
-    assert "3 of 5 pages of 'paper A' had little or no text and may not have been searched in full" in miss["message"]
+    assert '3 of 5 pages of "paper A" had little or no text and may not have been searched in full' in miss["message"]
     assert (miss["pages_total"], miss["pages_not_read"]) == (5, 3)
     hit = store.query(TENANT, m, "statutory notice")  # the pages WITH text are searched
     assert hit["found"] is True and hit["spans"][0]["page"] == 4
-    assert "3 of 5 pages of 'paper A' had little or no text" in hit["message"]
+    assert '3 of 5 pages of "paper A" had little or no text' in hit["message"]
     assert "3 of 5 pages" in store.list_documents(TENANT, m)["pages_note"]
 
 
 def test_a_matter_with_every_page_read_says_nothing_about_unread_pages(store: MatterStore) -> None:
     m, _ = _matter(store)
     out = store.query(TENANT, m, "deposit zorblatt")
-    assert out["message"] == "not found in the matter papers" and out["pages_not_read"] == 0 and out["pages_note"] == ""
+    assert out["message"] == "Not found in the papers you added" and out["pages_not_read"] == 0 and out["pages_note"] == ""
     assert store.list_documents(TENANT, m)["documents"][0]["indexed_complete"] is True
 
 
@@ -447,10 +447,10 @@ def test_a_cut_result_list_reports_the_total_and_that_it_was_cut(tmp_path: Path)
     s.add_document(TENANT, m, "\n\n".join(f"Paragraph {i} about the lease deposit and rent." for i in range(40)), "many")
     out = s.query(TENANT, m, "lease deposit")
     assert (out["found"], out["total_matches"], len(out["spans"]), out["truncated"]) == (True, 40, 10, True)
-    assert out["message"].startswith("showing 10 of 40 spans found in the matter papers")
+    assert out["message"].startswith("Showing 10 of 40 passages found in the papers you added")
     few = s.query(TENANT, m, "Paragraph 7 lease")
     assert few["truncated"] is False and few["total_matches"] == len(few["spans"])
-    assert few["message"].startswith(f"{len(few['spans'])} span")
+    assert few["message"].startswith(f"{len(few['spans'])} passage")
 
 
 # ---- C3: disk bounds ---------------------------------------------------------------------------------------------------------
@@ -632,7 +632,7 @@ def test_a_page_with_a_few_characters_is_indexed_but_flagged_little_or_no_text(s
     assert out["pages_without_text"] == [2] and out["indexed_complete"] is False and out["n_pages"] == 3
     hit = store.query(TENANT, m, "12")
     assert hit["found"] is True  # still indexed, so still found
-    assert "1 of 3 pages of 'paper' had little or no text" in hit["message"]
+    assert '1 of 3 pages of "paper" had little or no text' in hit["message"]
 
 
 def test_a_stamp_only_scanned_page_never_reads_as_searched(store: MatterStore) -> None:
@@ -745,3 +745,104 @@ def test_the_index_is_nfc_normalised_so_the_two_spellings_of_a_nukta_letter_are_
     assert store.query(TENANT, m, f"{composed}ानून")["found"] is True
     m2, _ = _matter(store, text=f"The word {decomposed}ानून is in this paragraph of the paper.")
     assert store.query(TENANT, m2, f"{composed}ानून")["found"] is True
+
+
+# ---- A2 PR #517 wording (R1): plain words, a capital letter, no implementation words ------------------------------------------
+
+
+def _one_passage_text() -> str:
+    return "The respondent paid a deposit for a flat."
+
+
+def test_the_answers_say_passages_in_the_papers_you_added(store: MatterStore) -> None:
+    m, _ = _matter(store, text=_one_passage_text())
+    one = store.query(TENANT, m, "deposit")
+    assert one["message"] == "1 passage found in the papers you added"
+    miss = store.query(TENANT, m, "zorblatt")
+    assert miss["message"] == "Not found in the papers you added"
+    s = MatterStore(store.base.parent / "s2", MatterSpansConfig(max_results=2))
+    m2 = s.create_matter(TENANT)
+    s.add_document(TENANT, m2, "\n\n".join(f"Paragraph {i} about a deposit." for i in range(5)), "many")
+    assert s.query(TENANT, m2, "deposit")["message"] == "Showing 2 of 5 passages found in the papers you added"
+    two = MatterStore(store.base.parent / "s3", MatterSpansConfig())
+    m3 = two.create_matter(TENANT)
+    two.add_document(TENANT, m3, "A deposit here.\n\nAnother deposit there.", "two")
+    assert two.query(TENANT, m3, "deposit")["message"] == "2 passages found in the papers you added"
+
+
+def test_the_pages_note_names_the_document_in_plain_quotes_not_python_repr(store: MatterStore) -> None:
+    name = "FIR (TOY) \u0c95\u0ca8\u0ccd\u0ca8\u0ca1 \u201cx\u201d"
+    m = store.create_matter(TENANT)
+    store.add_document(TENANT, m, "Page one has the accused and a cheque for payment.\f12", name)
+    note = store.query(TENANT, m, "zorblatt")["message"]
+    assert f'1 of 2 pages of "{name}" had little or no text and may not have been searched in full' in note
+    assert "\\u" not in note and "'" not in note.split("pages of")[1].split("had little")[0]
+
+
+def _messages(store: MatterStore, tmp: Path) -> list[str]:
+    out: list[str] = []
+    m, d = _matter(store)
+    out += [store.delete_document(TENANT, m, d)["message"], store.delete_matter(TENANT, m)["message"]]
+    out.append(store.delete_tenant(TENANT)["message"])
+
+    def refuse(call: Any) -> None:
+        with pytest.raises(MatterError) as e:
+            call()
+        out.append(str(e.value))
+
+    m2 = store.create_matter(TENANT)
+    refuse(lambda: store.query(TENANT, m2, "   "))
+    refuse(lambda: store.query(TENANT, m2, "the of and"))
+    refuse(lambda: store.query(TENANT, m2, " ".join(f"w{i}" for i in range(30))))
+    refuse(lambda: store.add_document(TENANT, m2, "   ", "x"))
+    refuse(lambda: store.query(TENANT, "0" * 32, "deposit"))
+    refuse(lambda: store.delete_document(TENANT, m2, "a" * 32))
+    for cfg_kw, call in (
+        ({"max_chars": 1_000}, lambda s, mm: s.add_document(TENANT, mm, "x " * 600, "big")),
+        ({"max_docs": 1}, lambda s, mm: (s.add_document(TENANT, mm, "a b c", "1"), s.add_document(TENANT, mm, "d e f", "2"))),
+        (
+            {"max_total_chars": 1_000},
+            lambda s, mm: (s.add_document(TENANT, mm, "a " * 300, "1"), s.add_document(TENANT, mm, "b " * 300, "2")),
+        ),
+        (
+            {"max_spans_per_doc": 2},
+            lambda s, mm: s.add_document(TENANT, mm, "\n\n".join(f"Paragraph {i} here." for i in range(10)), "many"),
+        ),
+        ({"max_matters_per_tenant": 1}, lambda s, mm: s.create_matter(TENANT)),
+        (
+            {"max_tenant_bytes": 1_000_000, "min_free_bytes": 0},
+            lambda s, mm: s.add_document(TENANT, mm, "a b c d. " * 6_000, "big"),
+        ),
+        ({"min_free_bytes": 10**15}, lambda s, mm: s.create_matter(TENANT)),
+    ):
+        cfg = MatterSpansConfig(**{"min_free_bytes": 0, **cfg_kw})
+        s2 = MatterStore(tmp / f"cfg{len(out)}", cfg)
+        try:
+            mm = s2.create_matter(TENANT)
+        except MatterError as e:
+            out.append(str(e))
+            continue
+        refuse(lambda s2=s2, mm=mm, call=call: call(s2, mm))
+    return out
+
+
+def test_every_shown_message_starts_with_a_capital_and_uses_no_implementation_word(store: MatterStore, tmp_path: Path) -> None:
+    msgs = _messages(store, tmp_path)
+    assert len(msgs) >= 16 and all(m[:1].isupper() for m in msgs), [m for m in msgs if not m[:1].isupper()]
+    banned = ("span", "tenant", "matter", "function word", "searchable term")
+    assert [m for m in msgs if any(w in m.lower() for w in banned)] == []
+
+
+def test_the_exact_words_of_the_deletion_messages_and_the_plain_refusals(store: MatterStore, tmp_path: Path) -> None:
+    msgs = _messages(store, tmp_path)
+    for want in (
+        "The document was deleted from this service's store.",
+        "The papers and their stored text were deleted from this service's store.",
+        "All stored papers of your organisation were deleted from this service's store.",
+        "Ask with at least one word that is not a common word such as the, of or and",
+        "There is no room to store this document",
+        "Your stored papers have reached their limit",
+        "Your organisation may hold at most 1 sets of papers",
+        "A set of papers may hold at most 1 documents",
+    ):
+        assert want in msgs, want

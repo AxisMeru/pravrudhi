@@ -2449,7 +2449,7 @@ def build_partner_router(
             if throttled is not None:
                 return throttled
             if user is None and principal is None:
-                return JSONResponse(status_code=401, content={"detail": "matter papers are offered only to signed-in users"})
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
             tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
             caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
             ip = _client_ip(
