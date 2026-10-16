@@ -846,3 +846,30 @@ def test_the_exact_words_of_the_deletion_messages_and_the_plain_refusals(store: 
         "A set of papers may hold at most 1 documents",
     ):
         assert want in msgs, want
+
+
+def test_read_passages_returns_committed_documents_and_every_passage_and_writes_nothing(store: MatterStore) -> None:
+    m, d = _matter(store)
+    before = (store._matter_dir(TENANT, m) / M.DB_NAME).read_bytes()
+    docs, spans = store.read_passages(TENANT, m)
+    assert [x["doc_id"] for x in docs] == [d] and spans and all(s["doc_id"] == d for s in spans)
+    assert {"span_id", "doc_id", "page", "start", "end", "text"} <= set(spans[0])
+    assert PAPER[spans[0]["start"] : spans[0]["end"]] == spans[0]["text"]
+    assert (store._matter_dir(TENANT, m) / M.DB_NAME).read_bytes() == before
+
+
+def test_read_passages_is_tenant_checked_exactly_like_every_other_read(store: MatterStore) -> None:
+    m, _ = _matter(store)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(OTHER, m)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(TENANT, "0" * 32)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(TENANT, "../" * 8)
+
+
+def test_read_passages_never_returns_a_document_that_is_not_fully_indexed(store: MatterStore) -> None:
+    m, _ = _matter(store)
+    with sqlite3.connect(store._matter_dir(TENANT, m) / M.DB_NAME) as c:
+        c.execute("UPDATE document SET ingest_done = 0")
+    assert store.read_passages(TENANT, m) == ([], [])

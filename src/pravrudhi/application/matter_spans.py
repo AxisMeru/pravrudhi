@@ -314,6 +314,23 @@ class MatterStore:
             docs = _documents(conn)
         return {"matter_id": matter_id, "documents": docs, **_page_notes(docs)}
 
+    def read_passages(self, tenant: str, matter_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """READ-ONLY, for the chronology: the committed documents of a matter and every passage of them, in ONE read transaction,
+        tenant-checked exactly as every A2 read (another tenant's matter, a link or none: the same 404). A document that is not
+        fully indexed is never returned; nothing is written."""
+        with self._open(self._db_path(tenant, matter_id)) as conn:
+            conn.execute("BEGIN")
+            try:
+                docs = [d for d in _documents(conn) if d["ingest_done"]]
+                rows = conn.execute(
+                    "SELECT s.id, s.doc_id, s.page, s.start, s.end, s.text FROM span s JOIN document d ON d.doc_id = s.doc_id "
+                    "WHERE d.ingest_done = 1 ORDER BY d.rowid, s.start"
+                ).fetchall()
+            finally:
+                conn.execute("ROLLBACK")
+        spans = [{"span_id": r[0], "doc_id": r[1], "page": r[2], "start": r[3], "end": r[4], "text": r[5]} for r in rows]
+        return docs, spans
+
     # -- documents
     def add_document(self, tenant: str, matter_id: str, text: str, name: str) -> dict[str, Any]:
         if not text.strip():
