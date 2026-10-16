@@ -554,8 +554,9 @@ def _printed_ranges(units: list[Unit]) -> dict[int, list[tuple[int, int]]]:
             if i >= HEADER_LINES and n - 1 - i >= HEADER_LINES:
                 continue
             if re.search(r"[0-9]", line) and (_LIKE[0].search(line) or any(rx.search(line) for rx in _LIKE[1:4])):
-                masked = re.sub(r"\s+", " ", re.sub(r"[0-9]", "#", line.strip().lower()))
-                keys = [(masked, "top", i)] * (i < HEADER_LINES) + [(masked, "bottom", n - 1 - i)] * (n - 1 - i < HEADER_LINES)
+                # the UNMASKED text: a header or footer date repeats verbatim, an order sheet's per-page "Next date" differs
+                text = re.sub(r"\s+", " ", line.strip().lower())
+                keys = [(text, "top", i)] * (i < HEADER_LINES) + [(text, "bottom", n - 1 - i)] * (n - 1 - i < HEADER_LINES)
                 for k in keys:
                     pages_of[k].add(page)
                 cands.append((ui, s, e, keys))
