@@ -1006,11 +1006,21 @@ def _typed_acronym(piece: str, words: frozenset[str]) -> str | None:
     return word if any(t.lower() == word for t in raw) else None
 
 
-def _initials_prefixes(part: str) -> frozenset[str]:
-    """Every run of initials of the leading words of a title party, skipping of/and/the: "Oil And Natural Gas Corporation Ltd" gives
-    o, on, ong, ongc, ongcl; "Life Insurance Corporation Of India" gives l, li, lic, lici."""
-    letters = [w[0] for w in re.sub(r"[^a-z0-9& ]+", " ", part.lower()).split() if w not in _ACRONYM_SKIP]
-    return frozenset("".join(letters[:n]) for n in range(1, len(letters) + 1))
+_ACRONYM_TRAILING = frozenset({"ors", "anr", "etc", "others", "another", "co", "company", "ltd", "limited", "pvt", "private", "india"})
+
+
+def _initials_full(part: str) -> frozenset[str]:
+    """The FULL initials of a title party, skipping of/and/the: with every word ("Bharat Sanchar Nigam Ltd" gives bsnl) and without the
+    trailing generic words (Ors, Anr, Etc, Others, Co, Ltd, Limited, Pvt, Private, India: "Oil And Natural Gas Corporation Ltd" also gives
+    ongc, "Life Insurance Corporation Of India" also gives lic). A PREFIX of the initials is not among them: BSE is not "Bihar School
+    Examination Board" (bseb)."""
+    words = [w for w in re.sub(r"[^a-z0-9& ]+", " ", part.lower()).split() if w not in _ACRONYM_SKIP]
+    out = {"".join(w[0] for w in words)} if words else set()
+    while words and words[-1] in _ACRONYM_TRAILING:
+        words = words[:-1]
+        if words:
+            out.add("".join(w[0] for w in words))
+    return frozenset(out)
 
 
 def _generic_text(text: str) -> str:
@@ -1066,7 +1076,7 @@ def _name_state_for_title(
         for piece in (p for p in pieces if p.strip()):
             acro = acro_by_piece.get(piece)
             sig = _typed_sig(piece)
-            hit = next((i for i, part in enumerate(remaining) if (acro is not None and acro in _initials_prefixes(part)) or _title_sig(part) == sig), None)
+            hit = next((i for i, part in enumerate(remaining) if (acro is not None and acro in _initials_full(part)) or _title_sig(part) == sig), None)
             if hit is None:
                 equal = False
                 break

@@ -268,10 +268,28 @@ def test_an_acronym_that_is_the_initials_of_the_case_party_is_strong(tmp_path: P
     assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
 
 
-def test_an_acronym_prefix_of_the_initials_counts_like_lic_for_life_insurance_corporation_of_india(tmp_path: Path) -> None:
-    conn = _db(tmp_path, "acro_prefix", [("Aldric Vennoway Insurance Corporation of Zorbland", "Consumer Education Centre")], "Aldric Vennoway Insurance Corporation Of Zorbland vs Consumer Education Centre")
-    assert exists_in_index_detail(conn, f"AVIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
-    assert exists_in_index_detail(conn, f"AVIC of India v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
+def test_only_the_full_initials_of_a_party_are_strong_a_prefix_is_not(tmp_path: Path) -> None:
+    """#511: a 3-letter acronym that is only the FIRST initials of a longer party (BSE for Bihar School Examination Board) is not strong."""
+    conn = _db(tmp_path, "acro_full", [("Zorbland School Examination Board", "Consumer Education Centre")], "Zorbland School Examination Board vs Consumer Education Centre")
+    assert exists_in_index_detail(conn, f"ZSEB v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)  # the full initials
+    assert exists_in_index_detail(conn, f"ZSE v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)  # a prefix
+    assert exists_in_index_detail(conn, f"ZS v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)
+
+
+def test_the_full_initials_ignore_trailing_generic_words(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_trailing", [("Ashok Kumar Yadav and Ors. Etc.", "State of Zorbland")], "Ashok Kumar Yadav And Ors Etc Etc vs State Of Zorbland")
+    assert exists_in_index_detail(conn, f"AKY v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)  # a, k, y: the full initials without Ors Etc
+    assert exists_in_index_detail(conn, f"AK v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)
+    conn2 = _db(tmp_path, "acro_corp", [("Life Insurance Corporation of Zorbland", "Consumer Education Centre")], "Life Insurance Corporation Of Zorbland vs Consumer Education Centre")
+    assert exists_in_index_detail(conn2, f"LICZ v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn2, f"LIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)  # a prefix of lic z
+
+
+def test_an_acronym_with_a_trailing_india_is_the_party_without_it(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_india", [("Life Insurance Corporation of India", "Consumer Education Centre")], "Life Insurance Corporation Of India vs Consumer Education Centre")
+    assert exists_in_index_detail(conn, f"LIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)  # lic = the party without "of India"
+    assert exists_in_index_detail(conn, f"LICI v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"LI v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)
 
 
 def test_a_wrong_acronym_is_not_a_mismatch_by_itself_and_not_a_comparison(tmp_path: Path) -> None:
