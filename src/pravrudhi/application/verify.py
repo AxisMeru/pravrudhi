@@ -905,8 +905,9 @@ _COMMON_NAME_WORDS = frozenset(
 
 
 def _slip(a: str, b: str) -> bool:
-    """A one-letter spelling slip in a word of six or more letters (the same first letter), or the shared rules of `_same_word`."""
-    return _same_word(a, b) or (min(len(a), len(b)) >= 6 and _one_slip(a, b))
+    """A spelling variant that may avoid a MISMATCH but is never a match: a one-letter slip in a word of six or more letters (the same
+    first letter), a doubled-vowel variant (Kumaar/Kumar, Laalit/Lalit), or the shared rules of `_same_word`."""
+    return _same_word(a, b) or (min(len(a), len(b)) >= 6 and _one_slip(a, b)) or (a != b and _collapse_vowels(a) == _collapse_vowels(b))
 
 
 def _side_agrees(side: frozenset[str], title_words: frozenset[str], initials: frozenset[str] = frozenset()) -> bool:
@@ -955,8 +956,12 @@ def _initialisms(side: str) -> frozenset[str]:
 
 
 def _fold_word(w: str) -> str:
-    """One word folded for the typed-name comparison: Mohammad spellings, printed abbreviations, and doubled vowels (Kumaar, Laalit)."""
-    w = _TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w))
+    """One word folded for the typed-name comparison: Mohammad spellings and printed abbreviations (the approved folds: a word equal after
+    them is the same word). Doubled-vowel spellings (Kumaar, Laalit) are NOT folded here: they only avoid a mismatch (see `_slip`)."""
+    return _TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w))
+
+
+def _collapse_vowels(w: str) -> str:
     return re.sub(r"([aeiou])\1+", r"\1", w)
 
 
@@ -988,6 +993,26 @@ def _typed_letters(text: str) -> list[str]:
 NAME_STRONG, NAME_MIDDLE, NAME_MISMATCH_STATE = "strong", "middle", "mismatch"
 
 
+_ACRONYM_SKIP = frozenset({"of", "and", "the", "&"})
+
+
+def _typed_acronym(piece: str, words: frozenset[str]) -> str | None:
+    """The letters of a typed party written as an ACRONYM: a single distinctive word that is printed in capitals, 2 to 6 letters, with no
+    full stops ("ONGC", "LIC of India", "DTC"). None otherwise."""
+    if len(words) != 1:
+        return None
+    (word,) = words
+    raw = [t for t in re.findall(r"(?<![A-Za-z.])[A-Z]{2,6}(?![A-Za-z.])", _TYPED_SIGNAL_WORDS.sub("", " ".join(piece.split())))]
+    return word if any(t.lower() == word for t in raw) else None
+
+
+def _initials_prefixes(part: str) -> frozenset[str]:
+    """Every run of initials of the leading words of a title party, skipping of/and/the: "Oil And Natural Gas Corporation Ltd" gives
+    o, on, ong, ongc, ongcl; "Life Insurance Corporation Of India" gives l, li, lic, lici."""
+    letters = [w[0] for w in re.sub(r"[^a-z0-9& ]+", " ", part.lower()).split() if w not in _ACRONYM_SKIP]
+    return frozenset("".join(letters[:n]) for n in range(1, len(letters) + 1))
+
+
 def _generic_text(text: str) -> str:
     """A party made only of common words ("Union of India", "The State"), as one comparable string: UOI is Union of India."""
     t = normalize_party_name(_TYPED_SIGNAL_WORDS.sub("", " ".join(_unglue_dots(text).split())))
@@ -1010,12 +1035,19 @@ def _title_sig(text: str) -> tuple[str, frozenset[str] | str]:
 
 
 def _name_state_for_title(
-    sides: list[frozenset[str]], initials: list[frozenset[str]], typed_letters: list[str], pieces: list[str], title: str
+    sides: list[frozenset[str]],
+    initials: list[frozenset[str]],
+    typed_letters: list[str],
+    pieces: list[str],
+    title: str,
+    acronyms: list[str | None],
 ) -> str:
     tw = _title_words(title)
     evidence = [side - ini for side, ini in zip(sides, initials, strict=True)]
     clear = False
-    for side, ev in zip(sides, evidence, strict=True):
+    for side, ev, acro in zip(sides, evidence, acronyms, strict=True):
+        if acro is not None:
+            continue  # an acronym ("ONGC") is never a disagreement by itself: it is read against the title's initials below
         if ev and not _side_agrees(side, tw, frozenset(side - ev)):
             clear = True  # a typed party with evidence words clearly disagrees with the title
     typed_all = frozenset().union(*sides)
@@ -1028,14 +1060,17 @@ def _name_state_for_title(
     title_parts = [part for part in _split_parties(title) if part.strip()]
     pool = [_title_sig(part) for part in title_parts]
     equal = len(pool) >= 2 and len(pool) == len([p for p in pieces if p.strip()])
+    acro_by_piece = {piece: acro for piece, acro in zip((p for p in pieces if p.strip() and _typed_words(p)), acronyms, strict=False)}
     if equal:
+        remaining = list(title_parts)
         for piece in (p for p in pieces if p.strip()):
+            acro = acro_by_piece.get(piece)
             sig = _typed_sig(piece)
-            if sig in pool:
-                pool.remove(sig)
-            else:
+            hit = next((i for i, part in enumerate(remaining) if (acro is not None and acro in _initials_prefixes(part)) or _title_sig(part) == sig), None)
+            if hit is None:
                 equal = False
                 break
+            remaining.pop(hit)
     title_letters = [c for part in title_parts for c in _typed_letters(part)]
     letters_ok = not title_letters or not typed_letters or all(typed_letters.count(c) <= title_letters.count(c) for c in set(typed_letters))
     return NAME_STRONG if equal and letters_ok else NAME_MIDDLE
@@ -1054,7 +1089,8 @@ def _name_state(conn: sqlite3.Connection, key: str, titles: list[str], claimed_n
     side_words = [w for w, _ in keep]
     side_inits = [i for _, i in keep]
     typed_letters = [c for piece in pieces for c in _typed_letters(piece)]
-    states = [_name_state_for_title(side_words, side_inits, typed_letters, pieces, title) for title in titles]
+    acronyms = [_typed_acronym(piece, w) for piece, (w, _) in zip((p for p in pieces if _typed_words(p)), keep, strict=True)]
+    states = [_name_state_for_title(side_words, side_inits, typed_letters, pieces, title, acronyms) for title in titles]
     for want in (NAME_STRONG, NAME_MIDDLE):
         if want in states:
             return want

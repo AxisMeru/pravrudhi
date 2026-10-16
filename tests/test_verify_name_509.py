@@ -134,9 +134,9 @@ def test_an_initial_v_is_not_taken_for_the_separator(tmp_path: Path) -> None:
     assert exists_in_index_detail(conn, f"K V Brenwick v. L H V Prasad, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
 
 
-def test_doubled_vowel_spellings_of_one_name_agree(tmp_path: Path) -> None:
+def test_doubled_vowel_spellings_are_found_but_never_claimed_as_compared(tmp_path: Path) -> None:
     conn = _db(tmp_path, "vowels", [("Lalit Zorbland", "Om Kumar")], "Lalit Zorbland vs Om Kumar")
-    assert exists_in_index_detail(conn, f"Laalit Zorbland v. Om Kumaar, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"Laalit Zorbland v. Om Kumaar, {KEY}") == (VerifyResult.IN_INDEX, False)
     assert exists_in_index_detail(conn, f"Lalit Zorbland v. Om Kumari, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
 
 
@@ -251,3 +251,64 @@ def test_a_party_made_only_of_initials_is_never_agreement(tmp_path: Path) -> Non
     assert exists_in_index_detail(conn, f"A B C v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, False)
     assert exists_in_index_detail(conn, f"P P Zorbrao v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, False)  # other initials
     assert exists_in_index_detail(conn, f"K V Zorbrao v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, True)
+
+
+# ---- acronyms: a party typed as ONGC / LIC / DTC is never a disagreement by itself --------------------------------------------------
+
+ZONGC = [("Zorbland Oil and Natural Gas Corporation Ltd.", "Quillfeather Pipes Ltd.")]
+ZONGC_TITLE = "Zorbland Oil And Natural Gas Corporation Ltd vs Quillfeather Pipes Ltd"
+
+
+@pytest.mark.parametrize(
+    "typed",
+    ["ZONGC v. Quillfeather Pipes", "ZONGC v. Quillfeather Pipes Ltd.", "Quillfeather Pipes v. ZONGC", "ZONGC Ltd v. Quillfeather Pipes"],
+)
+def test_an_acronym_that_is_the_initials_of_the_case_party_is_strong(tmp_path: Path, typed: str) -> None:
+    conn = _db(tmp_path, "acro_ok", ZONGC, ZONGC_TITLE)
+    assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
+
+
+def test_an_acronym_prefix_of_the_initials_counts_like_lic_for_life_insurance_corporation_of_india(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_prefix", [("Aldric Vennoway Insurance Corporation of Zorbland", "Consumer Education Centre")], "Aldric Vennoway Insurance Corporation Of Zorbland vs Consumer Education Centre")
+    assert exists_in_index_detail(conn, f"AVIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
+    assert exists_in_index_detail(conn, f"AVIC of India v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
+
+
+def test_a_wrong_acronym_is_not_a_mismatch_by_itself_and_not_a_comparison(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_wrong", ZONGC, ZONGC_TITLE)
+    assert exists_in_index_detail(conn, f"XYZW v. Quillfeather Pipes, {KEY}") == (VerifyResult.IN_INDEX, False)
+    assert exists_in_index_detail(conn, f"ZONGC v. Other Pipes, {KEY}") == (VerifyResult.IN_INDEX, False)  # shares a word: the half-match state
+
+
+def test_an_acronym_beside_a_clearly_different_other_party_is_a_mismatch(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_other", ZONGC, ZONGC_TITLE)
+    assert exists_in_index_detail(conn, f"ZONGC v. Brenwick Taplow, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+
+
+@pytest.mark.parametrize("typed", ["Z.O.N.G.C. v. Quillfeather Pipes", "Z. O. N. G. C. v. Quillfeather Pipes Ltd."])
+def test_a_dotted_acronym_is_never_a_mismatch(tmp_path: Path, typed: str) -> None:
+    conn = _db(tmp_path, "acro_dots", ZONGC, ZONGC_TITLE)
+    answer = exists_in_index_detail(conn, f"{typed}, {KEY}")
+    assert answer.result == VerifyResult.IN_INDEX, typed
+
+
+def test_a_dotted_acronym_beside_a_wrong_other_party_is_still_a_mismatch(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_dots_wrong", ZONGC, ZONGC_TITLE)
+    for typed in ("Z.O.N.G.C. v. Brenwick Taplow", "Z. O. N. G. C. v. Brenwick Taplow Ltd."):
+        assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.NAME_MISMATCH, True), typed
+
+
+def test_an_acronym_that_is_not_the_initials_of_a_leading_run_is_never_compared(tmp_path: Path) -> None:
+    conn = _db(tmp_path, "acro_not_initials", ZONGC, ZONGC_TITLE)
+    for typed in ("LIC v. Quillfeather Pipes", "NGC v. Quillfeather Pipes", "GCL v. Quillfeather Pipes", "XYZW v. Quillfeather Pipes"):
+        answer = exists_in_index_detail(conn, f"{typed}, {KEY}")
+        assert answer == (VerifyResult.IN_INDEX, False), typed  # found; not claimed as compared (NGC/GCL are not LEADING runs)
+    other = exists_in_index_detail(conn, f"LIC v. Brenwick Taplow, {KEY}")
+    assert other.result == VerifyResult.NAME_MISMATCH  # the other party decides
+
+
+@pytest.mark.parametrize("title_word,typed_word", [("Hooda", "Hoda"), ("Dena", "Deena"), ("Deep", "Dep"), ("Hoda", "Hooda"), ("Deena", "Dena")])
+def test_different_words_that_differ_in_a_doubled_vowel_are_never_strong(tmp_path: Path, title_word: str, typed_word: str) -> None:
+    conn = _db(tmp_path, f"vow_{title_word}_{typed_word}", [(f"Quillbert {title_word}", "State of Zorbland")], f"Quillbert {title_word} vs State Of Zorbland")
+    assert exists_in_index_detail(conn, f"Quillbert {title_word} v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)  # the right word is strong
+    assert exists_in_index_detail(conn, f"Quillbert {typed_word} v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)  # the other word is not
