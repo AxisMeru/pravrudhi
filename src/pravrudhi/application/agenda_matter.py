@@ -35,7 +35,9 @@ def open_route_lists() -> None:
     roles.USER_FACING = roles.USER_FACING | {ROUTE}
 
 
-def agenda_for_matter(store: MatterStore, tenant: str, req: AgendaRequest, run_id: str) -> dict[str, Any]:
+def agenda_for_matter(
+    store: MatterStore, tenant: str, req: AgendaRequest, run_id: str, ownership: bool = False
+) -> dict[str, Any]:
     if req.offence != G.OFFENCE_ID:
         raise MatterError("no_agenda", G.REFUSAL, 422)
     listing = store.list_documents(tenant, req.matter_id)  # tenant-checked: another tenant's matter reads as not found
@@ -44,7 +46,8 @@ def agenda_for_matter(store: MatterStore, tenant: str, req: AgendaRequest, run_i
         raise MatterError("no_papers", G.NO_PAPERS, 409)
     records = [G.Doc(d["doc_id"], d["name"], int(d["n_pages"]), tuple(int(p) for p in d["pages_without_text"])) for d in docs]
     try:
-        return {"run_id": run_id, "matter_id": req.matter_id, **G.build_agenda(records, dict(req.paper_types), req.offence)}
+        page = G.build_agenda(records, dict(req.paper_types), req.offence, ownership)
+        return {"run_id": run_id, "matter_id": req.matter_id, **page}
     except G.AssetChanged as e:
         raise MatterError("agenda_asset_changed", "The agenda is not available.", 500) from e
     except ValueError as e:

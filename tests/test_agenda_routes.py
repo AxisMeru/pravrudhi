@@ -16,7 +16,9 @@ from pravrudhi.api import identity, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.api.server import create_app
 from pravrudhi.application import agenda_config as ac
+from pravrudhi.application import chronology_config as cc
 from pravrudhi.application import matter_spans_config as msc
+from pravrudhi.application import s138_checklist_config as bc
 from pravrudhi.application.agenda_config import AgendaConfig
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
 from tests.test_api_partner import _agent, _proof_script
@@ -197,3 +199,19 @@ def test_a_half_ingested_document_is_never_listed(tmp_path: Path, monkeypatch: p
     with sqlite3.connect(db) as conn:
         conn.execute("UPDATE document SET ingest_done = 0")
     assert c.post(PATH, json={"matter_id": m}).status_code == 409  # nothing committed: no papers
+
+
+@pytest.mark.parametrize(("a3", "b3", "named"), [(True, True, True), (True, False, False), (False, True, False), (False, False, False)])
+def test_the_ownership_line_appears_only_when_the_chronology_and_the_cheque_checklist_are_both_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, a3: bool, b3: bool, named: bool
+) -> None:
+    from pravrudhi.application.chronology_config import ChronologyConfig
+    from pravrudhi.application.s138_checklist_config import S138ChecklistConfig
+
+    _on(monkeypatch)
+    monkeypatch.setattr(cc, "load_chronology_config", lambda _root: ChronologyConfig() if a3 else None)
+    monkeypatch.setattr(bc, "load_s138_checklist_config", lambda _root: S138ChecklistConfig() if b3 else None)
+    c = _client(tmp_path)
+    m, _ = _matter(c, "cheque.pdf")
+    line = c.post(PATH, json={"matter_id": m}).json()["ownership_line"]
+    assert (line is not None) is named

@@ -102,6 +102,10 @@ def test_the_standing_source_status_and_not_assessed_lines_are_exact() -> None:
         "How a court will read the facts.",
         "Anything not in the papers you added.",
     ]
+    assert p["quotes_line"] == (
+        "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+    )
+    assert "where_to_look" not in p["headings"] and "Where to look" not in json.dumps(p)
     assert p["statute_names"]["heading"] == "Papers the statute names for this offence"
     assert p["not_added"]["heading"] == "Papers not added yet that may matter"
     assert p["papers_read"]["heading"] == "Papers read (1)"
@@ -146,7 +150,7 @@ def test_no_barred_word_is_in_any_emitted_string_or_asset_string_outside_the_sta
         assert [s for s in strings(page) if G.barred_in(s)] == []
     asset = G.load_asset()
     assert [s for s in strings({k: v for k, v in asset.items() if k not in ("ingredients",)}) if G.barred_in(s)] == []
-    for name in ("STANDING_LINE", "SOURCE_LINE", "DATA_STATEMENT", "OWNERSHIP_LINE", "NONE_OUTSTANDING", "REFUSAL", "NO_PAPERS", "BAD_TYPE"):
+    for name in ("STANDING_LINE", "SOURCE_LINE", "DATA_STATEMENT", "OWNERSHIP_LINE", "QUOTES_LINE", "NONE_OUTSTANDING", "REFUSAL", "NO_PAPERS", "BAD_TYPE"):
         assert G.barred_in(getattr(G, name)) == [], name
 
 
@@ -266,3 +270,21 @@ def test_once_confirmed_the_lawyer_tier_rows_that_are_outstanding_are_listed_too
     p = build_agenda([a], {a.doc_id: "cheque"})
     ids = [r["id"] for r in p["not_added"]["rows"]]
     assert "notice_proof" in ids and "debt_paper" in ids and "bank_statement" in ids
+
+
+def test_each_row_is_tagged_by_its_basis_not_with_a_blanket_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    p = build_agenda([doc(1, "a.pdf")])
+    assert {r["tag"] for r in p["statute_names"]["rows"]} == {"Named in the section"}
+    assert "From our list of papers" not in json.dumps(p)
+    asset = copy.deepcopy(G.load_asset())
+    asset["lawyer_confirmed"] = True
+    monkeypatch.setattr(G, "load_asset", lambda: asset)
+    q = build_agenda([doc(1, "a.pdf")])
+    assert {r["tag"] for r in q["lawyer_listed"]["rows"]} == {"From a lawyer's list"}
+    assert {r["tag"] for r in q["statute_names"]["rows"]} == {"Named in the section"}
+
+
+def test_the_ownership_line_is_emitted_only_when_asked_for_and_names_both_pages() -> None:
+    assert build_agenda([doc(1, "a.pdf")])["ownership_line"] is None
+    on = build_agenda([doc(1, "a.pdf")], ownership=True)["ownership_line"]
+    assert on == G.OWNERSHIP_LINE and "chronology page" in on and "cheque checklist" in on

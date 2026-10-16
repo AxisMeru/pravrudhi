@@ -2751,6 +2751,13 @@ def build_partner_router(
         _logger.warning("review agenda unavailable; it stays off", exc_info=True)
         _a5_cfg = None
     if _a5_cfg is not None:
+        try:  # the page names the chronology and the cheque checklist only when BOTH are on in this deployment
+            from pravrudhi.application.chronology_config import load_chronology_config as _a5_c
+            from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _a5_b
+
+            _a5_owners = _a5_c(engine_root) is not None and _a5_b(engine_root) is not None
+        except Exception:  # noqa: BLE001 - the line is optional; without it the page just does not name them
+            _a5_owners = False
         _a5_state: dict[str, Any] = {}
         _a5_lock = threading.Lock()
 
@@ -2819,7 +2826,7 @@ def build_partner_router(
                     return JSONResponse(status_code=409, content={"detail": _a5.STORE_OFF, "error": "store_off"})
                 from pravrudhi.application.matter_spans import MatterStore as _Store
 
-                out = _a5.agenda_for_matter(_Store(_a5m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"])
+                out = _a5.agenda_for_matter(_Store(_a5m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], _a5_owners)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):

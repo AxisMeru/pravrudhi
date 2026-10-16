@@ -47,9 +47,11 @@ HEADINGS = {
     "statute_names": "Papers the statute names for this offence",
     "lawyer_listed": "Papers a lawyer has listed for this offence",
     "not_added": "Papers not added yet that may matter",
-    "where_to_look": "Where to look:",
 }
-WHERE_TAG = "From our list of papers for this offence"
+TAGS = {"statute_text": "Named in the section", "lawyer_practice": "From a lawyer's list"}  # the source of each row, by its basis
+QUOTES_LINE = (
+    "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+)
 ADDED, NOT_ADDED = "Added", "Not added yet"
 BASIS_DECLARED = "Paper type declared by you"
 BASIS_FILE_NAME = "Paper type taken from the file name"
@@ -136,8 +138,11 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-def build_agenda(docs: list[Doc], declared: dict[str, str] | None = None, offence: str = OFFENCE_ID) -> dict[str, Any]:
-    """The page. `declared` maps doc_id -> paper type id (the user's word); any doc without one gets the file-name fallback."""
+def build_agenda(
+    docs: list[Doc], declared: dict[str, str] | None = None, offence: str = OFFENCE_ID, ownership: bool = False
+) -> dict[str, Any]:
+    """The page. `declared` maps doc_id -> paper type id (the user's word); any doc without one gets the file-name fallback.
+    `ownership`: the line naming the chronology page and the cheque checklist is emitted only when both are ON in this deployment."""
     asset = load_asset()
     if offence != OFFENCE_ID:
         raise ValueError(REFUSAL)
@@ -181,7 +186,7 @@ def build_agenda(docs: list[Doc], declared: dict[str, str] | None = None, offenc
             "basis": entry["basis"],
             "section": entry.get("section"),
             "statute_words": entry.get("quote"),
-            "tag": WHERE_TAG,
+            "tag": TAGS[entry["basis"]],
         }
         if ptype is None:
             out["status"] = None
@@ -200,7 +205,8 @@ def build_agenda(docs: list[Doc], declared: dict[str, str] | None = None, offenc
         "statement": DATA_STATEMENT,
         "standing_line": STANDING_LINE,
         "source_line": SOURCE_LINE,
-        "ownership_line": OWNERSHIP_LINE,
+        "ownership_line": OWNERSHIP_LINE if ownership else None,
+        "quotes_line": QUOTES_LINE,
         "offence": dict(asset["offence"]),
         "headings": {k: v for k, v in HEADINGS.items() if confirmed or k != "lawyer_listed"},  # a hidden tier leaves no trace
         "ingredients": [
