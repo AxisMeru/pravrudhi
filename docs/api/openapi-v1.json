@@ -1381,6 +1381,18 @@
             "title": "Label",
             "type": "string"
           },
+          "name_compared": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True only when a case name typed in front of the citation was compared with the index (an IN_INDEX that matched the name, or NAME_MISMATCH); the field is absent from every other reply.",
+            "title": "Name Compared"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -1390,6 +1402,7 @@
             "type": "boolean"
           },
           "result": {
+            "description": "VERIFIED, EXISTS_QUOTE_NOT_FOUND, IN_INDEX (no quote sent), NOT_IN_INDEX, CONFLICT, MALFORMED or NAME_MISMATCH (#509: the citation resolves to one indexed case but the case name sent with it does not match that case). Handle a value you do not know.",
             "title": "Result",
             "type": "string"
           },

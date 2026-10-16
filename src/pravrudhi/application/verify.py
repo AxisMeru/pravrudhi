@@ -24,7 +24,7 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pravrudhi.application.citations import Citation, parse_citations, supp_key
 
@@ -278,6 +278,9 @@ class VerifyResult(StrEnum):
     #: Existence only (#832 E1): the citation resolves to an indexed case and NO quote was checked.
     #: Returned only by `exists_in_index`, never by `verify`.
     IN_INDEX = "IN_INDEX"
+    #: #509 (existence only): the citation resolves to ONE indexed case, the caller typed a case name in front of it, and that name does
+    #: not match the case. Returned only by `exists_in_index`, never by `verify`.
+    NAME_MISMATCH = "NAME_MISMATCH"
 
 
 def _citation_key(c: Citation) -> str | None:
@@ -840,7 +843,7 @@ def _collapse_alias_conflict(
     return ResolvedAlias(None, list(cases.values())) if len(cases) == 1 else None
 
 
-def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
+def _supp_answer(conn: sqlite3.Connection, key: str) -> tuple[VerifyResult, list[str]]:
     """An SCC supplementary-volume citation resolves ONLY to the record(s) whose own header prints it (the
     `case_citations` table of an own-supp index): no party matching, no year window, never a same-party neighbour. No
     such table, or no row for the key, is NOT_IN_INDEX (the form is read but not held). One indexed case, or several
@@ -851,13 +854,13 @@ def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
     except sqlite3.OperationalError as e:
         if "no such table" not in str(e).lower():
             raise
-        return VerifyResult.NOT_IN_INDEX
+        return VerifyResult.NOT_IN_INDEX, []
     if not ids:
-        return VerifyResult.NOT_IN_INDEX
+        return VerifyResult.NOT_IN_INDEX, []
     marks = ",".join("?" * len(ids))
     titles = {r[0]: r[1] for r in conn.execute(f"SELECT case_id, title FROM cases WHERE case_id IN ({marks})", ids)}
     if not titles:
-        return VerifyResult.NOT_IN_INDEX  # a citation row whose case is not in this index
+        return VerifyResult.NOT_IN_INDEX, []  # a citation row whose case is not in this index
     # One judgment indexed under several records prints variant titles ("&" and "And", "Admn" for "Administration", a
     # truncated title, a respelt party): the records are ONE judgment when their titles are connected by a shared
     # distinctive word. Titles that share no word are different judgments printing one key (a volume-less supplementary
@@ -867,27 +870,284 @@ def _exists_supp(conn: sqlite3.Connection, key: str) -> VerifyResult:
         linked = [g for g in groups if g & words]
         merged = set(words).union(*linked) if linked else set(words)
         groups = [g for g in groups if g not in linked] + [merged]
-    return VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT
+    return (VerifyResult.IN_INDEX if len(groups) == 1 else VerifyResult.CONFLICT), list(titles.values())
+
+
+class ExistenceAnswer(NamedTuple):
+    """What `exists_in_index_detail` answers: the result, and whether a typed case name was COMPARED with the index to reach it (true only for
+    an IN_INDEX that matched the name and for NAME_MISMATCH; false for every other answer, including a bare citation)."""
+
+    result: VerifyResult
+    name_compared: bool = False
+
+
+#: #509: words in front of a typed case name that are not part of it ("Per Maneka Gandhi v. ...", "As held in ...", "Vide ...").
+_TYPED_SIGNAL_WORDS = re.compile(
+    r"^(?:(?:as\s+)?(?:per|vide|cf\.?|see|also|held\s+in|observed\s+in|noted\s+in|decided\s+in|in|the\s+case\s+of|case\s+of|following|"
+    r"relying\s+on|reported\s+in|ref\.?)\b[\s,:;-]*)+",
+    re.IGNORECASE,
+)
+#: Words that are a title or an honorific, not the name ("His Holiness ...", "Late ...", "Hon'ble Justice ..."), and the initialisms of a
+#: party that is itself only common words (UOI is Union of India): ignored when a typed name is compared.
+_TYPED_NOISE_WORDS = frozenset({"his", "her", "holiness", "late", "hon", "ble", "honble", "justice", "prof", "professor", "mrs", "miss", "uoi"})
+#: Spellings of one given name that print differently on a title and in a citation.
+_TYPED_NAME_FOLDS = {m: "mohammad" for m in ("mohd", "mohammed", "mohammad", "muhammad", "mohamed", "mohamad", "muhamed")}
+
+
+#: Surnames and given names so common that sharing one tells nothing ("Singh" is in thousands of titles): a typed name never agrees with a
+#: title on these alone. A side made only of such words must match all of them.
+_COMMON_NAME_WORDS = frozenset(
+    {
+        "singh", "kumar", "kumari", "devi", "sharma", "verma", "lal", "ram", "das", "prasad", "khan", "begum", "bai", "rao",
+        "reddy", "gupta", "jain", "shah", "patel", "ali", "mohammad", "chand", "nath", "raj", "lall",
+    }
+)
+
+
+def _slip(a: str, b: str) -> bool:
+    """A spelling variant that may avoid a MISMATCH but is never a match: a one-letter slip in a word of six or more letters (the same
+    first letter), a doubled-vowel variant (Kumaar/Kumar, Laalit/Lalit), or the shared rules of `_same_word`."""
+    return _same_word(a, b) or (min(len(a), len(b)) >= 6 and _one_slip(a, b)) or (a != b and _collapse_vowels(a) == _collapse_vowels(b))
+
+
+def _side_agrees(side: frozenset[str], title_words: frozenset[str], initials: frozenset[str] = frozenset()) -> bool:
+    """One typed party against a title: at least half of its words are in the title, and (when it has a word that is not a very common
+    name) at least one such word; a side made only of very common name words needs all of them."""
+    matched = {w for w in side if any(_slip(w, other) for other in title_words)}
+    if len(matched) * 2 < len(side):
+        return False
+    evidence = side - initials  # a run of initials (L H V) matching is not evidence by itself
+    if not evidence:
+        return False  # a party made only of initials is never agreement
+    rare = evidence - _COMMON_NAME_WORDS
+    return bool(matched & rare) if rare else matched >= evidence
+
+
+def _split_parties(name: str) -> list[str]:
+    """The two parties of a typed case name. An initial V ("G V Rao v. L H V Prasad", "G. V. Rao v. L. H. V. Prasad") looks like the
+    separator, so the candidates are tried in tiers: a lower-case "v", "v.", "vs", "vs." or "versus"; then any candidate that ends with
+    a full stop; then any. Within a tier the candidate nearest the middle of the name wins. One piece when there is no separator."""
+    found = list(_PARTY_SEPARATOR.finditer(name))
+    if not found:
+        return [name]
+    token = lambda m: m.group(0).strip()  # noqa: E731
+    tiers = (
+        [m for m in found if token(m) in ("v", "v.", "vs", "vs.", "versus")],
+        [m for m in found if token(m).endswith(".")],
+        found,
+    )
+    pool = next(t for t in tiers if t)
+    mid = len(name) / 2
+    m = min(pool, key=lambda x: abs((x.start() + x.end()) / 2 - mid))
+    return [name[: m.start()], name[m.end() :]]
+
+
+def _unglue_dots(side: str) -> str:
+    """"G.V.Rao" is G V Rao: a full stop followed by a letter starts a new word (so the initials do not fuse with the name)."""
+    return re.sub(r"\.(?=[A-Za-z])", ". ", side)
+
+
+def _initialisms(side: str) -> frozenset[str]:
+    """The merged runs of three or more single-letter initials in one typed party ("L H V" and "L.H.V." both give "lhv"): they are
+    kept as words, but a run of initials alone is never evidence that two names are the same."""
+    return frozenset(
+        re.sub(r"[^a-z]", "", run.lower()) for run in re.findall(r"(?<![A-Za-z])(?:[A-Za-z](?![A-Za-z])\.?\s*){3,}", _unglue_dots(side)) if run.strip()
+    )
+
+
+def _fold_word(w: str) -> str:
+    """One word folded for the typed-name comparison: Mohammad spellings and printed abbreviations (the approved folds: a word equal after
+    them is the same word). Doubled-vowel spellings (Kumaar, Laalit) are NOT folded here: they only avoid a mismatch (see `_slip`)."""
+    return _TYPED_NAME_FOLDS.get(w, _ABBREVIATIONS.get(w, w))
+
+
+def _collapse_vowels(w: str) -> str:
+    return re.sub(r"([aeiou])\1+", r"\1", w)
+
+
+def _typed_words(side: str) -> frozenset[str]:
+    """The distinctive words of ONE side of a typed case name, for the comparison only: leading signal words and honorifics dropped,
+    the initialism UOI dropped, Mohd/Mohammed/Muhammad folded to one word, printed abbreviations folded ("Corp" to "Corporation")."""
+    side = _TYPED_SIGNAL_WORDS.sub("", " ".join(_unglue_dots(side).split()))
+    words = _distinctive_tokens(side) - _TYPED_NOISE_WORDS
+    return frozenset(_fold_word(w) for w in words)
+
+
+def _title_words(title: str) -> frozenset[str]:
+    return frozenset(_fold_word(w) for w in _distinctive_tokens(title))
+
+
+def _word_in(word: str, words: frozenset[str]) -> bool:
+    return any(_slip(word, other) for other in words)
+
+
+def _typed_letters(text: str) -> list[str]:
+    """The single-letter initials of a typed name or a title, lower-case ("G. V. Rao" gives g, v)."""
+    return [t.lower() for t in re.findall(r"(?<![A-Za-z])[A-Za-z](?![A-Za-z])", _unglue_dots(text))]
+
+
+#: #509 name states. STRONG: every typed party's own words are all in the case title (equal after the folds below, no spelling slip),
+#: so the engine really compared the name. MISMATCH: a typed party clearly disagrees with the title. MIDDLE: neither (half the words
+#: match, only a spelling slip matches, a party made only of initials, extra rare words typed beside the case's own words): the answer is
+#: IN_INDEX WITHOUT `name_compared`, so no caller is told a comparison was made that was not.
+NAME_STRONG, NAME_MIDDLE, NAME_MISMATCH_STATE = "strong", "middle", "mismatch"
+
+
+_ACRONYM_SKIP = frozenset({"of", "and", "the", "&"})
+
+
+def _typed_acronym(piece: str, words: frozenset[str]) -> str | None:
+    """The letters of a typed party written as an ACRONYM: a single distinctive word that is printed in capitals, 2 to 6 letters, with no
+    full stops ("ONGC", "LIC of India", "DTC"). None otherwise."""
+    if len(words) != 1:
+        return None
+    (word,) = words
+    raw = [t for t in re.findall(r"(?<![A-Za-z.])[A-Z]{2,6}(?![A-Za-z.])", _TYPED_SIGNAL_WORDS.sub("", " ".join(piece.split())))]
+    return word if any(t.lower() == word for t in raw) else None
+
+
+_ACRONYM_TRAILING = frozenset({"ors", "anr", "etc", "others", "another", "co", "company", "ltd", "limited", "pvt", "private", "india"})
+
+
+def _initials_full(part: str) -> frozenset[str]:
+    """The FULL initials of a title party, skipping of/and/the: with every word ("Bharat Sanchar Nigam Ltd" gives bsnl) and without the
+    trailing generic words (Ors, Anr, Etc, Others, Co, Ltd, Limited, Pvt, Private, India: "Oil And Natural Gas Corporation Ltd" also gives
+    ongc, "Life Insurance Corporation Of India" also gives lic). A PREFIX of the initials is not among them: BSE is not "Bihar School
+    Examination Board" (bseb)."""
+    words = [w for w in re.sub(r"[^a-z0-9& ]+", " ", part.lower()).split() if w not in _ACRONYM_SKIP]
+    out = {"".join(w[0] for w in words)} if words else set()
+    while words and words[-1] in _ACRONYM_TRAILING:
+        words = words[:-1]
+        if words:
+            out.add("".join(w[0] for w in words))
+    return frozenset(out)
+
+
+def _generic_text(text: str) -> str:
+    """A party made only of common words ("Union of India", "The State"), as one comparable string: UOI is Union of India."""
+    t = normalize_party_name(_TYPED_SIGNAL_WORDS.sub("", " ".join(_unglue_dots(text).split())))
+    return " ".join(("union of india" if w == "uoi" else w) for w in t.split() if w != "the")
+
+
+def _typed_sig(text: str) -> tuple[str, frozenset[str] | str]:
+    """What identifies one typed party for a STRONG comparison: its distinctive words, or (a party with none) its whole text."""
+    words = _typed_words(text)
+    return ("w", words) if words else ("g", _generic_text(text))
+
+
+def _sig_key(sig: tuple[str, frozenset[str] | str]) -> tuple[str, str]:
+    return (sig[0], " ".join(sorted(sig[1])) if isinstance(sig[1], frozenset) else sig[1])
+
+
+def _title_sig(text: str) -> tuple[str, frozenset[str] | str]:
+    words = _title_words(text)
+    return ("w", words) if words else ("g", _generic_text(text))
+
+
+def _name_state_for_title(
+    sides: list[frozenset[str]],
+    initials: list[frozenset[str]],
+    typed_letters: list[str],
+    pieces: list[str],
+    title: str,
+    acronyms: list[str | None],
+) -> str:
+    tw = _title_words(title)
+    evidence = [side - ini for side, ini in zip(sides, initials, strict=True)]
+    clear = False
+    for side, ev, acro in zip(sides, evidence, acronyms, strict=True):
+        if acro is not None:
+            continue  # an acronym ("ONGC") is never a disagreement by itself: it is read against the title's initials below
+        if ev and not _side_agrees(side, tw, frozenset(side - ev)):
+            clear = True  # a typed party with evidence words clearly disagrees with the title
+    typed_all = frozenset().union(*sides)
+    covers_title = len(tw) >= 2 and all(_word_in(w, typed_all) for w in tw)
+    if clear:
+        return NAME_MIDDLE if covers_title else NAME_MISMATCH_STATE  # the case's own words are all there, with more typed beside them
+    # STRONG only when EVERY typed party (a party made only of common words too: "Union of India" must equal the title's own) equals one
+    # party of the title, word for word after the folds (Corp, Mohd, doubled vowels, UOI, honorifics, signal words), and the typed initials
+    # are initials the title has. A half match, a spelling slip, a very common name alone, initials alone or leftover words stay MIDDLE.
+    title_parts = [part for part in _split_parties(title) if part.strip()]
+    pool = [_title_sig(part) for part in title_parts]
+    equal = len(pool) >= 2 and len(pool) == len([p for p in pieces if p.strip()])
+    acro_by_piece = {piece: acro for piece, acro in zip((p for p in pieces if p.strip() and _typed_words(p)), acronyms, strict=False)}
+    if equal:
+        remaining = list(title_parts)
+        for piece in (p for p in pieces if p.strip()):
+            acro = acro_by_piece.get(piece)
+            sig = _typed_sig(piece)
+            hit = next((i for i, part in enumerate(remaining) if (acro is not None and acro in _initials_full(part)) or _title_sig(part) == sig), None)
+            if hit is None:
+                equal = False
+                break
+            remaining.pop(hit)
+    title_letters = [c for part in title_parts for c in _typed_letters(part)]
+    letters_ok = not title_letters or not typed_letters or all(typed_letters.count(c) <= title_letters.count(c) for c in set(typed_letters))
+    return NAME_STRONG if equal and letters_ok else NAME_MIDDLE
+
+
+def _name_state(conn: sqlite3.Connection, key: str, titles: list[str], claimed_name: str) -> str | None:
+    """How a typed case name relates to the resolved case (any of its record titles): STRONG, MIDDLE or MISMATCH (see above), the best
+    over the record titles; or an alias group of the key that agrees on both parties (each with a distinctive word) is STRONG. The two
+    typed parties are read apart. None when the typed name has no distinctive word (nothing to compare)."""
+    pieces = _split_parties(claimed_name)
+    sides = [_typed_words(side) for side in pieces]
+    initials = [frozenset(_fold_word(i) for i in _initialisms(side)) for side in pieces]
+    keep = [(w, i) for w, i in zip(sides, initials, strict=True) if w]
+    if not keep:
+        return None
+    side_words = [w for w, _ in keep]
+    side_inits = [i for _, i in keep]
+    typed_letters = [c for piece in pieces for c in _typed_letters(piece)]
+    acronyms = [_typed_acronym(piece, w) for piece, (w, _) in zip((p for p in pieces if _typed_words(p)), keep, strict=True)]
+    states = [_name_state_for_title(side_words, side_inits, typed_letters, pieces, title, acronyms) for title in titles]
+    for want in (NAME_STRONG, NAME_MIDDLE):
+        if want in states:
+            return want
+    typed_sigs = [_typed_sig(piece) for piece in pieces if piece.strip()]
+    groups = conn.execute("SELECT DISTINCT party_1, party_2 FROM citation_aliases WHERE citation = ?", (key,)).fetchall()
+    for g in groups:  # the typed name equals an alias group of the key (the index's own spelling of the parties)
+        group_sigs = [_title_sig(g["party_1"]), _title_sig(g["party_2"])]
+        if len(typed_sigs) == 2 and sorted(map(_sig_key, typed_sigs)) == sorted(map(_sig_key, group_sigs)):
+            return NAME_STRONG
+    return NAME_MISMATCH_STATE
 
 
 def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> VerifyResult:
-    """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED.
-    Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
-    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first)."""
+    """#832 E1: does the citation resolve to an indexed case? Existence only: no quote is checked, so never VERIFIED. See
+    `exists_in_index_detail` for the answer with the comparison flag."""
+    return exists_in_index_detail(conn, citation_text, claimed_name).result
+
+
+def exists_in_index_detail(conn: sqlite3.Connection, citation_text: str, claimed_name: str | None = None) -> ExistenceAnswer:
+    """Same resolution, year window and party-title test as `verify` (a case `verify` would not check never counts as found); a key
+    shared by two alias groups that are NOT spellings of one case stays CONFLICT (spellings of one case collapse first).
+    #509: when the answer is IN_INDEX and a case name was typed in front of the citation, the name is compared with the ONE case the
+    citation resolved to (after any collapse); a name that does not match answers NAME_MISMATCH. No name, or a name with no distinctive
+    word, answers exactly as before (name_compared false)."""
     citations = parse_citations(citation_text)
     if len(citations) != 1:
-        return VerifyResult.MALFORMED
+        return ExistenceAnswer(VerifyResult.MALFORMED)
     if citations[0].reporter == "SCC Supp":
-        return _exists_supp(conn, supp_key(citations[0].year or 0, citations[0].volume, citations[0].page))
+        supp = supp_key(citations[0].year or 0, citations[0].volume, citations[0].page)
+        result, supp_titles = _supp_answer(conn, supp)
+        typed = claimed_name or _name_before_citation(citation_text, citations[0])
+        if result is VerifyResult.IN_INDEX and typed:  # #509: a supplementary-volume answer compares a typed name too
+            state = _name_state(conn, supp, supp_titles, typed)
+            if state == NAME_MISMATCH_STATE:
+                return ExistenceAnswer(VerifyResult.NAME_MISMATCH, True)
+            if state == NAME_STRONG:
+                return ExistenceAnswer(VerifyResult.IN_INDEX, True)
+        return ExistenceAnswer(result)
     key = _citation_key(citations[0])
     if key is None:
-        return VerifyResult.NOT_IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
     claimed_name = claimed_name or _name_before_citation(citation_text, citations[0])
     resolved = resolve_citation_key(conn, key, claimed_name, citations[0].year)
     if resolved.status is VerifyResult.CONFLICT:
         resolved = _collapse_alias_conflict(conn, key, resolved, citations[0].year) or resolved
     if resolved.status is not None:
-        return resolved.status
+        return ExistenceAnswer(resolved.status)
     in_year = _rows_in_cited_year(conn, resolved.case_rows, citations[0].year)
     rows = [r for r in in_year if _title_carries_the_cited_parties(conn, key, r["title"])]
     # #717: WITHOUT a quote nothing else stands between a different case and IN_INDEX, so the answer is stricter than `verify`'s
@@ -896,11 +1156,17 @@ def exists_in_index(conn: sqlite3.Connection, citation_text: str, claimed_name: 
     # many words is probably a different case sharing the party words). Anything else answers NOT_IN_INDEX, never IN_INDEX.
     cases = {r["case_id"]: r for r in rows}
     if len(cases) != 1:
-        return VerifyResult.NOT_IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
     only = next(iter(cases.values()))
     if _extra_title_tokens(conn, key, only["title"]) > EXISTENCE_MAX_EXTRA_TITLE_TOKENS:
-        return VerifyResult.NOT_IN_INDEX
-    return VerifyResult.IN_INDEX
+        return ExistenceAnswer(VerifyResult.NOT_IN_INDEX)
+    if claimed_name:
+        state = _name_state(conn, key, [only["title"]], claimed_name)
+        if state == NAME_MISMATCH_STATE:
+            return ExistenceAnswer(VerifyResult.NAME_MISMATCH, True)
+        if state == NAME_STRONG:
+            return ExistenceAnswer(VerifyResult.IN_INDEX, True)
+    return ExistenceAnswer(VerifyResult.IN_INDEX)
 
 
 _COVERAGE_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}

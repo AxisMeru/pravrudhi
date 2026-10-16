@@ -98,7 +98,7 @@ from pravrudhi.application.second_judge_positive_control import fallback_record_
 from pravrudhi.application.service_window import ServiceWindow
 from pravrudhi.application.statute_citations import contract_citations
 from pravrudhi.application.steps_appendix.appendix import safe_appendix
-from pravrudhi.application.verify import exists_in_index, index_coverage, warm_title_cache
+from pravrudhi.application.verify import exists_in_index_detail, index_coverage, warm_title_cache
 from pravrudhi.application.verify import verify as verify_citation
 
 CONFIG_PATH = Path("configs") / "partner_api.yaml"
@@ -481,7 +481,10 @@ class VerifyCitationRequest(BaseModel):
 
 
 class VerifyCitationResponse(BaseModel):
-    result: str
+    result: str = Field(
+        description="VERIFIED, EXISTS_QUOTE_NOT_FOUND, IN_INDEX (no quote sent), NOT_IN_INDEX, CONFLICT, MALFORMED or NAME_MISMATCH (#509: the "
+        "citation resolves to one indexed case but the case name sent with it does not match that case). Handle a value you do not know."
+    )
     note: str
     #: #533 (preview): the product wording. `status` is one of verified, quote_not_found, not_in_index, conflict, malformed;
     #: `label` is the text to show verbatim; `verified` is true only for `result` VERIFIED (a resolved key AND the exact
@@ -493,12 +496,23 @@ class VerifyCitationResponse(BaseModel):
     #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
     #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
     coverage: dict[str, Any] | None = None
+    #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX that matched
+    #: the name, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other result, the quote
+    #: path), which is therefore byte-identical to the reply before this field existed.
+    name_compared: bool | None = Field(
+        default=None,
+        description="True only when a case name typed in front of the citation was compared with the index (an IN_INDEX that matched the name, or NAME_MISMATCH); the field is absent from every other reply.",
+    )
 
 
 _VERIFY_NOTES = {
     "VERIFIED": "The citation resolves to an indexed case and the quote appears in its text.",
     "EXISTS_QUOTE_NOT_FOUND": "The citation resolves to an indexed case but the quote was not found in its text.",
     "IN_INDEX": "Found in the index (existence only): no quote was checked, so this is not a verification.",
+    "NAME_MISMATCH": (
+        "The citation resolves to an indexed case, but the case name given does not match that case. "
+        "This does not show whether the citation or the name is right."
+    ),
     "NOT_IN_INDEX": (
         "We could not match this citation to exactly one case in our index. "
         "That does not show whether the citation is real: the index does not hold every judgment."
@@ -1725,7 +1739,9 @@ def build_partner_router(
             if looked_up[0] >= INTAKE_MAX_CITATION_LOOKUPS or time.monotonic() - started > INTAKE_LOOKUP_BUDGET_S:
                 return "NOT_CHECKED"
             looked_up[0] += 1
-            result, _cov = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
+            # #509: Intake looks up the BARE citation (the extractor passes no case name), so no name is compared here and the
+            # third item (name_compared) is always False; Intake never carries it and never sees NAME_MISMATCH.
+            result, _cov, _compared = _lookup(Path(path), VerifyCitationRequest(citation=text), cfg.verify_timeout_s)
             seen[text] = result.result
             return result.result
 
@@ -2075,15 +2091,17 @@ def build_partner_router(
 
     def _lookup(
         path: Path, req: VerifyCitationRequest, timeout_s: float
-    ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None]:
-        """One bounded, read-only lookup. The progress handler aborts the statement once the deadline passes, so a
+    ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None, bool]:
+        """One bounded, read-only lookup; the third item is #509's name_compared (a typed case name was compared with the index). The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
         try:
             conn.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 10_000)
+            name_compared = False
             if req.quote is None:
-                found = citation_status.status_for(exists_in_index(conn, req.citation))
+                answer = exists_in_index_detail(conn, req.citation)
+                found, name_compared = citation_status.status_for(answer.result), answer.name_compared
             else:
                 if _existence_only(conn):
                     raise _QuoteNotServed
@@ -2095,12 +2113,12 @@ def build_partner_router(
                 # coverage is context for the answer, never a reason to lose it: degrade to the documented null
                 _logger.warning("index coverage unavailable", exc_info=True)
                 coverage = None
-            return found, coverage
+            return found, coverage, name_compared
         finally:
             conn.close()
 
     @router.post(
-        "/verify-citations", response_model=VerifyCitationResponse,
+        "/verify-citations", response_model=VerifyCitationResponse, response_model_exclude_unset=True,
         responses={
             401: {"description": "The API key is invalid or revoked."},
             429: {"description": "Over the rate limit; wait Retry-After seconds.",
@@ -2130,7 +2148,7 @@ def build_partner_router(
             _verify_audit(metered, 503)
             return JSONResponse(status_code=503, content={"error": "verify_at_capacity"}, headers={"Retry-After": "5"})
         try:
-            result, coverage = _lookup(Path(path), req, cfg.verify_timeout_s)
+            result, coverage, name_compared = _lookup(Path(path), req, cfg.verify_timeout_s)
         except _QuoteNotServed:
             _verify_audit(metered, 422)
             return JSONResponse(status_code=422, content={"error": "quote_not_served"})
@@ -2145,8 +2163,11 @@ def build_partner_router(
         if metered:
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
         _verify_audit(metered, 200, result.result)
-        return {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
-                "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
+        reply: dict[str, Any] = {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
+                                 "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
+        if name_compared:
+            reply["name_compared"] = True  # #509: only when a typed case name was compared; absent otherwise (older replies unchanged)
+        return reply
 
     @router.post("/orgs", response_model=OrgOut)
     def create_org_ep(
