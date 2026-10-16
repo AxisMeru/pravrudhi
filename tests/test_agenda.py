@@ -244,3 +244,24 @@ def test_the_core_imports_no_client_library_and_not_the_store() -> None:
     )
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=REPO, check=True)
     assert out.stdout.strip() == ""
+
+
+def test_an_unread_file_blocks_the_none_outstanding_line_even_when_every_statute_paper_is_declared() -> None:
+    a, b, c, d = doc(1, "x1.pdf"), doc(2, "x2.pdf"), doc(3, "x3.pdf"), doc(4, "scan.pdf", 2, (1, 2))
+    p = build_agenda([a, b, c, d], {a.doc_id: "cheque", b.doc_id: "demand_notice", c.doc_id: "bank_return_information"})
+    assert p["not_added"]["none_line"] is None and len(p["not_added"]["rows"]) == 1
+
+
+@pytest.mark.parametrize("name", ["noticeboard.pdf", "returnable.pdf", "chqueue.pdf", "demanding.pdf", "loanword.pdf"])
+def test_a_file_name_that_merely_contains_a_type_word_is_not_typed(name: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] is None
+
+
+def test_once_confirmed_the_lawyer_tier_rows_that_are_outstanding_are_listed_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    asset = copy.deepcopy(G.load_asset())
+    asset["lawyer_confirmed"] = True
+    monkeypatch.setattr(G, "load_asset", lambda: asset)
+    a = doc(1, "x.pdf")
+    p = build_agenda([a], {a.doc_id: "cheque"})
+    ids = [r["id"] for r in p["not_added"]["rows"]]
+    assert "notice_proof" in ids and "debt_paper" in ids and "bank_statement" in ids

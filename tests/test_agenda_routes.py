@@ -183,3 +183,17 @@ def test_a_paper_type_for_a_paper_that_is_not_in_the_matter_is_refused(tmp_path:
 def test_a_bad_body_is_422_and_nothing_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: dict[str, Any]) -> None:
     _on(monkeypatch)
     assert _client(tmp_path).post(PATH, json=body).status_code == 422
+
+
+def test_a_half_ingested_document_is_never_listed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
+
+    from pravrudhi.application.matter_spans import DB_NAME
+
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m, _ = _matter(c, "cheque.pdf")
+    db = next((tmp_path / "store").rglob(DB_NAME))
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE document SET ingest_done = 0")
+    assert c.post(PATH, json={"matter_id": m}).status_code == 409  # nothing committed: no papers
