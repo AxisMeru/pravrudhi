@@ -98,8 +98,8 @@ def test_a_draft_that_reads_and_checks_everything_is_complete_and_says_it_is_exi
     out = run(f"The decision in {GOOD} is cited.\n\nIt is cited again in (2016) 2 SCC 512.")
     assert out["state"] == "complete" and out["denominator"]["not_read"] == 0 and out["denominator"]["found"] == 2
     assert out["summary"] == (
-        "No problems found among the 2 citations checked. Existence only: a citation found in our index is not confirmed to say "
-        "what the draft says; case names were not confirmed for 2 of 2 found."
+        "All 2 citations checked were found in our index. Existence only: a citation found in our index is not confirmed to say "
+        "what the draft says."
     )
 
 
@@ -215,7 +215,7 @@ def test_a_form_the_lookup_calls_malformed_is_counted_not_read_in_its_own_bucket
     assert (d["read"], d["not_read"], d["not_read_could_not_be_read_as_a_citation"], d["not_checked"]) == (0, 1, 1, 0)
     assert (d["not_checked_lookup_failed"], d["like_strings"]) == (0, 1)
     assert out["citations"] == [] and out["not_read"][0]["reason"] == "could_not_be_read_as_a_citation"
-    assert out["state"] == "nothing_checked" and "cap or lookup failure" not in out["summary"]
+    assert out["state"] == "nothing_checked" and "lookup failure" not in out["summary"]
     assert "1 string that looks like a citation was not read" in out["summary"]
 
 
@@ -244,7 +244,7 @@ def test_a_mixed_brief_is_incomplete_and_names_what_the_index_does_not_hold() ->
     s = out["summary"]
     assert s.startswith("1 of the 2 citations checked needs attention: 1 not found in our index")
     assert "2 citations are of a kind the index does not hold" in s and "1 string that looks like a citation was not read" in s
-    assert s.endswith("case names were not confirmed for 1 of 1 found.")
+    assert s.endswith("is not confirmed to say what the draft says.") and "typed beside" not in s
 
 
 def test_an_all_air_draft_is_nothing_checked_not_complete() -> None:
@@ -265,7 +265,8 @@ def test_every_status_is_counted_and_listed() -> None:
     assert got == (1, 1, 1, 1, 1)
     assert [c["status"] for c in out["citations"]] == ["found", "not_found", "conflict", "not_checked"]
     assert out["state"] == "incomplete"  # one citation is of a kind the index does not hold: never "complete"
-    assert out["summary"].startswith("2 of the 3 citations checked need attention: 1 not found in our index, 1 ambiguous, 0 with")
+    expect = "2 of the 3 citations checked need attention: 1 not found in our index, 1 could not be matched to one case, 0 with"
+    assert out["summary"].startswith(expect)
     assert "1 citation is of a kind the index does not hold" in out["summary"]
 
 
@@ -288,7 +289,7 @@ def test_a_citation_with_no_readable_name_is_found_but_the_name_is_not_read() ->
     c = out["citations"][0]
     assert c["status"] == "found" and c["name"] is None and c["name_state"] == "name_not_read"
     assert out["denominator"]["found_name_not_confirmed"] == 1
-    assert "case names were not confirmed for 1 of 1 found" in out["summary"]
+    assert "case name" not in out["summary"]  # no name was typed: nothing is said about names
 
 
 def test_a_repeated_citation_is_looked_up_once_and_answered_alike() -> None:
@@ -324,7 +325,7 @@ def test_a_no_index_deployment_says_nothing_was_checked() -> None:
     out = run(f"see {GOOD}", look=None)
     assert out["citations"][0]["status"] == "not_checked" and out["citations"][0]["reason"] == "no_index"
     assert out["state"] == "nothing_checked" and out["denominator"]["not_checked_no_index"] == 1
-    assert "no citation index on this deployment" in out["summary"]
+    assert "(no citation index is available here)" in out["summary"]
 
 
 def test_a_failing_lookup_is_one_not_checked_and_the_rest_still_run() -> None:
@@ -587,3 +588,41 @@ def test_the_span_index_answers_overlap_questions_like_a_plain_scan() -> None:
         e0 = s0 + rng.randint(1, 25)
         assert idx.overlaps(s0, e0) == any(a < e0 and s0 < b for a, b in spans)
     assert D._Spans([]).overlaps(0, 5) is False
+
+
+# ---- R1's wording rules (#516): no clearance language, names only when typed, plain words -----------------------------------
+
+
+def test_all_found_reads_as_found_in_our_index_not_as_clearance() -> None:
+    many = run(f"see {GOOD} and (2016) 2 SCC 512")["summary"]
+    assert many.startswith("All 2 citations checked were found in our index.")
+    one = run(f"see {GOOD}")["summary"]
+    assert one.startswith("The 1 citation checked was found in our index.")
+    assert "No problems" not in many + one and "cleared" not in many.lower()
+
+
+def test_the_names_clause_counts_only_names_that_were_typed_and_not_confirmed() -> None:
+    def look(t: str) -> tuple[str, bool]:
+        return "IN_INDEX", False  # found, but the typed name was only partly matched: not confirmed
+
+    typed = run(f"As held in Aldric Vennoway v. State of Zorbland, {GOOD}; and again {GOOD}.", look=look)
+    assert typed["denominator"]["found"] == 2 and typed["denominator"]["found_typed_name_not_confirmed"] == 1
+    assert "a case name typed beside 1 of the 2 found citations was not confirmed" in typed["summary"]
+    none_typed = run(f"see {GOOD} and (2016) 2 SCC 512", look=look)
+    assert none_typed["denominator"]["found_typed_name_not_confirmed"] == 0
+    assert "case name" not in none_typed["summary"]
+    matched = run(f"As held in Aldric Vennoway v. State of Zorbland, {GOOD}.")
+    assert "case name" not in matched["summary"]  # typed and matched: nothing to say
+
+
+def test_no_summary_line_uses_internal_words_or_the_state_token_as_a_label() -> None:
+    drafts = [
+        f"see {GOOD}", f"see {GOOD} and AIR 2014 SC 1234", "AIR 2014 SC 1234", DRAFT_HC, "no citations here at all",
+        f"see {GOOD}, (2016)10SCC386 and [2014] 8 SCC 273 and MANU/SC/0123/2014",
+    ]
+    for text in drafts:
+        low = run(text)["summary"].lower()
+        for word in ("complete", "ambiguous", "deployment", "cap or lookup", "conflict", "nothing_checked", "none_recognised"):
+            assert word not in low, (word, text)
+    capped = run(" ".join(f"(2014) 8 SCC {900 + i}" for i in range(4)), DraftCheckConfig(max_citations=1))["summary"]
+    assert "(a limit was reached or the look-up failed)" in capped

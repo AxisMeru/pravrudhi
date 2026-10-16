@@ -447,11 +447,15 @@ def _summary(d: dict[str, Any], state: str, not_read_note: str) -> str:
     elif problems:
         parts.append(
             f"{problems} of the {_n(checked, 'citation', 'citations')} checked {'needs' if problems == 1 else 'need'} attention: "
-            f"{d['not_found']} not found in our index, {d['conflict']} ambiguous, "
+            f"{d['not_found']} not found in our index, {d['conflict']} could not be matched to one case, "
             f"{d['name_mismatch']} with a case name that did not match"
         )
     else:
-        parts.append(f"No problems found among the {_n(checked, 'citation', 'citations')} checked")
+        parts.append(
+            "The 1 citation checked was found in our index"
+            if checked == 1
+            else f"All {checked} citations checked were found in our index"
+        )
     if d["not_checked_reporter_not_in_index"]:
         parts.append(
             f"{_n(d['not_checked_reporter_not_in_index'], 'citation is', 'citations are')} of a kind the index does not hold "
@@ -465,15 +469,15 @@ def _summary(d: dict[str, Any], state: str, not_read_note: str) -> str:
         )
     other = d["not_checked_cap"] + d["not_checked_lookup_failed"] + d["not_checked_no_index"]
     if other:
-        why = "no citation index on this deployment" if d["not_checked_no_index"] else "cap or lookup failure"
+        why = "no citation index is available here" if d["not_checked_no_index"] else "a limit was reached or the look-up failed"
         parts.append(f"{_n(other, 'citation was', 'citations were')} not checked ({why})")
     if d["not_read"] or d["pages_not_read"]:
         parts.append(not_read_note)
     if found:
-        k = d["found_name_not_confirmed"]
+        k = d["found_typed_name_not_confirmed"]
         parts.append(
             "Existence only: a citation found in our index is not confirmed to say what the draft says"
-            + (f"; case names were not confirmed for {k} of {found} found" if k else "")
+            + (f"; a case name typed beside {k} of the {found} found citations was not confirmed" if k else "")
         )
     else:
         parts.append("Existence only")
@@ -594,6 +598,7 @@ def check_draft(
         "found": found,
         "found_name_matched": sum(1 for o in occs if o.status == "found" and o.name_state == "name_matched"),
         "found_name_not_confirmed": sum(1 for o in occs if o.status == "found" and o.name_state != "name_matched"),
+        "found_typed_name_not_confirmed": sum(1 for o in occs if o.status == "found" and o.name_state == "name_not_confirmed"),
         "not_found": not_found,
         "conflict": conflict,
         "name_mismatch": mismatch,
