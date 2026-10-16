@@ -2293,4 +2293,110 @@ def build_partner_router(
             failed=failed,
         ).model_dump()
 
+    # --- A1 whole-draft citation check: registered ONLY when partner_api.yaml sets wf_a1_draft_citation_check to true ---------
+    # Off (the default, and every unreadable or malformed setting) adds nothing: no module import, no route, no limiter, no
+    # thread. A new route spends none of an existing route's budget: it has its own limiters and its own slots.
+    try:
+        from pravrudhi.application.draft_check_config import load_draft_check_config as _load_a1
+
+        _a1_cfg = _load_a1(engine_root)
+        if _a1_cfg is not None:
+            from pravrudhi.application import draft_check as _a1
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("draft check unavailable; it stays off", exc_info=True)
+        _a1_cfg = None
+    if _a1_cfg is not None:
+        _a1_state: dict[str, Any] = {}
+        _a1_lock = threading.Lock()
+
+        def _a1_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _a1_lock:
+                if not _a1_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _a1_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a1_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a1_state["slots"] = ConcurrencyLimiter(_a1_cfg.max_concurrent)
+                return _a1_state["ip"], _a1_state["key"], _a1_state["slots"]
+
+        def _a1_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "the draft check is offered only to signed-in users"})
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _a1_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots
+
+        # Audit: the existing mode "intake" with a "draft-check-" run id (the audit contract's modes are public and unchanged).
+        def draft_check_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a1_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            cfg, slots = admitted
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                text = _a1.read_draft(req, _a1_cfg)
+                env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+                path = citation_index_path or (Path(env_path) if env_path else None)
+                look: Callable[[str], tuple[str, bool]] | None = None
+                if path is not None and Path(path).is_file():
+                    index_path = Path(path)
+
+                    def _a1_look(citation_text: str) -> tuple[str, bool]:
+                        result, _cov, compared = _lookup(
+                            index_path, VerifyCitationRequest(citation=citation_text), cfg.verify_timeout_s
+                        )
+                        return result.result, compared
+
+                    look = _a1_look
+                out = _a1.check_draft(text, _a1_cfg, look)
+            except _a1.DraftRefused as e:
+                _intake_audit(metered, "intake", e.status_code)
+                return JSONResponse(status_code=e.status_code, content={"detail": str(e), "error": e.code})
+            except Exception:
+                _intake_audit(metered, "intake", 500)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, out)
+            return out
+
+        draft_check_ep.__annotations__["req"] = _a1.DraftCheckRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/draft-citation-check", draft_check_ep, methods=["POST"], include_in_schema=False, response_model=None
+        )
+        _a1.open_partner_key_route()  # the gate lists in api/identity.py gain this one route only while it exists
+
     return router
