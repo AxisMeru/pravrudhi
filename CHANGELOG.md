@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.19 (2026-10-16)
+
+PATCH release on 0.6.18: a case name typed in front of a citation is now compared with the case the citation resolves to, and a citation whose case title prints "Corp" is found. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.19; the citation index is unchanged.
+
+### Changed
+
+- **A fifth result, NAME_MISMATCH, is returned when the citation resolves to one indexed case but the case name sent with it does not match that case; callers that handle only IN_INDEX, NOT_IN_INDEX, CONFLICT and MALFORMED should handle it (caller-visible).** The check applies to `POST /api/v1/verify-citations` when no quote is sent and a case name is written in front of the citation ("A v. B, (2010) 1 SCC 1"). The reply carries `result` `NAME_MISMATCH`, `status` `name_mismatch`, `label` "Case name did not match", `verified` false, and a note saying that this does not show whether the citation or the name is right. A name is read party by party and as typed: leading words such as "Per" or "As held in", honorifics, initials with or without full stops, the order of the parties, acronyms such as ONGC, and the usual spellings of common names do not count against it.
+- **A new optional reply field, `name_compared` (caller-visible).** When a case name was compared with the index, the reply carries `"name_compared": true` (an IN_INDEX answer then means the parts of the name that were compared matched; a party named only by common words is compared only for equality with the case's own party). It is true when every party you typed matches a party of the indexed case, and for NAME_MISMATCH. When a name only partly matches (a shared word, a spelling variant such as Kumaar for Kumar, a one-letter slip, a party made only of initials or of common words, an acronym that is not the initials of the case's party), the reply is IN_INDEX without the field, exactly as before this release. In every other reply (no name, any other result, or a request with a quote) the field is absent and the reply is exactly as before.
+- **A citation whose case title prints "Corp" is found (caller-visible).** A title written "Delhi Transport Corp" now counts as carrying the party word "Corporation", so a citation that answered "Not found in our index" or "more than one case" only because of that abbreviation now answers IN_INDEX.
+- **The published API contract lists the new value and field.** `docs/api/openapi-v1.json` describes `NAME_MISMATCH` and `name_compared`.
+
+### Known limits
+
+- The name check narrows an answer; it never makes a citation found that was not found. A party named only by common words (for example the Union of India, the Government of India, or the State without a name) is compared only for equality with the case's own party and does not count as a match otherwise, so a wrong second party such as the Union of India may not be caught: the answer can still be IN_INDEX. An acronym is read as the initials of the words of a party's name (leaving out words such as Ltd or Ors at the end), so an acronym that happens to be the initials of a different entity's name is read as that entity, and the name can then be taken as matching when the other party matches. Separators and other characters the check does not read are listed here: `v/s`, `V/S`, `Vrs.`, `-vs-`, `-v-`, dashes, `/`, `:`, "and", "against", "contra", and the prefixes "In re", "Re:", "Ex parte" and "In the matter of". The reply carries "name_compared": true only when a comparison was made.
+
 ## 0.6.18 (2026-10-15)
 
 PATCH release on 0.6.17: an unexpected error answers in one coded form instead of plain text, some other error bodies change, and the engine's configuration file is read more strictly. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.18; the citation index is unchanged.
