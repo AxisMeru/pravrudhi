@@ -2402,4 +2402,97 @@ def build_partner_router(
         )
         _a1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- B3 s.138 cheque checklist: registered ONLY when partner_api.yaml sets wf_b3_s138_checklist to true --------------------
+    # Off (the default, and every unreadable or malformed setting) adds nothing: no module import, no route, no limiter, no
+    # thread, no file read. A new route spends none of an existing route's budget: it has its own limiters and its own slots.
+    try:
+        from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _load_b3
+
+        _b3_cfg = _load_b3(engine_root)
+        if _b3_cfg is not None:
+            from pravrudhi.application import s138_checklist as _b3
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("s.138 checklist unavailable; it stays off", exc_info=True)
+        _b3_cfg = None
+    if _b3_cfg is not None:
+        _b3_state: dict[str, Any] = {}
+        _b3_lock = threading.Lock()
+
+        def _b3_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _b3_lock:
+                if not _b3_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _b3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _b3_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _b3_state["slots"] = ConcurrencyLimiter(_b3_cfg.max_concurrent)
+                return _b3_state["ip"], _b3_state["key"], _b3_state["slots"]
+
+        def _b3_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "the s.138 checklist is offered only to signed-in users"})
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _b3_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots
+
+        # Audit: the existing mode "intake" with an "s138-checklist-" run id on every row. Same known limits as the A1 route.
+        def s138_checklist_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _b3_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots = admitted
+            run = {"run_id": f"s138-checklist-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _b3.check(req, _b3_cfg, run_id=run["run_id"])
+            except _b3.ChecklistRefused as e:
+                _intake_audit(metered, "intake", e.status_code, run)
+                return JSONResponse(status_code=e.status_code, content={"detail": str(e), "error": e.code})
+            except Exception:
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, out)
+            return out
+
+        s138_checklist_ep.__annotations__["req"] = _b3.ChecklistRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/s138-checklist", s138_checklist_ep, methods=["POST"], include_in_schema=False, response_model=None
+        )
+        _b3.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     return router
