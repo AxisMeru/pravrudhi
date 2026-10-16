@@ -1,6 +1,6 @@
 {
  "version": 1,
- "note": "Slice 1 of the A5 review agenda: cheque dishonour under NI Act s.138 only. Tier 1 holds ONLY the statute's own words (each quote is checked to be a substring of the pinned s.138 text). Tier 2 is lawyer practice and is hidden while lawyer_confirmed is false. No paper is mapped to an ingredient. The lawyer confirms the paper list, its bases and the wording before launch (prabhasa-nyaya#972).",
+ "note": "Slice 1 of the A5 review agenda: cheque dishonour under NI Act s.138 only. Tier 1 holds ONLY the statute's own words (each quote is checked to be a substring of the pinned s.138 text). Tier 2 is lawyer practice and is hidden while lawyer_confirmed is false. No paper is mapped to an ingredient. The lawyer confirms the paper list, its bases and the wording before launch (prabhasa-nyaya#972). The file-name fallback matches whole words and phrases (tokens split on non-alphanumerics); a name that fits two or more types is not typed.",
  "offence": {
   "id": "s138_ni_act",
   "name": "Dishonour of a cheque (Negotiable Instruments Act, 1881, s.138)"
@@ -140,26 +140,28 @@
    "chq"
   ],
   "demand_notice": [
-   "notice",
-   "demand"
+   "demand notice",
+   "legal notice",
+   "statutory notice"
   ],
   "bank_return_information": [
-   "return",
-   "memo",
-   "dishonour",
-   "dishonor"
+   "return memo",
+   "return slip",
+   "dishonour memo",
+   "dishonor memo",
+   "bank memo"
   ],
   "notice_proof": [
-   "postal",
-   "receipt",
+   "postal receipt",
+   "postal proof",
    "ad card",
+   "speed post",
    "tracking"
   ],
   "debt_paper": [
    "invoice",
    "ledger",
-   "agreement",
-   "loan"
+   "loan agreement"
   ],
   "bank_statement": [
    "bank statement",
