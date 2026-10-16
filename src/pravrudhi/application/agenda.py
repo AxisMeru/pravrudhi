@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """A5, slice 1: the review agenda for cheque dishonour under NI Act s.138. Pure: plain document records in, a page out.
 
 An agenda is a list of where to look, never a finding. Tier 1 holds ONLY the statute's own words (every quote is checked to be a
@@ -151,6 +152,7 @@ def build_agenda(docs: list[Doc], declared: dict[str, str] | None = None, offenc
         if not d.read:
             unread.append(not_read_line(_esc(d.name)))
             continue
+        ptype: str | None
         if d.doc_id in declared:
             ptype, basis = declared[d.doc_id], BASIS_DECLARED
         else:

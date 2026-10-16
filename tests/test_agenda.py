@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """A5 slice 1: the s.138 review agenda. Pure: documents in, a page out. Invented file names only."""
 
 from __future__ import annotations
