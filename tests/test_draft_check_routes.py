@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pravrudhi.api import identity
+from pravrudhi.api import identity, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.api.server import create_app
 from pravrudhi.application import audit, tenancy
@@ -40,6 +40,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     # the gate lists are rebound while a route exists: restore them after every test
     monkeypatch.setattr(identity, "PARTNER_KEY_ROUTES", identity.PARTNER_KEY_ROUTES)
     monkeypatch.setattr(identity, "PARTNER_KEY_PATHS", identity.PARTNER_KEY_PATHS)
+    monkeypatch.setattr(roles, "USER_FACING", roles.USER_FACING)
 
 
 def _on(monkeypatch: pytest.MonkeyPatch, cfg: DraftCheckConfig | None = None) -> None:
@@ -117,6 +118,30 @@ def test_with_the_flag_on_a_broken_module_turns_the_route_off(tmp_path: Path, mo
     _break_module(monkeypatch)
     c = _client(tmp_path)
     assert c.get("/api/v1/status").status_code == 200 and PATH not in _paths(c)
+
+
+def test_with_the_flag_off_roles_is_the_released_list(tmp_path: Path) -> None:
+    before = roles.USER_FACING
+    _client(tmp_path)
+    assert before == roles.USER_FACING and PATH not in roles.USER_FACING
+
+
+def test_with_the_flag_on_the_route_is_user_facing_and_in_no_admin_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    _client(tmp_path)
+    assert PATH in roles.USER_FACING
+    assert PATH not in roles.ADMIN_ONLY and PATH not in roles.ADMIN_IN_BOTH_EDITIONS
+
+
+def test_with_the_flag_on_no_route_of_the_whole_app_is_unclassified_or_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The two existing roles tests (nothing unclassified, nothing stale) hold in the ON arm too."""
+    _on(monkeypatch)
+    c = TestClient(create_app(REPO))
+    paths = _paths(c)
+    assert PATH in paths
+    classified = roles.ADMIN_ONLY | roles.USER_FACING | roles.ADMIN_IN_BOTH_EDITIONS
+    assert not (paths - classified), sorted(paths - classified)
+    assert not (classified - paths), sorted(classified - paths)
 
 
 def test_with_the_flag_on_the_route_exists_and_opens_the_key_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

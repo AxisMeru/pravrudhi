@@ -2397,6 +2397,6 @@ def build_partner_router(
         router.add_api_route(
             "/draft-citation-check", draft_check_ep, methods=["POST"], include_in_schema=False, response_model=None
         )
-        _a1.open_partner_key_route()  # the gate lists in api/identity.py gain this one route only while it exists
+        _a1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
     return router

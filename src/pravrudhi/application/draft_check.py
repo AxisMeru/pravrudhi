@@ -18,12 +18,16 @@ The report is built so that it can never look clean by omission:
 This module is pure apart from the lookup it is handed (`lookup(text) -> (result, name_compared)`) and the PDF text layer it
 reads with `pypdf` (already a dependency). It writes nothing and calls no model. The route that serves it lives in
 `api/partner.py`, registered only when the flag is on.
+
+Audit: the route writes the existing audit mode "intake" with a run id starting "draft-check-" (the audit contract's modes are
+public and unchanged); that prefix tells a reader of the audit log a draft check from an intake.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+import bisect
 import io
 import os
 import re
@@ -55,13 +59,15 @@ NOT_ASSESSED = (
 ROUTE = "/api/v1/draft-citation-check"
 
 
-def open_partner_key_route() -> None:
-    """Let a key-only caller reach the draft route through the whole-surface gate (`identity.PARTNER_KEY_ROUTES`). Called only
-    when the route is registered (flag on), so with the flag off the gate's lists are exactly the released ones."""
-    from pravrudhi.api import identity
+def open_route_lists() -> None:
+    """Add the route to the two classification lists that must name it while it exists: the whole-surface gate's key-only routes
+    (`identity.PARTNER_KEY_ROUTES` / `PARTNER_KEY_PATHS`) and `roles.USER_FACING`. Called only when the route is registered (flag
+    on), so with the flag off every list is exactly the released one."""
+    from pravrudhi.api import identity, roles
 
     identity.PARTNER_KEY_ROUTES = identity.PARTNER_KEY_ROUTES | {("POST", ROUTE)}
     identity.PARTNER_KEY_PATHS = identity.PARTNER_KEY_PATHS | {ROUTE}
+    roles.USER_FACING = roles.USER_FACING | {ROUTE}
 
 
 class DraftRefused(Exception):
@@ -90,9 +96,13 @@ class DraftCheckRequest(BaseModel):
 # ---- reading the draft ----------------------------------------------------------------------------------------------------
 
 
-def pdf_text(data: bytes, *, max_pages: int) -> str:
+def pdf_text(
+    data: bytes, *, max_pages: int, max_seconds: float | None = None, clock: Callable[[], float] = time.monotonic
+) -> str:
     """The text layer of a PDF, pages joined by form feed (the intake convention). A page that cannot be read gives "". An
-    encrypted or unreadable file, or one over the page cap, is refused with a stated reason."""
+    encrypted or unreadable file, or one over the page cap, is refused with a stated reason. Pages not extracted before
+    `max_seconds` run out give "" (so they are counted as pages with no text, never silently dropped)."""
+    started = clock()
     from pypdf import PdfReader
 
     try:
@@ -110,6 +120,9 @@ def pdf_text(data: bytes, *, max_pages: int) -> str:
         raise DraftRefused("pdf_too_many_pages", f"the PDF has more than {max_pages} pages", 413)
     pages: list[str] = []
     for page in reader.pages:
+        if max_seconds is not None and clock() - started > max_seconds:
+            pages.append("")
+            continue
         try:
             pages.append(page.extract_text() or "")
         except Exception:  # noqa: BLE001 - an unreadable page is "not read", counted below
@@ -127,7 +140,7 @@ def read_draft(req: DraftCheckRequest, cfg: DraftCheckConfig) -> str:
             raise DraftRefused("pdf_bad_encoding", "pdf_base64 is not valid base64") from e
         if len(data) > cfg.max_pdf_bytes:
             raise DraftRefused("pdf_too_large", f"the PDF is larger than {cfg.max_pdf_bytes} bytes", 413)
-        text = pdf_text(data, max_pages=cfg.max_pdf_pages)
+        text = pdf_text(data, max_pages=cfg.max_pdf_pages, max_seconds=cfg.max_seconds)
     else:
         text = req.text or ""
     if len(text) > cfg.max_chars:
@@ -226,11 +239,11 @@ _LEAD_WORDS = frozenset(
 _RIGHT_LOWER_OK = _CONNECT | {"in", "on", "to", "by"}
 
 
-def extract_name_before(text: str, start: int) -> str | None:
+def extract_name_before(text: str, start: int, floor: int = 0) -> str | None:
     """The "A v. B" typed immediately in front of a citation that starts at `start`, or None (name not read). Fails closed: a
     name that cannot be bounded with confidence (prose words inside the right party, a sentence break, too many words) is None,
-    never a guess."""
-    seg = text[max(0, start - 220) : start]
+    never a guess. `floor` is the offset the name may not reach back past (the end of the previous citation)."""
+    seg = text[max(floor, start - 220) : start]
     seg = re.sub(r"[ \t]*\n[ \t]*", " ", seg.rstrip(" \t\r\n,;:(["))
     if "\f" in seg or seg.count("  ") > 3:
         return None
@@ -274,7 +287,7 @@ _PARALLEL_GAP = re.compile(r"^[\s:;,=]{1,4}$")
 
 def _quoted(text: str, start: int) -> bool:
     """True when the citation sits inside an open quotation: more opening than closing quotation marks in its paragraph so far."""
-    para = text[text.rfind("\n\n", 0, start) + 1 : start]
+    para = text[max(text.rfind("\n\n", 0, start) + 1, start - 2_000) : start]
     opens = para.count("“") - para.count("”")
     straight = para.count('"')
     return opens > 0 or straight % 2 == 1
@@ -298,8 +311,15 @@ class _Occ:
     name_state: str = "name_not_read"
 
 
-def _page_of(text: str, pos: int) -> int | None:
-    return text.count("\f", 0, pos) + 1 if "\f" in text else None
+def _page_starts(text: str) -> list[int] | None:
+    """Offsets where each page starts (pages are form-feed separated), or None for a text with no form feed."""
+    if "\f" not in text:
+        return None
+    return [0] + [i + 1 for i, c in enumerate(text) if c == "\f"]
+
+
+def _page_of(starts: list[int] | None, pos: int) -> int | None:
+    return None if starts is None else bisect.bisect_right(starts, pos)
 
 
 def _snippet(text: str, s: int, e: int, width: int = 90) -> str:
@@ -319,6 +339,7 @@ def check_draft(
     started = clock()
     parsed = sorted(parse_citations(text), key=lambda c: c.span)
     pages = text.split("\f") if "\f" in text else None
+    starts = _page_starts(text)
     unread_pages = [i + 1 for i in intake.unread_pages(pages)] if pages is not None else []
 
     # one record per parsed citation occurrence
@@ -327,7 +348,7 @@ def check_draft(
     next_gid = 0
     for i, c in enumerate(parsed, 1):
         raw = text[c.span[0] : c.span[1]]
-        name = extract_name_before(text[prev_end:], c.span[0] - prev_end) if c.reporter in CHECKABLE_REPORTERS else None
+        name = extract_name_before(text, c.span[0], prev_end) if c.reporter in CHECKABLE_REPORTERS else None
         occ = _Occ(i, c, raw, name, _quoted(text, c.span[0]))
         if occs and _PARALLEL_GAP.match(text[prev_end : c.span[0]]):  # a parallel citation of the previous one
             if occs[-1].group is None:
@@ -450,7 +471,7 @@ def check_draft(
             "n": o.n,
             "text": " ".join(o.raw.split())[:200],
             "span": [o.cite.span[0], o.cite.span[1]],
-            "page": _page_of(text, o.cite.span[0]),
+            "page": _page_of(starts, o.cite.span[0]),
             "reporter": o.cite.reporter,
             "status": o.status,
             "reason": o.reason,
@@ -462,7 +483,7 @@ def check_draft(
         for o in occs[:MAX_LISTED]
     ]
     unread_listed = [
-        {"text": _snippet(text, g.start, g.end), "span": [g.start, g.end], "page": _page_of(text, g.start), "anchor": g.anchor,
+        {"text": _snippet(text, g.start, g.end), "span": [g.start, g.end], "page": _page_of(starts, g.start), "anchor": g.anchor,
          "reason": "form_not_read"}
         for g in unread[:MAX_LISTED]
     ]

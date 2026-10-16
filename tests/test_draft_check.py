@@ -367,3 +367,34 @@ def test_an_encrypted_pdf_is_refused() -> None:
     with pytest.raises(D.DraftRefused) as e:
         D.read_draft(D.DraftCheckRequest(pdf_base64=b64(buf.getvalue())), CFG)
     assert e.value.code == "pdf_encrypted"
+
+
+def test_a_pdf_that_runs_out_of_time_leaves_the_remaining_pages_as_pages_with_no_text() -> None:
+    pdf = make_pdf([f"Page {i} cites {GOOD} here." for i in range(5)])
+    t = [0.0]
+
+    def clock() -> float:
+        t[0] += 1.0
+        return t[0]
+
+    text = D.pdf_text(pdf, max_pages=10, max_seconds=2.5, clock=clock)
+    pages = text.split("\f")
+    assert len(pages) == 5 and sum(1 for p in pages if p.strip()) < 5
+    out = run(text)
+    assert out["state"] == "incomplete" and out["denominator"]["pages_not_read"] >= 1
+
+
+def test_the_page_numbers_follow_the_form_feeds() -> None:
+    text = f"Page one holds the citation {GOOD}\f\fPage three holds (2087) 4 SCC 999\fPage four has plain prose words only"
+    out = run(text)
+    assert [c["page"] for c in out["citations"]] == [1, 3] and out["unread_pages"] == [2]
+
+
+def test_a_draft_of_thousands_of_citations_is_checked_in_linear_time() -> None:
+    import time as _time
+
+    text = "See (2087) 4 SCC 900, held. " * 7_000  # about 196,000 characters
+    t0 = _time.monotonic()
+    out = D.check_draft(text, DraftCheckConfig(max_chars=200_000), lookup)["draft_check"]
+    assert out["denominator"]["read"] == 7_000
+    assert _time.monotonic() - t0 < 8.0  # quadratic work on this size takes minutes
