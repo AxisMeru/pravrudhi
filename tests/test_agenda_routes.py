@@ -227,3 +227,13 @@ def test_a_paper_held_without_a_file_is_declared_through_the_route(tmp_path: Pat
     bad = c.post(PATH, json={"matter_id": m, "papers_held_without_file": ["zzz"]})
     assert bad.status_code == 422 and bad.json()["error"] == "bad_paper_type"
     assert c.post(PATH, json={"matter_id": m, "papers_held_without_file": [1]}).status_code == 422
+
+
+def test_the_route_returns_a_file_name_raw_and_the_statute_words_with_their_footnote_marked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m, _ = _matter(c, 'a<b>&"c" cheque.pdf')
+    b = c.post(PATH, json={"matter_id": m}).json()
+    assert b["papers_read"]["papers"][0]["name"] == 'a<b>&"c" cheque.pdf' and "&amp;" not in c.post(PATH, json={"matter_id": m}).text
+    notice = next(i for i in b["ingredients"] if i["id"] == "notice")
+    assert "[footnote 3:" in notice["statute_words"] and "3 [within thirty days]" in notice["statute_words_raw"]

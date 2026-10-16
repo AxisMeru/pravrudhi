@@ -100,6 +100,31 @@ class AssetChanged(Exception):
 
 
 @lru_cache(maxsize=1)
+def footnotes() -> dict[str, str]:
+    """The held copy's own footnotes ("3 = Subs. by Act 55 of 2002 s.7 ..."), by number."""
+    st = json.loads(AGENDA_ASSET.read_text(encoding="utf-8"))["statute"]
+    held = json.loads((ASSETS / st["asset"]).read_text(encoding="utf-8"))
+    out: dict[str, str] = {}
+    for part in str(held["provenance"]["footnotes"]).split(";"):
+        m = re.match(r"\s*(\d+)\s*=\s*(.+?)\s*$", part)
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+_FOOTNOTED = re.compile(r"(\d+) \[([^\]]*)\]")
+
+
+def show_statute(quote: str | None) -> str | None:
+    """A quote as the page shows it: the held text's bracketed amendment ("3 [within thirty days]") is shown as the amended words
+    with its source footnote marked explicitly; every other word is untouched. The raw quote is kept beside it."""
+    if quote is None:
+        return None
+    notes = footnotes()
+    return _FOOTNOTED.sub(lambda m: f"{m.group(2)} [footnote {m.group(1)}: {notes[m.group(1)]}]" if m.group(1) in notes else m.group(0), quote)
+
+
+@lru_cache(maxsize=1)
 def load_asset() -> dict[str, Any]:
     asset: dict[str, Any] = json.loads(AGENDA_ASSET.read_text(encoding="utf-8"))
     st = asset["statute"]
@@ -145,10 +170,6 @@ def _name_type(name: str, asset: dict[str, Any]) -> str | None:
     return None if others & set(tokens) else hits[0]
 
 
-def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
 def build_agenda(
     docs: list[Doc],
     declared: dict[str, str] | None = None,
@@ -172,7 +193,7 @@ def build_agenda(
     unread: list[str] = []
     for d in docs:
         if not d.read:
-            unread.append(not_read_line(_esc(d.name)))
+            unread.append(not_read_line(d.name))
             continue
         ptype: str | None
         if d.doc_id in declared:
@@ -182,7 +203,7 @@ def build_agenda(
         typed.append(
             {
                 "doc_id": d.doc_id,
-                "name": _esc(d.name),
+                "name": d.name,
                 "pages": d.n_pages,
                 "pages_without_text": len(d.pages_without_text),
                 "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text" if d.pages_without_text else None,
@@ -203,7 +224,8 @@ def build_agenda(
             "proviso": entry.get("proviso"),
             "basis": entry["basis"],
             "section": entry.get("section"),
-            "statute_words": entry.get("quote"),
+            "statute_words": show_statute(entry.get("quote")),
+            "statute_words_raw": entry.get("quote"),
             "tag": TAGS[entry["basis"]],
         }
         if ptype is None:
@@ -235,7 +257,7 @@ def build_agenda(
         "offence": dict(asset["offence"]),
         "headings": {k: v for k, v in HEADINGS.items() if confirmed or k != "lawyer_listed"},  # a hidden tier leaves no trace
         "ingredients": [
-            {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": i["quote"]}
+            {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": show_statute(i["quote"]), "statute_words_raw": i["quote"]}
             for i in asset["ingredients"]
         ],
         "statute_names": {"heading": HEADINGS["statute_names"], "rows": tier1},

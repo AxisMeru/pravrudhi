@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +32,7 @@ def strings(node: Any, skip_statute: bool = True) -> list[str]:
         out.append(node)
     elif isinstance(node, dict):
         for k, v in node.items():
-            if skip_statute and k == "statute_words":
+            if skip_statute and k in ("statute_words", "statute_words_raw"):
                 continue
             out.extend(strings(v, skip_statute))
     elif isinstance(node, list):
@@ -72,14 +73,14 @@ def test_a_changed_statute_text_or_a_quote_that_is_not_in_it_stops_the_agenda(mo
 def test_no_paper_is_mapped_to_an_ingredient() -> None:
     page = build_agenda([doc(1, "cheque.pdf")])
     for ing in page["ingredients"]:
-        assert set(ing) == {"id", "proviso", "section", "statute_words"}
+        assert set(ing) == {"id", "proviso", "section", "statute_words", "statute_words_raw"}
 
 
 def test_the_ingredients_carry_their_proviso_letters_in_the_sections_own_words() -> None:
     page = build_agenda([doc(1, "cheque.pdf")])
     by = {i["id"]: i for i in page["ingredients"]}
     assert (by["presentation"]["proviso"], by["notice"]["proviso"], by["non_payment"]["proviso"]) == ("(a)", "(b)", "(c)")
-    assert all(i["statute_words"] in HELD for i in page["ingredients"])
+    assert all(i["statute_words_raw"] in HELD for i in page["ingredients"])
 
 
 # ---- the fixed strings (R1's words, addenda 1 to 3) -------------------------------------------------------------------------------
@@ -207,9 +208,12 @@ def test_a_file_with_text_on_some_pages_is_read() -> None:
     assert build_agenda([doc(1, "a.pdf", 3, (2,))])["papers_read"]["n"] == 1
 
 
-def test_a_file_name_is_escaped_for_the_page() -> None:
-    p = build_agenda([doc(1, 'a<b>&"c".pdf')])
-    assert p["papers_read"]["papers"][0]["name"] == "a&lt;b&gt;&amp;&quot;c&quot;.pdf"
+def test_a_file_name_is_returned_raw_so_the_page_escapes_it_once() -> None:
+    """G6: the JSON carries the name as it is; escaping it here as well would show "&amp;" after the page escapes it again."""
+    p = build_agenda([doc(1, 'a<b>&"c".pdf'), doc(2, 'x<y>&"z".pdf', 2, (1, 2))])
+    assert p["papers_read"]["papers"][0]["name"] == 'a<b>&"c".pdf'
+    assert any('x<y>&"z".pdf' in r.get("line", "") for r in p["not_added"]["rows"])
+    assert "&amp;" not in json.dumps(p) and "&lt;" not in json.dumps(p)
 
 
 @pytest.mark.parametrize("declared", [{"f" * 32: "cheque"}, {"0" * 31 + "1": "not-a-type"}])
@@ -236,7 +240,7 @@ def test_the_lawyer_tier_is_hidden_while_unconfirmed_and_shown_with_its_basis_on
 def test_tier_one_holds_only_rows_whose_words_are_in_the_statute() -> None:
     for r in build_agenda([doc(1, "a.pdf")])["statute_names"]["rows"]:
         assert r["basis"] == "statute_text"
-        assert r["statute_words"] is None or r["statute_words"] in HELD
+        assert r["statute_words_raw"] is None or r["statute_words_raw"] in HELD
 
 
 def test_the_core_imports_no_client_library_and_not_the_store() -> None:
@@ -372,3 +376,30 @@ def test_pages_with_no_text_are_stated_on_the_paper_and_a_zero_page_file_is_not_
 def test_the_added_barred_words_are_caught_and_the_longer_phrase_wins(word: str) -> None:
     assert G.barred_in(f"There is a {word} here.") == [word]
     assert G.barred_in("a weak case") == ["weak case"] and G.barred_in("missing evidence") == ["missing evidence"]
+
+
+def test_the_bracketed_amendment_is_shown_as_the_amended_words_with_its_footnote_and_the_raw_text_is_kept() -> None:
+    """G4: "3 [within thirty days]" is shown as the words with the held copy's own footnote; every other quote is untouched."""
+    page = build_agenda([doc(1, "a.pdf")])
+    notice = next(i for i in page["ingredients"] if i["id"] == "notice")
+    assert "3 [within thirty days]" in notice["statute_words_raw"] and notice["statute_words_raw"] in HELD
+    assert "3 [" not in notice["statute_words"]
+    assert "within thirty days [footnote 3: Subs. by Act 55 of 2002 s.7, for 'within fifteen days', w.e.f. 6-2-2003]" in notice["statute_words"]
+    for i in page["ingredients"]:
+        if "[" not in i["statute_words_raw"]:
+            assert i["statute_words"] == i["statute_words_raw"]
+
+
+def test_show_statute_leaves_an_unknown_footnote_number_and_none_alone() -> None:
+    assert G.show_statute(None) is None
+    assert G.show_statute("a 9 [b] c") == "a 9 [b] c"
+    assert G.footnotes()["1"].startswith("Ins. by Act 66 of 1988")
+
+
+def test_every_shown_statute_string_is_the_raw_text_with_only_the_footnote_marker_changed() -> None:
+    page = build_agenda([doc(1, "a.pdf")])
+    for i in page["ingredients"]:
+        back = i["statute_words"]
+        for n, note in G.footnotes().items():
+            back = back.replace(f" [footnote {n}: {note}]", "")
+        assert back == re.sub(r"\d+ \[([^\]]*)\]", r"\1", i["statute_words_raw"]), i["id"]
