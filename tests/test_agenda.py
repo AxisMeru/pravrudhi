@@ -288,3 +288,24 @@ def test_the_ownership_line_is_emitted_only_when_asked_for_and_names_both_pages(
     assert build_agenda([doc(1, "a.pdf")])["ownership_line"] is None
     on = build_agenda([doc(1, "a.pdf")], ownership=True)["ownership_line"]
     assert on == G.OWNERSHIP_LINE and "chronology page" in on and "cheque checklist" in on
+
+
+@pytest.mark.parametrize("name", ["Notice of cheque return.pdf", "legal notice dishonour of cheque.pdf", "cheque_return_memo.pdf"])
+def test_a_file_name_that_fits_two_types_gets_no_type_and_never_fills_the_cheque_row(name: str) -> None:
+    p = build_agenda([doc(1, name)])
+    assert p["papers_read"]["papers"][0]["paper_type"] is None
+    rows = {r["id"]: r for r in p["statute_names"]["rows"]}
+    assert rows["cheque"]["status"] == "Not added yet" and rows["notice_in_writing"]["status"] == "Not added yet"
+
+
+@pytest.mark.parametrize(("name", "row"), [("Cheque.pdf", "cheque"), ("Demand notice.pdf", "notice_in_writing"), ("return memo.pdf", "bank_information")])
+def test_a_file_name_that_fits_exactly_one_type_still_gets_it_with_the_fallback_basis(name: str, row: str) -> None:
+    p = build_agenda([doc(1, name)])
+    got = {r["id"]: r for r in p["statute_names"]["rows"]}[row]
+    assert got["status"] == "Added" and got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
+
+
+def test_a_declared_type_still_wins_for_a_name_that_fits_two_types() -> None:
+    d = doc(1, "Notice of cheque return.pdf")
+    p = build_agenda([d], {d.doc_id: "cheque"})
+    assert {r["id"]: r for r in p["statute_names"]["rows"]}["cheque"]["status"] == "Added"

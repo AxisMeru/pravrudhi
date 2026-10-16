@@ -127,11 +127,15 @@ class Doc:
 
 
 def _name_type(name: str, asset: dict[str, Any]) -> str | None:
+    """The type the FILE NAME suggests, only when exactly ONE type's words are in it: a name that fits two or more types
+    ("Notice of cheque return.pdf") is ambiguous and gets no type, so it can never fill a row for the wrong paper."""
     low = name.lower()
-    for tid, words in asset["paper_types_from_file_name"].items():
-        if any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", low) for w in words):
-            return str(tid)
-    return None
+    hits = [
+        str(tid)
+        for tid, words in asset["paper_types_from_file_name"].items()
+        if any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", low) for w in words)
+    ]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _esc(s: str) -> str:
