@@ -212,11 +212,23 @@ def test_a_repeated_header_date_is_a_printed_line_and_never_evidence() -> None:
     assert by_text(sc)["03.04.2015"].category == "ambiguous"  # the header date did not settle the convention
 
 
-def test_a_date_line_that_is_not_among_the_first_or_last_three_lines_is_not_printed() -> None:
-    body = "line one\nline two\nline three\nline four\nNext date: 13.04.2015\nline six\nline seven\nline eight\nline nine"
-    rows = [("d", p, p * 200, body, p) for p in range(1, 5)]
+def test_a_date_line_that_moves_from_page_to_page_is_not_printed() -> None:
+    """Order-sheet body lines vary in index: the same date text at a DIFFERENT line index on each page is not a template line."""
+    rows = []
+    for p in range(1, 5):
+        lines = [f"line {i}" for i in range(12)]
+        lines.insert(p, "Next date: 13.04.2015")  # index 1, 2, 3, 4: never the same index on 3 pages
+        rows.append(("d", p, p * 400, "\n".join(lines), p))
     sc = scan_document(rows, TODAY)
     assert not [h for h in sc.hits if h.category == "printed"]
+
+
+def test_a_four_line_letterhead_date_at_the_same_line_index_on_three_pages_is_printed_and_settles_nothing() -> None:
+    head = "IN THE HIGH COURT OF DELHI\nAT NEW DELHI\nCrl.M.C. 12/2015\nDate: 13.04.2015\n"
+    rows = [("d", p, p * 400, head + f"body {p}\nThe notice was served on 03.04.2015.", p) for p in range(1, 4)]
+    sc = scan_document(rows, TODAY)
+    assert [h for h in sc.hits if h.category == "printed"]
+    assert all(h.how != "day_first_by_document_evidence" for h in sc.hits)
 
 
 @pytest.mark.parametrize("line", ["Printed on 03.04.2015", "Downloaded on 03.04.2015 from the portal", "Page 3 of 10 03.04.2015"])
@@ -432,10 +444,20 @@ def test_the_same_text_with_a_space_before_the_date_reads_the_date() -> None:
 
 def test_a_mention_ending_a_passage_without_sentence_punctuation_is_not_read_when_a_passage_follows() -> None:
     a, b = "Date of arrest: 13.06.2024", "the next passage continues here."
-    sc = scan_document([("d", 1, 0, a, 1), ("d", 1, len(a) + 1, b, 2)], TODAY)
+    sc = scan_document([("d", 1, 0, a, 1), ("d", 1, len(a), b, 2)], TODAY)  # gap 0: a hard cut, the date may be half of a longer one
     assert sc.hits[0].category == "not_read" and sc.hits[0].not_read_reason == "cut_boundary"
-    last = scan_document([("d", 1, 0, a, 1)], TODAY)  # the document's last passage cannot be a cut
-    assert last.hits[0].category in ("exact", "ambiguous")
+
+
+def test_a_complete_date_ending_a_passage_with_a_gap_is_read_but_a_two_digit_year_or_partial_is_not() -> None:
+    a, b = "Date of arrest: 13.06.2024", "the next passage continues here."
+    sc = scan_document([("d", 1, 0, a, 1), ("d", 1, len(a) + 1, b, 2)], TODAY)  # gap 1: a complete date cannot be a left half
+    assert sc.hits[0].category == "exact"
+    a2 = "Date of arrest: 13.06.24"
+    sc = scan_document([("d", 1, 0, a2, 1), ("d", 1, len(a2) + 1, b, 2)], TODAY)
+    assert sc.hits[0].category == "not_read"
+    a3 = "Date of arrest: June 2024"
+    sc = scan_document([("d", 1, 0, a3, 1), ("d", 1, len(a3) + 1, b, 2)], TODAY)
+    assert sc.hits[0].category == "not_read"
 
 
 def test_a_mention_ending_a_passage_at_a_sentence_end_reads() -> None:
@@ -619,3 +641,43 @@ def test_an_implausible_future_year_gives_no_century_evidence_for_a_two_digit_ye
     assert values(sc) == []
     sc = scan("He left on 13 June 2026. He was arrested on 13.06.24.")
     assert date(2024, 6, 13) in values(sc)
+
+
+@pytest.mark.parametrize("word", ["casino", "Bruno", "briefcase", "Reno", "piano"])
+def test_a_word_that_merely_ends_in_a_case_number_marker_does_not_hide_a_date(word: str) -> None:
+    sc = scan(f"He met {word} 13.03.2019 and left.")
+    assert date(2019, 3, 13) in values(sc), word
+
+
+@pytest.mark.parametrize("marker", ["No. 13.03.2019", "Case 13.03.2019", "FIR 13.03.2019"])
+def test_a_real_case_number_marker_still_hides_the_shape(marker: str) -> None:
+    sc = scan(f"See {marker} for the file.")
+    assert date(2019, 3, 13) not in values(sc), marker
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("He left on dt.28-01-2014 for good.", date(2014, 1, 28)),
+        ("He left on dated.13.03.2019 for good.", date(2019, 3, 13)),
+        ("He left on April 6,1985 for good.", date(1985, 4, 6)),
+    ],
+)
+def test_dt_dot_dated_dot_and_comma_without_space_forms_are_read(text: str, want: date) -> None:
+    assert want in values(scan(text))
+
+
+@pytest.mark.parametrize("prose", ["The court may operate here.", "I may observe that", "May I proceed?", "He may lie.", "In March of that year"])
+def test_ordinary_prose_with_a_month_word_is_not_a_date_like_string(prose: str) -> None:
+    assert scan(prose).hits == [], prose
+
+
+def test_a_look_alike_day_next_to_a_year_is_still_counted_as_unread() -> None:
+    sc = scan("The matter happened on June O, 2014 as noted.")
+    assert sc.hits and sc.hits[0].category == "not_read"
+
+
+@pytest.mark.parametrize("abbr", ["Rs.", "Sr.", "Insp.", "Addl.", "Dist.", "Govt.", "Lt.", "Col.", "Capt.", "Prof.", "Distt."])
+def test_common_abbreviations_do_not_split_a_sentence(abbr: str) -> None:
+    text = f"He paid {abbr} 500 and was arrested on 3 April 2015."
+    assert len(CD.sentences(text)) == 1, abbr

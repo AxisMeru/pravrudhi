@@ -41,21 +41,21 @@ _W_DMY = re.compile(rf"(?<![\w/])({_D}{{1,2}})(?:st|nd|rd|th)?(?:{_SP}of)?{_SPC}
 _W_NTH = re.compile(
     rf"(?<![\w/])({_D}{{1,2}})(?:st|nd|rd|th){_SP}day{_SP}of{_SP}({_MONTH_CI})\.?,?{_SP}?({_D}{{4}})(?!{_D})", re.I
 )
-_W_MDY = re.compile(rf"(?<!\w)({_MONTH_CI})\.?{_SP}({_D}{{1,2}})(?:st|nd|rd|th)?,?{_SP}({_D}{{4}})(?!{_D})")
+_W_MDY = re.compile(rf"(?<!\w)({_MONTH_CI})\.?{_SP}({_D}{{1,2}})(?:st|nd|rd|th)?(?:,{_SP}?|{_SP})({_D}{{4}})(?!{_D})")
 _ISO = re.compile(rf"(?<![0-9-])({_D}{{4}})-({_D}{{2}})-({_D}{{2}})(?!{_D})")
-_NUM = re.compile(rf"(?<![0-9.:/-])({_D}{{1,2}})[ ]?([./-])[ ]?({_D}{{1,2}})[ ]?\2[ ]?({_D}{{4}}|{_D}{{2}})(?!{_D}|[./-]{_D})")
+_NUM = re.compile(rf"(?<![0-9:/-])(?<![0-9]\.)({_D}{{1,2}})[ ]?([./-])[ ]?({_D}{{1,2}})[ ]?\2[ ]?({_D}{{4}}|{_D}{{2}})(?!{_D}|[./-]{_D})")
 _P_MY = re.compile(rf"(?<!\w)({_MONTH_CI})\.?,?{_SP}({_D}{{4}})(?!{_D})")
 _P_DM = re.compile(rf"(?<![\w/])({_D}{{1,2}})(?:st|nd|rd|th)?(?:{_SP}of)?{_SP}({_MONTH_CI})\b\.?(?!{_SPC}?{_D})")
 _P_Y = re.compile(rf"(?:\b(?:in|during|since)|\bthe year|\bof the year|\byear)[ ]+({_D}{{4}})(?!{_D})", re.I)
 _NUMBER_LIKE = re.compile(
     rf"(?<![\w/.-]){_D}{{3,6}}/{_D}{{1,2}}/{_D}{{4}}(?!{_D})"
-    r"|(?:No\.?|Nos\.?|Crime|FIR|Case|Cr\.?|Crl\.?|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)"
+    r"|(?<![A-Za-z])(?:No\.?|Nos\.?|Crime|FIR|Case|Cr\.?|Crl\.?|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)"
     rf"[ ]?[-.:(]*[ ]?{_D}{{1,6}}[/-]{_D}{{1,4}}(?:[/-]{_D}{{1,4}})?"
     rf"|(?<![\w.:/-]){_D}{{1,2}}[.:]{_D}{{2}}(?:[.:]{_D}{{2}})?[ ]?(?:a\.?m\.?|p\.?m\.?|hrs|hours)(?!\w)",
     re.I,
 )
 _IDENT_BEFORE = re.compile(
-    r"(?:No\.?|Nos\.?|Cr\.?|Crl\.?|Case|FIR|Crime|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)\s*$", re.I
+    r"(?<![A-Za-z])(?:No\.?|Nos\.?|Cr\.?|Crl\.?|Case|FIR|Crime|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)\s*$", re.I
 )
 _TIME_AFTER = re.compile(r"^[ ]?(?:a\.?m\.?|p\.?m\.?|hrs|hours)(?!\w)", re.I)
 _APPROX = re.compile(r"(?:on or about|about|around|approx\.?|approximately|circa)\s*$", re.I)
@@ -81,14 +81,16 @@ _CITATION_AROUND = re.compile(r"\(\d{4}\)[ ]?\d+[ ]?[A-Z]|\bAIR[ ]?\d{4}|\d{4}[ 
 _PRINTED_PHRASE = re.compile(
     r"printed on|downloaded on|downloaded from|print date|page\s+\d+\s+of\s+\d+|digitally signed|uploaded on|indian kanoon", re.I
 )
+#: a repeated header/footer date sits at the SAME line index from the top (or bottom) of a page on >= 3 pages
+HEADER_LINES = 8
 _NON_ASCII_DIGIT = re.compile(r"[٠-٩۰-۹०-९０-９]")
 _QUOTE_OPEN = "“„‟«□"
 _QUOTE_CLOSE = "”»‚"
 _LIKE = [
     re.compile(r"(?<![\w])(?:[\d|OoIl!]{1,4}[ ]?[./-][ ]?){2}[\d|OoIl!]{2,4}(?![\w])"),
-    re.compile(rf"(?<![\w/])[\d|OoIl!]{{1,2}}(?:st|nd|rd|th)?(?:{_SP}of)?{_SPC}{_MONTH_CI}\b"),
-    re.compile(rf"(?<![\w/])[\d|OoIl!]{{1,2}}(?:st|nd|rd|th){_SP}day{_SP}of{_SP}{_MONTH_CI}\b", re.I),
-    re.compile(rf"(?<![\w]){_MONTH_CI}\b\.?,?{_SP}[\d|OoIl!]{{1,4}}"),
+    re.compile(rf"(?<![\w/])(?=[|OoIl!]*[0-9])[\d|OoIl!]{{1,2}}(?:st|nd|rd|th)?(?:{_SP}of)?{_SPC}{_MONTH_CI}\b"),
+    re.compile(rf"(?<![\w/])(?=[|OoIl!]*[0-9])[\d|OoIl!]{{1,2}}(?:st|nd|rd|th){_SP}day{_SP}of{_SP}{_MONTH_CI}\b", re.I),
+    re.compile(rf"(?<![\w]){_MONTH_CI}\b\.?,?{_SP}(?=[|OoIl!]*[0-9]|[|OoIl!]{{1,4}}[ ,.]{{1,3}}[0-9])[\d|OoIl!]{{1,4}}"),
     re.compile(r"(?<![\d-])[\d|OoIl!]{4}-[\d|OoIl!]{2}-[\d|OoIl!]{2}(?!\d)"),
     re.compile(r"(?:\b(?:in|during|since)|\bthe year|\bof the year|\byear)[ ]+[\d|OoIl!]{4}(?![\d])", re.I),
 ]
@@ -107,6 +109,7 @@ class Unit:
     prev_end: int | None = None
     prev_last: str = ""
     has_next: bool = False
+    next_gap0: bool = False  # the next passage starts exactly where this one ends (a hard cut)
 
     def __post_init__(self) -> None:
         self.end_nospace = len(self.text.rstrip())  # cached: the edge rules run once per mention
@@ -145,6 +148,7 @@ class Hit:
     approximate: bool = False
     reference: bool = False
     quoted: bool = False
+    both_conv: bool = False  # the file shows both conventions: the ambiguous row says so
     scheduled: bool = False
     printed: bool = False
     #: numeric parts as printed (for the day/month rule)
@@ -176,6 +180,7 @@ def prepare_units(passages: list[tuple[str, int, int, str, int | str]]) -> list[
         if units:
             u.prev_end = units[-1].start + len(units[-1].text)
             u.prev_last = units[-1].text.rstrip()[-1:]
+            units[-1].next_gap0 = start == u.prev_end
         units.append(u)
     return units
 
@@ -198,6 +203,27 @@ _ABBR = frozenset(
         "shri",
         "sri",
         "vs",
+        "rs",
+        "sr",
+        "jr",
+        "insp",
+        "addl",
+        "dist",
+        "distt",
+        "govt",
+        "dept",
+        "lt",
+        "col",
+        "capt",
+        "prof",
+        "const",
+        "hav",
+        "dy",
+        "asst",
+        "gen",
+        "maj",
+        "supdt",
+        "inspr",
         "v",
         "ltd",
         "pvt",
@@ -516,16 +542,21 @@ def _printed_ranges(units: list[Unit]) -> dict[int, list[tuple[int, int]]]:
                 by_page[u.page].append((ui, s, e, line))
                 if _PRINTED_PHRASE.search(line):
                     out[ui].append((s, e))
-    pages_of: dict[str, set[int]] = defaultdict(set)
-    cands: list[tuple[int, int, int, str]] = []
+    pages_of: dict[tuple[str, str, int], set[int]] = defaultdict(set)
+    cands: list[tuple[int, int, int, list[tuple[str, str, int]]]] = []
     for page, lines in by_page.items():
-        for ui, s, e, line in lines[:3] + lines[-3:]:
+        n = len(lines)
+        for i, (ui, s, e, line) in enumerate(lines):
+            if i >= HEADER_LINES and n - 1 - i >= HEADER_LINES:
+                continue
             if re.search(r"[0-9]", line) and (_LIKE[0].search(line) or any(rx.search(line) for rx in _LIKE[1:4])):
                 masked = re.sub(r"\s+", " ", re.sub(r"[0-9]", "#", line.strip().lower()))
-                pages_of[masked].add(page)
-                cands.append((ui, s, e, masked))
-    for ui, s, e, masked in cands:
-        if len(pages_of[masked]) >= 3:
+                keys = [(masked, "top", i)] * (i < HEADER_LINES) + [(masked, "bottom", n - 1 - i)] * (n - 1 - i < HEADER_LINES)
+                for k in keys:
+                    pages_of[k].add(page)
+                cands.append((ui, s, e, keys))
+    for ui, s, e, keys in cands:
+        if any(len(pages_of[k]) >= 3 for k in keys):
             out[ui].append((s, e))
     return out
 
@@ -692,10 +723,15 @@ def _full_year(h: Hit) -> int | None:
     return int(m.group(1)) if m and h.kind in ("written", "iso", "range", "partial_month_year") else None
 
 
+def _short_year(h: Hit) -> bool:
+    return h.kind == "numeric" and len(h.year_text) == 2
+
+
 def _edge_cut(u: Unit, h: Hit) -> bool:
     """Rules E and S (addenda 2 and 3): a mention touching a passage edge may be half of a date cut by A2."""
-    if u.has_next and h.end == u.end_nospace:
-        return True  # rule E: ends the passage with no sentence punctuation after it
+    if u.has_next and h.end == u.end_nospace and (u.next_gap0 or h.kind.startswith("partial_") or _short_year(h)):
+        return True  # rule E: ends the passage with no punctuation after it, and could be the left half of a longer date
+        # (a complete four-digit-year date followed by a gap cannot be: Track B R7)
     first = u.first_nospace
     if u.prev_end is not None and h.start == first:
         if u.start == u.prev_end:
@@ -792,7 +828,7 @@ def _read_one(
             h.value, h.how = v, "only_valid_reading"
         return
     if both:
-        h.how, h.readings = "ambiguous", (dfirst, mfirst)
+        h.how, h.readings, h.both_conv = "ambiguous", (dfirst, mfirst), True
         return
     e_day, e_mon = day_ev.get(h.sep), mon_ev.get(h.sep)
     if e_day is not None and e_mon is None:

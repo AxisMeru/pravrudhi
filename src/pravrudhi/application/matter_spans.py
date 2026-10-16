@@ -79,58 +79,10 @@ _DOC_ID = re.compile(r"^[0-9a-f]{32}$")
 #: function words a question may contain without each having to be in the span (a closed list; every OTHER term must match)
 STOPWORDS = frozenset(
     [
-        "a",
-        "an",
-        "and",
-        "are",
-        "as",
-        "at",
-        "be",
-        "been",
-        "but",
-        "by",
-        "did",
-        "do",
-        "does",
-        "for",
-        "from",
-        "had",
-        "has",
-        "have",
-        "how",
-        "i",
-        "if",
-        "in",
-        "is",
-        "it",
-        "its",
-        "of",
-        "on",
-        "or",
-        "so",
-        "than",
-        "that",
-        "the",
-        "their",
-        "then",
-        "there",
-        "these",
-        "they",
-        "this",
-        "those",
-        "to",
-        "was",
-        "were",
-        "what",
-        "when",
-        "where",
-        "which",
-        "who",
-        "whom",
-        "why",
-        "will",
-        "with",
-        "would",
+        "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "did", "do", "does", "for", "from", "had",
+        "has", "have", "how", "i", "if", "in", "is", "it", "its", "of", "on", "or", "so", "than", "that", "the",
+        "their", "then", "there", "these", "they", "this", "those", "to", "was", "were", "what", "when", "where",
+        "which", "who", "whom", "why", "will", "with", "would",
     ]
 )
 _SCHEMA = (
@@ -398,13 +350,7 @@ class MatterStore:
             return self._ingest(tenant, matter_id, text, name, pages, without_text, spans)
 
     def _ingest(
-        self,
-        tenant: str,
-        matter_id: str,
-        text: str,
-        name: str,
-        pages: list[str],
-        without_text: list[int],
+        self, tenant: str, matter_id: str, text: str, name: str, pages: list[str], without_text: list[int],
         spans: list[tuple[int, int, int]],
     ) -> dict[str, Any]:
         """The write, under the tenant lock: the tenant-bytes check and the bytes it spends are one step, so two ingests of one
@@ -437,16 +383,8 @@ class MatterStore:
                 conn.execute(
                     "INSERT INTO document (doc_id, name, n_chars, n_pages, n_spans, sha256, created, ingest_done, "
                     "pages_without_text) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
-                    (
-                        doc_id,
-                        name.strip()[:MAX_NAME_CHARS] or "document",
-                        len(text),
-                        len(pages),
-                        len(spans),
-                        sha,
-                        datetime.now(UTC).isoformat(timespec="seconds"),
-                        json.dumps(without_text),
-                    ),
+                    (doc_id, name.strip()[:MAX_NAME_CHARS] or "document", len(text), len(pages), len(spans), sha,
+                     datetime.now(UTC).isoformat(timespec="seconds"), json.dumps(without_text)),
                 )
                 for page, start, end in spans:
                     cur = conn.execute(
@@ -463,16 +401,8 @@ class MatterStore:
                 with suppress(sqlite3.Error):
                     conn.execute("ROLLBACK")
                 raise
-        return {
-            "matter_id": matter_id,
-            "doc_id": doc_id,
-            "name": name,
-            "n_pages": len(pages),
-            "n_spans": len(spans),
-            "n_chars": len(text),
-            "pages_without_text": without_text,
-            "indexed_complete": not without_text,
-        }
+        return {"matter_id": matter_id, "doc_id": doc_id, "name": name, "n_pages": len(pages), "n_spans": len(spans),
+                "n_chars": len(text), "pages_without_text": without_text, "indexed_complete": not without_text}
 
     # -- questions
     def query(self, tenant: str, matter_id: str, q: str) -> dict[str, Any]:
@@ -503,14 +433,8 @@ class MatterStore:
         }
         tail = f"; {notes['pages_note']}" if notes["pages_note"] else ""
         if not rows:
-            return {
-                **base,
-                "found": False,
-                "total_matches": 0,
-                "truncated": False,
-                "message": "Not found in the papers you added" + tail,
-                "spans": [],
-            }
+            return {**base, "found": False, "total_matches": 0, "truncated": False,
+                    "message": "Not found in the papers you added" + tail, "spans": []}
         spans = [
             {"span_id": r[0], "doc_id": r[1], "name": r[2], "page": r[3], "start": r[4], "end": r[5], "text": r[6]} for r in rows
         ]
@@ -529,11 +453,8 @@ class MatterStore:
             return {"ok": False, "reason": "no_such_document"}
         nq = normalise_for_quote(quote)
         if len(nq) < MIN_QUOTE_CHARS and len(nq.split()) < MIN_QUOTE_WORDS:
-            return {
-                "ok": False,
-                "reason": "quote_too_short",
-                "detail": f"A quote needs at least {MIN_QUOTE_CHARS} characters or {MIN_QUOTE_WORDS} words",
-            }
+            return {"ok": False, "reason": "quote_too_short",
+                    "detail": f"A quote needs at least {MIN_QUOTE_CHARS} characters or {MIN_QUOTE_WORDS} words"}
         with self._open(self._db_path(tenant, matter_id)) as conn:
             row = conn.execute("SELECT text FROM span WHERE id = ? AND doc_id = ?", (span_id, doc_id)).fetchone()
         if row is None:
@@ -550,12 +471,8 @@ class MatterStore:
                 raise MatterError("document_not_found", "No such document", 404)
             _scrub_document(conn, doc_id)
             _compact(conn)
-        return {
-            "deleted": True,
-            "matter_id": matter_id,
-            "doc_id": doc_id,
-            "message": "The document was deleted from this service's store.",
-        }
+        return {"deleted": True, "matter_id": matter_id, "doc_id": doc_id,
+                "message": "The document was deleted from this service's store."}
 
     def _delete_matter_locked(self, tenant: str, matter_id: str) -> int:
         mdir = self._matter_dir(tenant, matter_id)
@@ -583,12 +500,8 @@ class MatterStore:
             n = self._delete_matter_locked(tenant, matter_id)
             with suppress(OSError):
                 self._tenant_dir(tenant).rmdir()  # only when no other matter of the tenant is left
-        return {
-            "deleted": True,
-            "matter_id": matter_id,
-            "documents": n,
-            "message": "The papers and their stored text were deleted from this service's store.",
-        }
+        return {"deleted": True, "matter_id": matter_id, "documents": n,
+                "message": "The papers and their stored text were deleted from this service's store."}
 
     def delete_tenant(self, tenant: str) -> dict[str, Any]:
         """Every folder of the tenant goes, whether or not it holds a database (a failed create, a manual edit or a crash can
@@ -612,13 +525,8 @@ class MatterStore:
                         _remove_tree(p, self.base)
                 if tdir.is_dir():
                     _remove_tree(tdir, self.base)
-        return {
-            "deleted": True,
-            "matters": n,
-            "folders_without_database": bare,
-            "symlinks_removed": links,
-            "message": "All stored papers of your organisation were deleted from this service's store.",
-        }
+        return {"deleted": True, "matters": n, "folders_without_database": bare, "symlinks_removed": links,
+                "message": "All stored papers of your organisation were deleted from this service's store."}
 
 
 # ---- internals ------------------------------------------------------------------------------------------------------------
@@ -630,18 +538,8 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         "SELECT doc_id, name, n_pages, n_spans, n_chars, ingest_done, pages_without_text FROM document ORDER BY rowid"
     ):
         unread = json.loads(r[6] or "[]")
-        out.append(
-            {
-                "doc_id": r[0],
-                "name": r[1],
-                "n_pages": r[2],
-                "n_spans": r[3],
-                "n_chars": r[4],
-                "ingest_done": bool(r[5]),
-                "pages_without_text": unread,
-                "indexed_complete": bool(r[5]) and not unread,
-            }
-        )
+        out.append({"doc_id": r[0], "name": r[1], "n_pages": r[2], "n_spans": r[3], "n_chars": r[4], "ingest_done": bool(r[5]),
+                    "pages_without_text": unread, "indexed_complete": bool(r[5]) and not unread})
     return out
 
 
@@ -697,33 +595,14 @@ def _fts_columns(text: str) -> tuple[str, str]:
     return text, ("" if joined == text else joined)
 
 
-NORMALISATIONS = (
-    "NFC",
-    "curly quotes to straight",
-    "no-break and zero-width spaces to space",
-    "whitespace collapsed",
-    "line-break hyphen joined",
-    "case folded",
-)
+NORMALISATIONS = ("NFC", "curly quotes to straight", "no-break and zero-width spaces to space", "whitespace collapsed",
+                  "line-break hyphen joined", "case folded")
 
 
 def normalise_for_quote(s: str) -> str:
     s = unicodedata.normalize("NFC", s)
-    s = s.translate(
-        {
-            0x2018: "'",
-            0x2019: "'",
-            0x201C: '"',
-            0x201D: '"',
-            0x00A0: " ",
-            0x200B: "",
-            0x200C: "",
-            0x200D: "",
-            0x2060: "",
-            0xFEFF: "",
-            0x00AD: "",
-        }
-    )
+    s = s.translate({0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x00A0: " ", 0x200B: "", 0x200C: "", 0x200D: "",
+                     0x2060: "", 0xFEFF: "", 0x00AD: ""})
     s = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", s)
     return re.sub(r"\s+", " ", s).strip().casefold()
 

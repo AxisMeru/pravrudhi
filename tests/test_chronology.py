@@ -621,6 +621,7 @@ def test_a_case_number_and_a_printed_line_are_their_own_blocks() -> None:
 def test_the_core_imports_no_client_library_and_not_the_store() -> None:
     code = (
         "import sys\n"
+        f"sys.path.insert(0, {str(REPO / 'src')!r})\n"  # -I ignores PYTHONPATH: put THIS checkout's src first
         "import pravrudhi.application.chronology, pravrudhi.application.chronology_dates\n"
         "bad=[m for m in ('httpx','requests','openai','anthropic','pravrudhi.application.matter_spans') if m in sys.modules]\n"
         "print(','.join(bad))\n"
@@ -631,7 +632,6 @@ def test_the_core_imports_no_client_library_and_not_the_store() -> None:
         text=True,
         cwd=REPO,
         check=True,
-        env={"PYTHONPATH": str(REPO / "src")},
     )
     assert out.stdout.strip() == ""
 
@@ -675,3 +675,64 @@ def test_the_groupable_flags_are_exactly_the_four_types_and_each_has_a_name_patt
     assert groupable == {"arrest", "fir", "charge_sheet", "surrender"}
     assert set(C._NAME_PATTERNS) == groupable
     assert all(t["single_occurrence"] == t["groupable"] for t in ASSET["types"])
+
+
+# ---- Track B / R2 read of 6a8382fb ---------------------------------------------------------------------------------------------------
+
+
+def _fir(no: str, date_text: str, doc: str) -> tuple[str, str]:
+    return (doc, f"A case was registered against Ravi Kumar vide FIR No. {no} on {date_text}.")
+
+
+def test_different_fir_numbers_in_the_no_n_of_year_form_never_group_and_the_same_number_does() -> None:
+    assert not build(_fir("12 of 2015", "3 April 2015", "a.pdf"), _fir("40 of 2016", "9 May 2016", "b.pdf"))["groups"]
+    assert build(_fir("12 of 2015", "3 April 2015", "a.pdf"), _fir("12 of 2015", "9 May 2016", "b.pdf"))["groups"]
+    assert not build(_fir("12/2015", "3 April 2015", "a.pdf"), _fir("40/2016", "9 May 2016", "b.pdf"))["groups"]
+    assert not build(_fir("12 of 2015", "3 April 2015", "a.pdf"), _fir("12/2016", "9 May 2016", "b.pdf"))["groups"]
+
+
+def test_a_file_that_mixes_conventions_says_so_on_the_ambiguous_row_and_counts_it() -> None:
+    out = build(("a.pdf", "He left on 13.04.2015. He returned on 04.13.2015. He was arrested on 03.04.2015."))
+    row = out["ambiguous"][0]
+    assert C.BOTH_CONVENTIONS in row["how_text"]
+    assert out["denominator"]["ambiguous_in_files_with_both_conventions"] == 1
+    plain = build(("a.pdf", "He was arrested on 03.04.2015."))
+    assert C.BOTH_CONVENTIONS not in plain["ambiguous"][0]["how_text"]
+    assert plain["denominator"]["ambiguous_in_files_with_both_conventions"] == 0
+
+
+def test_an_abbreviation_does_not_cut_the_sentence_so_the_cue_in_front_of_it_still_blocks_a_group() -> None:
+    out = build(
+        ("a.pdf", "Ravi Kumar was arrested on 13 June 2024."),
+        ("b.pdf", "He did not pay Rs. 500 and Ravi Kumar was arrested on 14 June 2024."),
+    )
+    assert not out["groups"]
+
+
+@pytest.mark.parametrize("cue", ["doesn't", "don't", "weren't", "won't", "wouldn't", "shouldn't", "mustn't", "unsuccessfully", "refuse"])
+def test_the_missing_contractions_and_refusals_are_cues(cue: str) -> None:
+    out = build(("a.pdf", "Ravi Kumar was arrested on 13 June 2024."), ("b.pdf", f"They {cue} say Ravi Kumar was arrested on 14 June 2024."))
+    assert not out["groups"], cue
+
+
+def test_the_group_stage_does_the_same_work_per_row_at_n_and_2n_in_one_document() -> None:
+    """R2: many rows sharing one type and name in ONE document must not be quadratic: count compat-key calls, not seconds."""
+
+    def calls(n: int) -> int:
+        seen = {"n": 0}
+        real = C._compat_key
+
+        def counting(r: Any) -> Any:
+            seen["n"] += 1
+            return real(r)
+
+        C._compat_key = counting  # type: ignore[assignment]
+        try:
+            text = " ".join(f"Ravi Kumar was arrested on {1 + i % 28} June 2024." for i in range(n))
+            build(("a.pdf", text), ("b.pdf", "Ravi Kumar was arrested on 30 June 2024."))
+        finally:
+            C._compat_key = real  # type: ignore[assignment]
+        return seen["n"]
+
+    a, b = calls(200), calls(400)
+    assert a <= 2 * 201 and b <= 2 * 401 and b <= 2.2 * a

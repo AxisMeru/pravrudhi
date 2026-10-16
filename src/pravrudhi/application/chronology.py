@@ -20,7 +20,7 @@ import hashlib
 import json
 import re
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -178,7 +178,9 @@ class _Phrases:
 _MONTH_NAMES = frozenset(m.lower() for m in calendar.month_name if m) | frozenset(m.lower() for m in calendar.month_abbr if m)
 _DAY_NAMES = frozenset(d.lower() for d in calendar.day_name)
 _NAME_RUN = re.compile(r"\b(?:[A-Z][a-z]{2,}(?:[ ][A-Z][a-z]{2,}){0,2}|[A-Z]{3,}(?:[ ][A-Z]{3,}){0,2})\b")
-_FIR_NO = re.compile(r"(?:FIR|Crime|Cr\.?)[ ]?(?:No\.?)?[ ]?[-:(]*[ ]?([0-9]{1,6}[/-][0-9]{2,4})", re.I)
+_FIR_NO = re.compile(
+    r"(?<![A-Za-z])(?:FIR|Crime|Cr\.?)[ ]?(?:No\.?)?[ ]?[-:(]*[ ]?([0-9]{1,6})(?:[ ]?[/-][ ]?([0-9]{2,4})|[ ]+of[ ]+([0-9]{4}))", re.I
+)
 _ROLE_RE = re.compile(r"\bthe (accused|petitioner|complainant|appellant|victim)\b", re.I)
 
 
@@ -365,7 +367,7 @@ def build_chronology(
                 filing=any(re.search(rf"\b{w}\b", low) for w in ph.filing_words),
                 roles=frozenset(r for r in ph.roles if r in low),
                 items=frozenset(w for w in ph.items_words if re.search(rf"\b{w}\b", low)),
-                fir_numbers=frozenset(m.group(1) for m in _FIR_NO.finditer(text)),
+                fir_numbers=frozenset(f"{m.group(1)}/{m.group(2) or m.group(3)}" for m in _FIR_NO.finditer(text)),
             )
             if not hs:
                 if ids:
@@ -461,7 +463,7 @@ def build_chronology(
             "normalised": h.value.isoformat() if h and h.value else None,
             "range_end": h.end_value.isoformat() if h and h.end_value else None,
             "how": (h.how if h and not h.not_read_reason else "not_read") if h else None,
-            "how_text": how_text(h, False) if h else None,
+            "how_text": how_text(h, h.both_conv) if h else None,
             "not_read_reason": h.not_read_reason if h else None,
             "evidence": h.evidence if h else None,
             "readings": [d.isoformat() for d in h.readings] if h and h.readings else None,
@@ -537,6 +539,7 @@ def build_chronology(
             "pages_with_little_or_no_text": little,
             "sentences_not_read_language": lang_unread,
             "like_in_unread_sentences": like_unread,
+            "ambiguous_in_files_with_both_conventions": sum(1 for r in cats["ambiguous"] if r.hit is not None and r.hit.both_conv),
             "rows_shown": {c: len(v) for c, v in shown.items()},
         },
         "denominator_line": line,
@@ -600,19 +603,21 @@ def _group(rows: list[_Row], ph: _Phrases) -> tuple[list[list[_Row]], list[tuple
             buckets[(r.types[0], r.name)].append(r)
     groups: list[list[_Row]] = []
     for g in buckets.values():
-        ok = [r for r in g if r.fir_numbers or r.types[0] != "fir"]
-        members: list[_Row] = []
+        # O(n) per bucket: within one compatibility key a row is a member iff some OTHER row has a different document AND a
+        # different date: (rows) - (same document) - (same date) + (same document and same date) > 0.
+        by_key: dict[tuple[frozenset[str], frozenset[str]], list[_Row]] = defaultdict(list)
         for r in g:
-            if any(
-                r.scan_doc != o.scan_doc
-                and r.hit is not None
-                and o.hit is not None
-                and r.hit.value != o.hit.value
-                and _compatible(r, o)
-                for o in g
-            ):
-                members.append(r)
-        _ = ok
+            if r.hit is not None:
+                by_key[_compat_key(r)].append(r)
+        members: list[_Row] = []
+        for rows in by_key.values():
+            n_doc = Counter(r.scan_doc for r in rows)
+            n_val = Counter(r.hit.value for r in rows if r.hit is not None)
+            n_both = Counter((r.scan_doc, r.hit.value) for r in rows if r.hit is not None)
+            for r in rows:
+                assert r.hit is not None
+                if len(rows) - n_doc[r.scan_doc] - n_val[r.hit.value] + n_both[(r.scan_doc, r.hit.value)] > 0:
+                    members.append(r)
         if len(members) > 1 and len({m.scan_doc for m in members}) > 1:
             groups.append(members)
     related: list[tuple[_Row, _Row]] = []
@@ -630,8 +635,9 @@ def _group(rows: list[_Row], ph: _Phrases) -> tuple[list[list[_Row]], list[tuple
     return groups, related
 
 
-def _compatible(a: _Row, b: _Row) -> bool:
-    """No differing FIR number (both present: equal; one present: no group; neither: fine); no differing surrender item."""
-    if a.types[0] == "fir" and a.fir_numbers != b.fir_numbers:
-        return False
-    return not (a.types[0] == "surrender" and a.items != b.items)
+def _compat_key(r: _Row) -> tuple[frozenset[str], frozenset[str]]:
+    """Rows group only with rows of the same key: the same FIR number(s) (a number in one and none in the other does not group;
+    neither carrying one is fine) and, for a surrender, the same item."""
+    return (r.fir_numbers if r.types[0] == "fir" else frozenset(), r.items if r.types[0] == "surrender" else frozenset())
+
+
