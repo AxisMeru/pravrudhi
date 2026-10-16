@@ -168,7 +168,7 @@ def test_a_declared_type_wins_and_the_row_shows_the_basis() -> None:
 def test_the_file_name_is_a_stated_fallback_only() -> None:
     p = build_agenda([doc(1, "Demand Notice 2019.pdf"), doc(2, "scan_0034.pdf")])
     rows = {r["id"]: r for r in p["statute_names"]["rows"]}
-    assert rows["notice_in_writing"]["status"] == "Added"
+    assert rows["notice_in_writing"]["status"] == "A file named like this was added (type taken from the file name)"
     assert rows["notice_in_writing"]["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
     named = {x["name"]: x for x in p["papers_read"]["papers"]}
     assert named["scan_0034.pdf"]["paper_type"] is None and named["scan_0034.pdf"]["paper_type_basis"] is None
@@ -302,10 +302,73 @@ def test_a_file_name_that_fits_two_types_gets_no_type_and_never_fills_the_cheque
 def test_a_file_name_that_fits_exactly_one_type_still_gets_it_with_the_fallback_basis(name: str, row: str) -> None:
     p = build_agenda([doc(1, name)])
     got = {r["id"]: r for r in p["statute_names"]["rows"]}[row]
-    assert got["status"] == "Added" and got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
+    assert got["status"] == "A file named like this was added (type taken from the file name)"
+    assert got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
 
 
 def test_a_declared_type_still_wins_for_a_name_that_fits_two_types() -> None:
     d = doc(1, "Notice of cheque return.pdf")
     p = build_agenda([d], {d.doc_id: "cheque"})
     assert {r["id"]: r for r in p["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+# ---- Track B's G1, G2, G3, G5, G8 ------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name", ["Notice_of_Motion.pdf", "Income tax return.pdf", "Office memo.pdf", "Return_of_service.pdf", "Payment receipt.pdf", "cheque_return_memo.pdf"]
+)
+def test_loose_or_clashing_file_names_get_no_type(name: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] is None, name
+
+
+@pytest.mark.parametrize(
+    ("name", "ptype"),
+    [("Bank_Statement.pdf", "bank_statement"), ("bank-statement-2019.pdf", "bank_statement"), ("CHEQUE no 12.pdf", "cheque"), ("Speed_Post_receipt.pdf", "notice_proof")],
+)
+def test_the_name_is_split_into_words_so_separators_do_not_matter(name: str, ptype: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] == ptype
+
+
+def test_a_name_only_row_never_reads_as_plain_added_and_never_gives_the_none_line() -> None:
+    a, b, c = doc(1, "Cheque.pdf"), doc(2, "Demand notice.pdf"), doc(3, "return memo.pdf")
+    p = build_agenda([a, b, c])
+    assert {r["status"] for r in p["statute_names"]["rows"] if r["id"] != "complaint"} == {G.NAME_ONLY}
+    assert p["not_added"]["none_line"] is None  # G3: no declaration, only guesses
+    q = build_agenda([a, b, c], {a.doc_id: "cheque", b.doc_id: "demand_notice", c.doc_id: "bank_return_information"})
+    assert q["not_added"]["none_line"] is not None
+
+
+def test_a_paper_held_without_a_file_is_declared_held_and_is_not_outstanding() -> None:
+    a = doc(1, "x.pdf")
+    p = build_agenda([a], {a.doc_id: "other"}, held_without_file=["cheque", "demand_notice", "bank_return_information"])
+    rows = {r["id"]: r for r in p["statute_names"]["rows"]}
+    assert {rows[k]["status"] for k in ("cheque", "notice_in_writing", "bank_information")} == {"Declared by you; no file added"}
+    assert p["not_added"]["rows"] == [] and p["not_added"]["none_line"] is not None
+    only = build_agenda([a], held_without_file=["cheque"])
+    assert {r["id"]: r for r in only["statute_names"]["rows"]}["notice_in_writing"]["status"] == "Not added yet"
+
+
+@pytest.mark.parametrize("bad", [["not-a-type"], ["other"], ["cheque", "zzz"]])
+def test_a_held_type_that_is_not_in_the_list_is_refused(bad: list[str]) -> None:
+    with pytest.raises(ValueError):
+        build_agenda([doc(1, "x.pdf")], held_without_file=bad)
+
+
+def test_a_declared_type_beats_a_held_declaration_and_a_file_for_the_same_type_is_added() -> None:
+    d = doc(1, "x.pdf")
+    p = build_agenda([d], {d.doc_id: "cheque"}, held_without_file=["cheque"])
+    assert {r["id"]: r for r in p["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+def test_pages_with_no_text_are_stated_on_the_paper_and_a_zero_page_file_is_not_read() -> None:
+    p = build_agenda([doc(1, "a.pdf", 10, (3, 4, 5)), doc(2, "zero.pdf", 0)])
+    assert p["papers_read"]["papers"][0]["pages_note"] == "3 of 10 pages had no text"
+    assert p["papers_read"]["n"] == 1 and any("zero.pdf" in r.get("line", "") for r in p["not_added"]["rows"])
+    assert build_agenda([doc(1, "a.pdf", 2)])["papers_read"]["papers"][0]["pages_note"] is None
+
+
+@pytest.mark.parametrize("word", ["missing", "gap", "lacking", "deficient", "defect", "weak", "strong", "fatal"])
+def test_the_added_barred_words_are_caught_and_the_longer_phrase_wins(word: str) -> None:
+    assert G.barred_in(f"There is a {word} here.") == [word]
+    assert G.barred_in("a weak case") == ["weak case"] and G.barred_in("missing evidence") == ["missing evidence"]

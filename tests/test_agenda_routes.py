@@ -140,13 +140,13 @@ def test_a_signed_in_caller_gets_the_agenda_for_their_own_matter_and_a_declared_
 ) -> None:
     _on(monkeypatch)
     c = _client(tmp_path)
-    m, ids = _matter(c, "scan_0034.pdf", "Notice.pdf")
+    m, ids = _matter(c, "scan_0034.pdf", "Demand notice.pdf")
     r = c.post(PATH, json={"matter_id": m, "paper_types": {ids[0]: "cheque"}})
     assert r.status_code == 200, r.text
     b = r.json()
     assert b["run_id"].startswith("agenda-") and b["matter_id"] == m
     rows = {x["id"]: x for x in b["statute_names"]["rows"]}
-    assert rows["cheque"]["status"] == "Added" and rows["notice_in_writing"]["status"] == "Added"
+    assert rows["cheque"]["status"] == "Added" and rows["notice_in_writing"]["status"].startswith("A file named like this")
     assert rows["notice_in_writing"]["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
     assert b["papers_read"]["heading"] == "Papers read (2)" and b["lawyer_listed"] is None
 
@@ -215,3 +215,15 @@ def test_the_ownership_line_appears_only_when_the_chronology_and_the_cheque_chec
     m, _ = _matter(c, "cheque.pdf")
     line = c.post(PATH, json={"matter_id": m}).json()["ownership_line"]
     assert (line is not None) is named
+
+
+def test_a_paper_held_without_a_file_is_declared_through_the_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m, _ = _matter(c, "x.pdf")
+    r = c.post(PATH, json={"matter_id": m, "papers_held_without_file": ["cheque"]})
+    assert r.status_code == 200
+    assert {x["id"]: x for x in r.json()["statute_names"]["rows"]}["cheque"]["status"] == "Declared by you; no file added"
+    bad = c.post(PATH, json={"matter_id": m, "papers_held_without_file": ["zzz"]})
+    assert bad.status_code == 422 and bad.json()["error"] == "bad_paper_type"
+    assert c.post(PATH, json={"matter_id": m, "papers_held_without_file": [1]}).status_code == 422

@@ -84,7 +84,7 @@ BARRED = (
     "usually settles", "would settle", "settle", "evidence of", "proves", "proved", "shows that the prosecution",
     "likelihood", "chance of", "nothing missing",
 )  # fmt: skip
-_BARRED_RX = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(b) for b in BARRED) + r")(?![A-Za-z])", re.I)
+_BARRED_RX = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(b) for b in sorted(BARRED, key=len, reverse=True)) + r")(?![A-Za-z])", re.I)
 
 
 def barred_in(text: str) -> list[str]:
@@ -139,7 +139,10 @@ def _name_type(name: str, asset: dict[str, Any]) -> str | None:
         return any(tokens[i : i + len(w)] == w for i in range(len(tokens) - len(w) + 1))
 
     hits = [str(tid) for tid, phrases in asset["paper_types_from_file_name"].items() if any(has(p) for p in phrases)]
-    return hits[0] if len(hits) == 1 else None
+    if len(hits) != 1:
+        return None
+    others = {w for tid, words in asset["paper_types_hints"].items() if tid != hits[0] for w in words}
+    return None if others & set(tokens) else hits[0]
 
 
 def _esc(s: str) -> str:
