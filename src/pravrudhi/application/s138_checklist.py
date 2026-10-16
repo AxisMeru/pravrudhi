@@ -135,7 +135,7 @@ def _century(items: list[tuple[str, DateIn]]) -> int | None:
     return cents.pop() if len(cents) == 1 else None
 
 
-def _read(role: str, di: DateIn, century: int | None, min_year: int) -> _Item:
+def _read(role: str, di: DateIn, century: int | None, min_year: int, today: date) -> _Item:
     p = parse_date(di.value, century)
     problems: list[str] = []
     if p.issue == "approximate":
@@ -153,7 +153,7 @@ def _read(role: str, di: DateIn, century: int | None, min_year: int) -> _Item:
             problems.append("confirmation_without_reading")
         elif di.confirmed_as.strip() != p.value.isoformat():
             problems.append("confirmation_does_not_match")
-    if p.value is not None and not min_year <= p.value.year <= date.today().year + 1:
+    if p.value is not None and not min_year <= p.value.year <= today.year + 1:
         problems.append("year_not_plausible")
     if di.also_in_other_text:
         problems.append("date_in_other_text")
@@ -312,7 +312,8 @@ def _decide(step: dict[str, Any], ends: dict[str, date], when: date, start: date
         step["result"] = OUTCOME_WORDS[statuses["A"]] + f" (both counts agree: {unit})"
 
 
-def check(req: ChecklistRequest, cfg: S138ChecklistConfig, run_id: str = "") -> dict[str, Any]:
+def check(req: ChecklistRequest, cfg: S138ChecklistConfig, run_id: str = "", today: date | None = None) -> dict[str, Any]:
+    """`today` is the clock for the year ceiling (next year is the latest a date may have); tests inject it."""
     roles: dict[str, list[DateIn]] = {
         "presentation": req.presentations,
         "memo": req.return_memos,
@@ -329,7 +330,7 @@ def check(req: ChecklistRequest, cfg: S138ChecklistConfig, run_id: str = "") -> 
     items: dict[str, list[_Item]] = {"cheque": [], **{r: [] for r in roles}}
     for r, d in everything:
         assert d is not None
-        items[r].append(_read(r, d, century, cfg.min_year))
+        items[r].append(_read(r, d, century, cfg.min_year, today or date.today()))
 
     chains = {r: [i.raw.value for i in lst] for r, lst in items.items() if len(lst) > 1}
 

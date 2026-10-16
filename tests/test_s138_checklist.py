@@ -19,6 +19,7 @@ from pravrudhi.application.s138_checklist import ChecklistRefused, ChecklistRequ
 from pravrudhi.application.s138_checklist_config import S138ChecklistConfig, parse_s138_checklist_config
 
 CFG = S138ChecklistConfig()
+TODAY = date(2026, 10, 16)  # the injected clock: no test depends on the real date
 REPO = Path(__file__).resolve().parent.parent
 VECTORS = json.loads((REPO / "tests" / "fixtures" / "s138_vectors.json").read_text(encoding="utf-8"))["rows"]
 
@@ -67,7 +68,7 @@ FULL: dict[str, Any] = {
 
 def run(**over: Any) -> dict[str, Any]:
     body = {**FULL, **over}
-    return B.check(req(**body), CFG, run_id="t")
+    return B.check(req(**body), CFG, run_id="t", today=TODAY)
 
 
 def step(out: dict[str, Any], name: str) -> dict[str, Any]:
@@ -832,12 +833,12 @@ def test_a_period_wholly_before_or_after_the_window_computes() -> None:
 
 
 def problems_of(value: str, **kw: Any) -> list[str]:
-    out = B.check(req(notices=[d(value, **kw)]), CFG)
+    out = B.check(req(notices=[d(value, **kw)]), CFG, today=TODAY)
     return next(i["problems"] for i in out["inputs"] if i["role"] == "notice")
 
 
 def test_a_year_in_the_future_or_before_the_section_existed_is_refer() -> None:
-    this = date.today().year
+    this = TODAY.year
     assert "year_not_plausible" in problems_of("20.01.2051")
     assert "year_not_plausible" in problems_of("01.01.1915")  # a typo for 2015: the section did not exist
     assert "year_not_plausible" in problems_of("31.12.1988")
@@ -917,3 +918,56 @@ def test_iso_dates_are_read_and_are_not_ambiguous() -> None:
     assert parse_date("2015-04-03").value == date(2015, 4, 3) and parse_date("2015-04-03").day_first_assumed is False
     assert parse_date("2015-13-40").issue == "unparsed" and parse_date("2015-1-2").issue == "unparsed"
     assert problems_of("2013-03-20") == []
+
+
+# ---- R2's three missing tests (a)-(c) ------------------------------------------------------------------------------------
+
+
+def test_refer_a_saturday_last_day_for_the_presentation_period() -> None:
+    """(a) cheque 01.03.2013 (Fri), validity 3 months: the A end is 01.06.2013, a Saturday; presented 03.06.2013, after it."""
+    dates = ("01.03.2013", "03.06.2013", "04.06.2013", "05.06.2013", "10.06.2013", "11.06.2013")
+    out = B.check(req(**chain(*dates, validity=3)), CFG)
+    s = step(out, "presentation")
+    assert s["status"] == "REFER" and "last_day_is_a_weekend" in codes(s)
+    assert s["counts"]["A"]["period_ends"] == "2013-06-01"
+
+
+def test_a_sunday_last_day_is_also_a_weekend() -> None:
+    dates = ("02.03.2013", "04.06.2013", "05.06.2013", "06.06.2013", "10.06.2013", "11.06.2013")
+    out = B.check(req(**chain(*dates, validity=3)), CFG)
+    s = step(out, "presentation")  # A ends Sun 02.06.2013 (weekday() == 6)
+    assert s["counts"]["A"]["period_ends"] == "2013-06-02" and "last_day_is_a_weekend" in codes(s)
+
+
+def test_presentation_on_the_last_day_is_refer_because_the_conventions_differ() -> None:
+    """(b) cheque 01.02.2013, validity 3 months, presented 01.05.2013 = the A end: inside (A), outside (B)."""
+    out = run(validity_months=3, presentations=[d("01.05.2013")], **later("01.05.2013"))
+    s = step(out, "presentation")
+    assert s["status"] == "REFER" and "conventions_differ" in codes(s)
+    assert s["counts"]["A"]["status"] == "inside" and s["counts"]["B"]["status"] == "outside"
+    assert s["counts"]["B"]["period_ends"] == "2013-04-30"
+
+
+def test_dates_on_the_same_day_are_inside_not_before_the_start() -> None:
+    """(c) a presentation on the cheque date and a notice on the information date are inside, not 'before the start'."""
+    dates = ("01.02.2013", "01.02.2013", "04.02.2013", "05.02.2013", "05.02.2013", "06.02.2013")
+    same = B.check(req(**chain(*dates, validity=3)), CFG)
+    assert step(same, "presentation")["status"] == "INSIDE" and step(same, "notice")["status"] == "INSIDE"
+    assert "date_before_start" not in codes(step(same, "presentation")) | codes(step(same, "notice"))
+
+
+def test_the_year_ceiling_follows_the_injected_clock() -> None:
+    nxt = f"01.01.{TODAY.year + 1}"
+    assert "year_not_plausible" not in B.check(req(notices=[d(nxt)]), CFG, today=TODAY)["inputs"][0]["problems"]
+    assert "year_not_plausible" in B.check(req(notices=[d(nxt)]), CFG, today=date(2024, 6, 1))["inputs"][0]["problems"]
+    real = B.check(req(notices=[d("01.01.2013")]), CFG)  # no clock given: the real date is used, a past year is fine
+    assert "year_not_plausible" not in real["inputs"][0]["problems"]
+
+
+def test_a_sunday_only_second_count_is_a_weekend_too() -> None:
+    """R2's discriminating case: cheque 03.03.2013, validity 3 months: A ends Monday 03.06.2013, B ends SUNDAY 02.06.2013
+    (A is not a weekend day, so only B's Sunday can raise the rule); presented 04.06.2013, outside both."""
+    dates = ("03.03.2013", "04.06.2013", "05.06.2013", "06.06.2013", "10.06.2013", "11.06.2013")
+    s = step(B.check(req(**chain(*dates, validity=3)), CFG, today=TODAY), "presentation")
+    assert s["counts"]["A"]["period_ends"] == "2013-06-03" and s["counts"]["B"]["period_ends"] == "2013-06-02"
+    assert s["status"] == "REFER" and "last_day_is_a_weekend" in codes(s)
