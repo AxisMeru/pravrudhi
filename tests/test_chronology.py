@@ -422,7 +422,7 @@ def test_only_the_four_groupable_types_group_and_none_of_the_other_nine_ever_doe
 
 
 def test_a_group_needs_different_documents_and_different_dates() -> None:
-    same_doc = build(("a.pdf", "Ravi Kumar was arrested on 13 June 2024. Later Ravi Kumar was arrested on 14 June 2024."))
+    same_doc = build(("a.pdf", "Ravi Kumar was arrested on 13 June 2024. Ravi Kumar was arrested on 14 June 2024."))
     assert not same_doc["groups"]
     same_date = build(
         ("a.pdf", "Ravi Kumar was arrested on 13 June 2024."), ("b.pdf", "Ravi Kumar was arrested on 13 June 2024.")
@@ -634,3 +634,39 @@ def test_the_core_imports_no_client_library_and_not_the_store() -> None:
 def test_the_response_is_json_serialisable_and_carries_no_unexpected_types() -> None:
     out = build(("a.pdf", " ".join(SENTENCES)))
     assert json.loads(json.dumps(out))["denominator"]["lines"] == out["denominator"]["lines"]
+
+
+def test_a_non_or_un_prefixed_cue_blocks_a_group_while_the_type_phrase_is_still_there() -> None:
+    assert not _pair("After a non-appearance Ravi Kumar was arrested on 14 June 2024.")["groups"]
+    assert not _pair("After the unexecuted warrant Ravi Kumar was arrested on 14 June 2024.")["groups"]
+    assert _pair("After an appearance Ravi Kumar was arrested on 14 June 2024.")["groups"]  # the control: no prefixed cue
+    assert _pair("After the executed warrant Ravi Kumar was arrested on 14 June 2024.")["groups"]
+
+
+@pytest.mark.parametrize("no_form", ["No. 12", "No.12", "No: 12", "No.(12)", "No.-12", "No. 12 and 13"])
+def test_a_bare_number_sign_without_a_slash_is_not_a_cue(no_form: str) -> None:
+    one = f"The FIR {no_form} was registered against Ravi Kumar on"
+    out = build(("a.pdf", f"{one} 13 June 2024."), ("b.pdf", f"{one} 14 June 2024."))
+    assert out["groups"], no_form
+
+
+def test_only_a_pair_of_different_documents_makes_a_group_not_two_rows_of_one_document() -> None:
+    out = build(
+        ("a.pdf", "Ravi Kumar was arrested on 13 June 2024. Ravi Kumar was arrested on 14 June 2024."),
+        ("b.pdf", "Ravi Kumar was arrested on 13 June 2024."),
+    )
+    assert len(out["groups"]) == 1
+    assert sorted(r["normalised"] for r in out["groups"][0]["rows"]) == ["2024-06-13", "2024-06-14"]
+    assert sorted(r["document_name"] for r in out["groups"][0]["rows"]) == ["a.pdf", "b.pdf"]
+
+
+def test_a_sentence_with_two_candidate_names_never_groups_even_when_the_first_is_the_object() -> None:
+    out = build(("a.pdf", "Ravi was arrested by Inspector Sharma on 13 June 2024."), ("b.pdf", "Ravi was arrested by Inspector Sharma on 14 June 2024."))
+    assert not out["groups"]
+
+
+def test_the_groupable_flags_are_exactly_the_four_types_and_each_has_a_name_pattern() -> None:
+    groupable = {t["id"] for t in ASSET["types"] if t["groupable"]}
+    assert groupable == {"arrest", "fir", "charge_sheet", "surrender"}
+    assert set(C._NAME_PATTERNS) == groupable
+    assert all(t["single_occurrence"] == t["groupable"] for t in ASSET["types"])

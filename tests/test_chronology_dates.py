@@ -588,3 +588,27 @@ def test_a_long_sentence_is_never_cut_inside_a_date_mention() -> None:
         mention = next(h for h in sc.hits if h.text == "13 June 2024")
         sent = sc.sents[mention.sent]
         assert sent.start <= mention.start and mention.end <= sent.end, shift
+
+
+def test_a_file_that_shows_both_conventions_with_different_separators_is_still_ambiguous() -> None:
+    sc = scan("On 03.04.2015 he left. On 13.04.2015 and on 04/13/2015 he came back.")
+    assert by_text(sc)["03.04.2015"].category == "ambiguous"  # day-first evidence with '.', month-first evidence with '/'
+
+
+def test_a_year_two_past_next_year_is_not_read() -> None:
+    assert scan("On 12 June 2028 he left.").hits[0].not_read_reason == "year_not_plausible"
+    assert scan("On 12 June 2027 he left.").hits[0].category == "exact"
+
+
+def test_the_language_threshold_is_more_than_half_non_latin() -> None:
+    mostly = "\u0905\u092c\u0915\u0926\u0917\u0918 ab 13.03.2019 e."  # 6 non-Latin letters, 4 Latin: unread
+    mixed = "\u0905\u092c\u0915\u0926 abcdef 13.03.2019 end."  # 4 non-Latin, 6 Latin: read with the other-language flag
+    a, b = scan(mostly), scan(mixed)
+    assert any(s.unread_language for s in a.sents) and not any(s.other_language for s in a.sents)
+    assert any(s.other_language for s in b.sents) and not any(s.unread_language for s in b.sents)
+
+
+def test_the_year_ceiling_holds_for_numeric_dates_too() -> None:
+    assert scan("On 13.06.2028 he left.").hits[0].not_read_reason == "year_not_plausible"
+    assert scan("On 13.06.2027 he left.").hits[0].category == "exact"
+    assert scan("On 13.06.1799 he left.").hits[0].not_read_reason == "year_not_plausible"
