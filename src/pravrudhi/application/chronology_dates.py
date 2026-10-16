@@ -43,7 +43,9 @@ _W_NTH = re.compile(
 )
 _W_MDY = re.compile(rf"(?<!\w)({_MONTH_CI})\.?{_SP}({_D}{{1,2}})(?:st|nd|rd|th)?(?:,{_SP}?|{_SP})({_D}{{4}})(?!{_D})")
 _ISO = re.compile(rf"(?<![0-9-])({_D}{{4}})-({_D}{{2}})-({_D}{{2}})(?!{_D})")
-_NUM = re.compile(rf"(?<![0-9:/-])(?<![0-9]\.)({_D}{{1,2}})[ ]?([./-])[ ]?({_D}{{1,2}})[ ]?\2[ ]?({_D}{{4}}|{_D}{{2}})(?!{_D}|[./-]{_D})")
+_NUM = re.compile(
+    rf"(?<![0-9:/-])(?<![0-9]\.)({_D}{{1,2}})[ ]?([./-])[ ]?({_D}{{1,2}})[ ]?\2[ ]?({_D}{{4}}|{_D}{{2}})(?!{_D}|[./-]{_D})"
+)
 _P_MY = re.compile(rf"(?<!\w)({_MONTH_CI})\.?,?{_SP}({_D}{{4}})(?!{_D})")
 _P_DM = re.compile(rf"(?<![\w/])({_D}{{1,2}})(?:st|nd|rd|th)?(?:{_SP}of)?{_SP}({_MONTH_CI})\b\.?(?!{_SPC}?{_D})")
 _P_Y = re.compile(rf"(?:\b(?:in|during|since)|\bthe year|\bof the year|\byear)[ ]+({_D}{{4}})(?!{_D})", re.I)
@@ -55,7 +57,9 @@ _NUMBER_LIKE = re.compile(
     re.I,
 )
 _IDENT_BEFORE = re.compile(
-    r"(?<![A-Za-z])(?:No\.?|Nos\.?|Cr\.?|Crl\.?|Case|FIR|Crime|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)\s*$", re.I
+    r"(?<![A-Za-z])(?:No\.?|Nos\.?|Cr\.?|Crl\.?|Case|FIR|Crime|Crl\.O\.P\.|W\.P\.|S\.C\.|C\.C\.|Crl\.M\.P\.|O\.S\.|M\.C\.)"
+    r"\s*$",
+    re.I,
 )
 _TIME_AFTER = re.compile(r"^[ ]?(?:a\.?m\.?|p\.?m\.?|hrs|hours)(?!\w)", re.I)
 _APPROX = re.compile(r"(?:on or about|about|around|approx\.?|approximately|circa)\s*$", re.I)

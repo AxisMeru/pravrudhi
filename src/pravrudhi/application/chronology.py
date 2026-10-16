@@ -179,7 +179,9 @@ _MONTH_NAMES = frozenset(m.lower() for m in calendar.month_name if m) | frozense
 _DAY_NAMES = frozenset(d.lower() for d in calendar.day_name)
 _NAME_RUN = re.compile(r"\b(?:[A-Z][a-z]{2,}(?:[ ][A-Z][a-z]{2,}){0,2}|[A-Z]{3,}(?:[ ][A-Z]{3,}){0,2})\b")
 _FIR_NO = re.compile(
-    r"(?<![A-Za-z])(?:FIR|Crime|Cr\.?)[ ]?(?:No\.?)?[ ]?[-:(]*[ ]?([0-9]{1,6})(?:[ ]?[/-][ ]?([0-9]{2,4})|[ ]+of[ ]+([0-9]{4}))", re.I
+    r"(?<![A-Za-z])(?:FIR|Crime|Cr\.?)[ ]?(?:No\.?)?[ ]?[-:(]*[ ]?([0-9]{1,6})"
+    r"(?:[ ]?[/-][ ]?([0-9]{2,4})|[ ]+of[ ]+([0-9]{4}))",
+    re.I,
 )
 _ROLE_RE = re.compile(r"\bthe (accused|petitioner|complainant|appellant|victim)\b", re.I)
 
@@ -539,7 +541,9 @@ def build_chronology(
             "pages_with_little_or_no_text": little,
             "sentences_not_read_language": lang_unread,
             "like_in_unread_sentences": like_unread,
-            "ambiguous_in_files_with_both_conventions": sum(1 for r in cats["ambiguous"] if r.hit is not None and r.hit.both_conv),
+            "ambiguous_in_files_with_both_conventions": sum(
+                1 for r in cats["ambiguous"] if r.hit is not None and r.hit.both_conv
+            ),
             "rows_shown": {c: len(v) for c, v in shown.items()},
         },
         "denominator_line": line,
