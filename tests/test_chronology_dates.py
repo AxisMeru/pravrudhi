@@ -577,3 +577,14 @@ def test_no_cut_position_makes_a_row_with_a_date_the_paper_does_not_say(planted:
         assert len(shown) == len(set(shown)), (planted, k, variant)
         if allowed and not shown:
             assert sc.hits, (planted, k, variant, "the date vanished")  # something counted it
+
+
+def test_a_long_sentence_is_never_cut_inside_a_date_mention() -> None:
+    pad = "word " * 396  # puts a space-rich date across the 2,000-character limit
+    text = pad + "on 13 June 2024 he was arrested " + "more " * 100
+    for shift in range(0, 12):
+        t = ("x" * shift) + text
+        sc = scan_document([("d", 1, 0, t, 1)], TODAY)
+        mention = next(h for h in sc.hits if h.text == "13 June 2024")
+        sent = sc.sents[mention.sent]
+        assert sent.start <= mention.start and mention.end <= sent.end, shift

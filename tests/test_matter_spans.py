@@ -46,8 +46,13 @@ def test_only_the_boolean_true_turns_the_index_on() -> None:
 def test_a_malformed_cap_turns_the_index_off_not_the_engine() -> None:
     ok = parse_matter_spans_config({"wf_a2_span_index": True, "matter_spans_max_docs": 5})
     assert ok is not None and ok.max_docs == 5
-    for bad in ({"matter_spans_max_docs": 0}, {"matter_spans_max_docs": "5"}, {"matter_spans_max_docs": True},
-                {"matter_spans_max_results": 10**6}, {"matter_spans_max_pdf_bytes": 10**9}):
+    for bad in (
+        {"matter_spans_max_docs": 0},
+        {"matter_spans_max_docs": "5"},
+        {"matter_spans_max_docs": True},
+        {"matter_spans_max_results": 10**6},
+        {"matter_spans_max_pdf_bytes": 10**9},
+    ):
         assert parse_matter_spans_config({"wf_a2_span_index": True, **bad}) is None
 
 
@@ -83,9 +88,7 @@ def test_a_text_with_no_words_has_no_spans() -> None:
 def test_a_span_is_a_hit_only_when_every_term_is_in_it(store: MatterStore) -> None:
     m, _ = _matter(store)
     hit = store.query(TENANT, m, "statutory notice accused")
-    assert hit["found"] and all(
-        all(t in s["text"].lower() for t in ("statutory", "notice", "accused")) for s in hit["spans"]
-    )
+    assert hit["found"] and all(all(t in s["text"].lower() for t in ("statutory", "notice", "accused")) for s in hit["spans"])
     # "deposit" and "notice" never share a span: not found, however good each word alone would score
     miss = store.query(TENANT, m, "deposit notice")
     assert miss["found"] is False and miss["message"] == "Not found in the papers you added" and miss["spans"] == []
@@ -116,8 +119,25 @@ def test_the_decision_rests_on_matched_terms_for_a_one_page_and_a_five_thousand_
 
 @pytest.mark.parametrize(
     "q",
-    ["non-bailable", "don't", "section 138?", "AND", "NOT section", "NEAR(section notice)", "txt:notice OR 3", "a*", "^notice",
-     '"statutory notice"', "(notice)", "notice -accused", "notice OR", "\"unbalanced", "'", "--", "section; DROP TABLE span"],
+    [
+        "non-bailable",
+        "don't",
+        "section 138?",
+        "AND",
+        "NOT section",
+        "NEAR(section notice)",
+        "txt:notice OR 3",
+        "a*",
+        "^notice",
+        '"statutory notice"',
+        "(notice)",
+        "notice -accused",
+        "notice OR",
+        '"unbalanced',
+        "'",
+        "--",
+        "section; DROP TABLE span",
+    ],
 )
 def test_a_question_never_reaches_fts5_as_syntax(store: MatterStore, q: str) -> None:
     m, _ = _matter(store)
@@ -203,8 +223,12 @@ def test_a_quote_must_be_part_of_the_span_it_cites(store: MatterStore) -> None:
 
 @pytest.mark.parametrize(
     "quote",
-    ["The court noted  section 138", "“The court noted section 138”".strip("“”"), "THE COURT NOTED SECTION 138",
-     "The court noted sec​tion 138"],
+    [
+        "The court noted  section 138",
+        "“The court noted section 138”".strip("“”"),
+        "THE COURT NOTED SECTION 138",
+        "The court noted sec​tion 138",
+    ],
 )
 def test_the_quote_check_normalises_both_sides_the_same_way(store: MatterStore, quote: str) -> None:
     m, doc = _matter(store)
@@ -846,3 +870,33 @@ def test_the_exact_words_of_the_deletion_messages_and_the_plain_refusals(store: 
         "A set of papers may hold at most 1 documents",
     ):
         assert want in msgs, want
+
+
+# ---- A3's read-only reader -----------------------------------------------------------------------------------------------------
+
+
+def test_read_passages_returns_committed_documents_and_every_passage_and_writes_nothing(store: MatterStore) -> None:
+    m, d = _matter(store)
+    before = (store._matter_dir(TENANT, m) / M.DB_NAME).read_bytes()
+    docs, spans = store.read_passages(TENANT, m)
+    assert [x["doc_id"] for x in docs] == [d] and spans and all(s["doc_id"] == d for s in spans)
+    assert {"span_id", "doc_id", "page", "start", "end", "text"} <= set(spans[0])
+    assert PAPER[spans[0]["start"] : spans[0]["end"]] == spans[0]["text"]
+    assert (store._matter_dir(TENANT, m) / M.DB_NAME).read_bytes() == before
+
+
+def test_read_passages_is_tenant_checked_exactly_like_every_other_read(store: MatterStore) -> None:
+    m, _ = _matter(store)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(OTHER, m)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(TENANT, "0" * 32)
+    with pytest.raises(MatterNotFound):
+        store.read_passages(TENANT, "../" * 8)
+
+
+def test_read_passages_never_returns_a_document_that_is_not_fully_indexed(store: MatterStore) -> None:
+    m, _ = _matter(store)
+    with sqlite3.connect(store._matter_dir(TENANT, m) / M.DB_NAME) as c:
+        c.execute("UPDATE document SET ingest_done = 0")
+    assert store.read_passages(TENANT, m) == ([], [])

@@ -227,7 +227,7 @@ _BOUNDARY = re.compile(r"[.?!;\u0964\u0965][\"')\]”’]{0,2}[ \t\r\f]{1,4}|\n[
 _LIST_MARKER = re.compile(r"^\(?[0-9A-Za-z]{1,3}\)?$")
 
 
-def sentences(text: str) -> list[tuple[int, int]]:
+def sentences(text: str, protected: list[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
     """`(start, end)` of every sentence: cut at . ? ! ; followed by white space (not after an abbreviation, a single capital, a
     list marker or before a lower-case letter) and at a blank line; a sentence is never longer than MAX_SENTENCE characters
     (it is cut at the last space before the limit). Linear."""
@@ -255,15 +255,22 @@ def sentences(text: str) -> list[tuple[int, int]]:
         start = nxt
     if text[start:].strip():
         out.append((start, len(text)))
-    return _cap_sentences(text, out)
+    return _cap_sentences(text, out, protected or [])
 
 
-def _cap_sentences(text: str, sents: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _cap_sentences(text: str, sents: list[tuple[int, int]], protected: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Cut a sentence longer than MAX_SENTENCE at a space, never inside a date mention (`protected` ranges)."""
     out: list[tuple[int, int]] = []
     for s, e in sents:
         while e - s > MAX_SENTENCE:
             cut = text.rfind(" ", s + MAX_SENTENCE // 2, s + MAX_SENTENCE)
             cut = cut + 1 if cut != -1 else s + MAX_SENTENCE
+            for ps, pe in protected:
+                if ps < cut < pe:
+                    cut = ps  # move the cut before the mention that straddles it
+                    break
+            if cut <= s:
+                cut = s + MAX_SENTENCE
             out.append((s, cut))
             s = cut
         out.append((s, e))
@@ -536,7 +543,7 @@ def scan_document(passages: list[tuple[str, int, int, str, int | str]], today: d
     sent_starts: list[list[int]] = []
     first_sent: dict[int, int] = {}
     for ui, u in enumerate(units):
-        ss = sentences(u.text)
+        ss = sentences(u.text, [(h.start, h.end) for h in _raw_mentions(u.text)])
         first_sent[ui] = len(sents)
         sent_starts.append([s for s, _ in ss])
         for k, (s, e) in enumerate(ss):

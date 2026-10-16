@@ -2633,4 +2633,106 @@ def build_partner_router(
             _a2_register("/matter-spans/list", a2_list_ep, _a2.MatterRef, _a2.ROUTE_LIST)
         _a2.open_route_lists(_a2_paths)
 
+    # --- A3 chronology: registered ONLY when partner_api.yaml sets wf_a3_chronology to true. It reads A2's stored passages, so it
+    # needs A2 ON (wf_a2_span_index true, not merely a store folder): with A2 off it refuses and reads nothing. Off (the default)
+    # adds nothing: no module import, no route, no limiter, no thread. Own limiters and own slots; audit mode "intake" with a
+    # "chronology-" run id; known limits as for the other optional routes.
+    try:
+        from pravrudhi.application.chronology_config import load_chronology_config as _load_a3
+
+        _a3_cfg = _load_a3(engine_root)
+        if _a3_cfg is not None:
+            from pravrudhi.application import chronology_matter as _a3
+            from pravrudhi.application import matter_spans_config as _a3m
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("chronology unavailable; it stays off", exc_info=True)
+        _a3_cfg = None
+    if _a3_cfg is not None:
+        _a3_state: dict[str, Any] = {}
+        _a3_lock = threading.Lock()
+
+        def _a3_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _a3_lock:
+                if not _a3_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _a3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a3_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a3_state["slots"] = ConcurrencyLimiter(_a3_cfg.max_concurrent)
+                return _a3_state["ip"], _a3_state["key"], _a3_state["slots"]
+
+        def _a3_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _a3_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def chronology_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a3_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, tenant = admitted
+            run = {"run_id": f"chronology-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                a2_cfg = _a3m.load_matter_spans_config(engine_root)  # "A2 on" = its flag in the config, never the store folder
+                if a2_cfg is None:
+                    _intake_audit(metered, "intake", 409, run)
+                    return JSONResponse(status_code=409, content={"detail": _a3.STORE_OFF, "error": "store_off"})
+                from pravrudhi.application.matter_spans import MatterStore as _Store
+
+                out = _a3.chronology_for_matter(
+                    _Store(_a3m.store_dir(engine_root), a2_cfg), tenant, req.matter_id, _a3_cfg, run["run_id"]
+                )
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"detail": str(e), "error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        chronology_ep.__annotations__["req"] = _a3.ChronologyRequest  # a local import is not visible to a string annotation
+        router.add_api_route("/chronology", chronology_ep, methods=["POST"], include_in_schema=False, response_model=None)
+        _a3.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     return router
