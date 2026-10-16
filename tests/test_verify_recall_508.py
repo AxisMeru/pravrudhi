@@ -1,5 +1,7 @@
-"""#508: a landmark citation whose alias groups are noisy was answered CONFLICT although its case is indexed. One engine-only rule with both arms; invented
-parties only. R-C: a title that prints "Corp" carries the alias word "Corporation" (the abbreviation fold the spelling test already has)."""
+"""#508: a landmark citation whose alias groups are noisy was answered CONFLICT although its case is indexed. One engine-only
+rule with both arms; invented
+parties only. R-C: a title that prints "Corp" carries the alias word "Corporation" (the abbreviation fold the spelling test
+already has)."""
 
 from __future__ import annotations
 
@@ -19,12 +21,14 @@ def _db(tmp_path: Path, name: str, groups: list[tuple[str, str]], cases: list[tu
     for cid, title, year in cases:
         insert_case(conn, CaseRecord(cid, title, "Supreme Court", year, "sc_pdf", "", PASSAGE))
     for p1, p2 in groups:
-        conn.execute("INSERT INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, 'citer')", (p1, p2, KEY))
+        conn.execute(
+            "INSERT INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, 'citer')", (p1, p2, KEY)
+        )
     conn.commit()
     return conn
 
 
-# ---- R-C: the abbreviation fold in the title containment -------------------------------------------------------------------------
+# ---- R-C: the abbreviation fold in the title containment ---------------------------------------------------------------------
 
 
 def test_a_title_that_prints_corp_carries_the_alias_word_corporation(tmp_path: Path) -> None:

@@ -272,7 +272,15 @@ def test_no_verify_note_uses_the_word_fake_and_not_in_index_says_what_it_means()
     """A public API string (R1's wording): never calls a citation fake; absence from the index shows nothing either way."""
     from pravrudhi.api.partner import _VERIFY_NOTES
 
-    assert set(_VERIFY_NOTES) == {"VERIFIED", "EXISTS_QUOTE_NOT_FOUND", "NOT_IN_INDEX", "MALFORMED", "CONFLICT", "IN_INDEX", "NAME_MISMATCH"}
+    assert set(_VERIFY_NOTES) == {
+        "VERIFIED",
+        "EXISTS_QUOTE_NOT_FOUND",
+        "NOT_IN_INDEX",
+        "MALFORMED",
+        "CONFLICT",
+        "IN_INDEX",
+        "NAME_MISMATCH",
+    }
     assert not any("fake" in note.lower() for note in _VERIFY_NOTES.values())
     assert _VERIFY_NOTES["NOT_IN_INDEX"] == (
         "We could not match this citation to exactly one case in our index. "

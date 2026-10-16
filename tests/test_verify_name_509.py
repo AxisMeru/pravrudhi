@@ -1,5 +1,7 @@
-"""#509: a typed case name is compared with the ONE case a citation resolves to. A name that does not match answers NAME_MISMATCH, never IN_INDEX.
-Both arms of every rule; the reply field `name_compared` is present (true) only when a comparison happened. Invented parties only."""
+"""#509: a typed case name is compared with the ONE case a citation resolves to. A name that does not match answers
+NAME_MISMATCH, never IN_INDEX.
+Both arms of every rule; the reply field `name_compared` is present (true) only when a comparison happened. Invented parties
+only."""
 
 from __future__ import annotations
 
@@ -18,18 +20,26 @@ KEY = "(2083) 4 SCC 512"
 PASSAGE = "a wholly different holding about arbitration clauses and their severability"
 
 
-def _db(tmp_path: Path, name: str, groups: list[tuple[str, str]], title: str = "Aldric Vennoway vs State Of Zorbland Anr") -> sqlite3.Connection:
+def _db(
+    tmp_path: Path, name: str, groups: list[tuple[str, str]], title: str = "Aldric Vennoway vs State Of Zorbland Anr"
+) -> sqlite3.Connection:
     conn = open_index(tmp_path / f"{name}.sqlite3")
     insert_case(conn, CaseRecord("citer", "Later vs Other", "Supreme Court", 2095, "sc_pdf", "", PASSAGE))
     insert_case(conn, CaseRecord("real", title, "Supreme Court", 2083, "sc_pdf", "", PASSAGE))
     for p1, p2 in groups:
-        conn.execute("INSERT INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, 'citer')", (p1, p2, KEY))
+        conn.execute(
+            "INSERT INTO citation_aliases (party_1, party_2, citation, case_id) VALUES (?, ?, ?, 'citer')", (p1, p2, KEY)
+        )
     conn.commit()
     return conn
 
 
 ONE = [("Aldric Vennoway", "State of Zorbland")]
-MANY = [("Aldric Vennoway", "State of Zorbland"), ("In Aldric Vennoway", "State of Zorbland and Another"), ("Aldric\nVennoway", "State of Zorbland")]
+MANY = [
+    ("Aldric Vennoway", "State of Zorbland"),
+    ("In Aldric Vennoway", "State of Zorbland and Another"),
+    ("Aldric\nVennoway", "State of Zorbland"),
+]
 
 
 @pytest.mark.parametrize("groups", [ONE, MANY], ids=["single group", "several groups collapsing to one case"])
@@ -51,8 +61,19 @@ def test_a_name_that_shares_only_one_word_with_the_case_is_a_mismatch(tmp_path: 
 
 
 def test_a_name_written_with_an_alias_spelling_matches(tmp_path: Path) -> None:
-    conn = _db(tmp_path, "alias", [("Quillfeather Oil Corpn.", "Mendelsohn India Ltd."), ("Quillfeather Oil Corporation", "Mendelsohn India Ltd. and Others")], "M S Quillfeather Oil Corporation vs M S Mendelsohn India Ltd")
-    assert exists_in_index_detail(conn, f"Quillfeather Oil Corporation v. Mendelsohn India Ltd., {KEY}") == (VerifyResult.IN_INDEX, True)
+    conn = _db(
+        tmp_path,
+        "alias",
+        [
+            ("Quillfeather Oil Corpn.", "Mendelsohn India Ltd."),
+            ("Quillfeather Oil Corporation", "Mendelsohn India Ltd. and Others"),
+        ],
+        "M S Quillfeather Oil Corporation vs M S Mendelsohn India Ltd",
+    )
+    assert exists_in_index_detail(conn, f"Quillfeather Oil Corporation v. Mendelsohn India Ltd., {KEY}") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )
     assert exists_in_index_detail(conn, f"Quillfeather Oil Corpn. v. Mendelsohn India, {KEY}") == (VerifyResult.IN_INDEX, True)
 
 
@@ -63,7 +84,10 @@ def test_a_right_name_with_initials_matches_whatever_the_separator_sits_next_to(
 
 def test_an_alias_group_with_one_generic_side_cannot_vouch_for_a_wrong_name(tmp_path: Path) -> None:
     conn = _db(tmp_path, "generic", [("State of Zorbland", "Union of India")], "State Of Zorbland vs Union Of India")
-    assert exists_in_index_detail(conn, f"State of Zorbland Plains v. Brenwick Taplow, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, f"State of Zorbland Plains v. Brenwick Taplow, {KEY}") == (
+        VerifyResult.NAME_MISMATCH,
+        True,
+    )
 
 
 @pytest.mark.parametrize(
@@ -84,7 +108,9 @@ def test_signal_words_honorifics_prose_and_order_do_not_make_a_right_name_wrong(
 
 def test_a_name_with_prose_around_it_is_found_but_not_claimed_as_compared(tmp_path: Path) -> None:
     conn = _db(tmp_path, "prose", ONE)
-    assert exists_in_index_detail(conn, f"As discussed in the landmark ruling of Aldric Vennoway v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)
+    assert exists_in_index_detail(
+        conn, f"As discussed in the landmark ruling of Aldric Vennoway v. State of Zorbland, {KEY}"
+    ) == (VerifyResult.IN_INDEX, False)
 
 
 def test_uoi_is_union_of_india(tmp_path: Path) -> None:
@@ -112,11 +138,19 @@ def test_sharing_only_a_very_common_name_is_not_agreement(tmp_path: Path) -> Non
     assert exists_in_index_detail(conn, f"Jaswant Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)
     assert exists_in_index_detail(conn, f"Nawal Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
     assert exists_in_index_detail(conn, f"Ram Singh v. State of Zorbland, {KEY}") == (VerifyResult.NAME_MISMATCH, True)
-    assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)  # not enough to claim a comparison
+    assert exists_in_index_detail(conn, f"Singh v. State of Zorbland, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        False,
+    )  # not enough to claim a comparison
 
 
 def test_an_initial_v_is_not_taken_for_the_separator(tmp_path: Path) -> None:
-    conn = _db(tmp_path, "initial_v", [("K.V. Zorbrao", "L.H.V. Prasad"), ("K.V. Zorbrao", "L.H.V. Prasad & Ors.")], "K V Zorbrao vs L H V Prasad Ors")
+    conn = _db(
+        tmp_path,
+        "initial_v",
+        [("K.V. Zorbrao", "L.H.V. Prasad"), ("K.V. Zorbrao", "L.H.V. Prasad & Ors.")],
+        "K V Zorbrao vs L H V Prasad Ors",
+    )
     for typed in (
         "K V Zorbrao v. L H V Prasad Ors",
         "K V Zorbrao v L H V Prasad",
@@ -169,7 +203,7 @@ def test_the_quote_path_is_unchanged(tmp_path: Path) -> None:
     assert verify(conn, f"Brenwick Taplow v. State of Qualdoria, {KEY}", "nothing like it") != VerifyResult.NAME_MISMATCH
 
 
-# ---- the route: the field is present only when a name was compared, and the old replies are byte-identical -------------------------
+# ---- the route: the field is present only when a name was compared, and the old replies are byte-identical -------------------
 
 _CFG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=100, trust_proxy_header=False)
 
@@ -194,7 +228,11 @@ def test_the_route_reports_name_compared_only_when_a_name_was_compared(tmp_path:
     assert (matched["result"], matched["name_compared"]) == ("IN_INDEX", True)
     mismatch = _post(c, f"Brenwick Taplow v. State of Qualdoria, {KEY}")
     assert (mismatch["result"], mismatch["status"], mismatch["label"], mismatch["verified"], mismatch["name_compared"]) == (
-        "NAME_MISMATCH", "name_mismatch", "Case name did not match", False, True,
+        "NAME_MISMATCH",
+        "name_mismatch",
+        "Case name did not match",
+        False,
+        True,
     )
     assert mismatch["note"] == (
         "The citation resolves to an indexed case, but the case name given does not match that case. "
@@ -202,7 +240,9 @@ def test_the_route_reports_name_compared_only_when_a_name_was_compared(tmp_path:
     )  # R1's wording, byte-exact
     assert "fake" not in mismatch["note"].lower()
     for citation in (KEY, "(2099) 1 SCC 1", f"The State v. Union of India, {KEY}"):
-        assert "name_compared" not in _post(c, citation), citation  # no key at all: the reply is what it was before this field existed
+        assert "name_compared" not in _post(c, citation), (
+            citation
+        )  # no key at all: the reply is what it was before this field existed
 
 
 def test_the_reply_keys_without_a_comparison_are_exactly_the_old_ones(tmp_path: Path) -> None:
@@ -221,7 +261,12 @@ def _marlowe(tmp_path: Path) -> sqlite3.Connection:
 
 def test_a_right_name_is_strong_and_claims_the_comparison(tmp_path: Path) -> None:
     conn = _marlowe(tmp_path)
-    for typed in ("Quillbert Marlowe v. Union of India", "Quillbert Marlowe v. UOI", "Per Quillbert Marlowe v UOI", "Union of India v. Quillbert Marlowe"):
+    for typed in (
+        "Quillbert Marlowe v. Union of India",
+        "Quillbert Marlowe v. UOI",
+        "Per Quillbert Marlowe v UOI",
+        "Union of India v. Quillbert Marlowe",
+    ):
         assert exists_in_index_detail(conn, f"{typed}, {KEY}") == (VerifyResult.IN_INDEX, True), typed
 
 
@@ -253,7 +298,7 @@ def test_a_party_made_only_of_initials_is_never_agreement(tmp_path: Path) -> Non
     assert exists_in_index_detail(conn, f"K V Zorbrao v. L H V Prasad, {KEY}") == (VerifyResult.IN_INDEX, True)
 
 
-# ---- acronyms: a party typed as ONGC / LIC / DTC is never a disagreement by itself --------------------------------------------------
+# ---- acronyms: a party typed as ONGC / LIC / DTC is never a disagreement by itself -------------------------------------------
 
 ZONGC = [("Zorbland Oil and Natural Gas Corporation Ltd.", "Quillfeather Pipes Ltd.")]
 ZONGC_TITLE = "Zorbland Oil And Natural Gas Corporation Ltd vs Quillfeather Pipes Ltd"
@@ -261,7 +306,12 @@ ZONGC_TITLE = "Zorbland Oil And Natural Gas Corporation Ltd vs Quillfeather Pipe
 
 @pytest.mark.parametrize(
     "typed",
-    ["ZONGC v. Quillfeather Pipes", "ZONGC v. Quillfeather Pipes Ltd.", "Quillfeather Pipes v. ZONGC", "ZONGC Ltd v. Quillfeather Pipes"],
+    [
+        "ZONGC v. Quillfeather Pipes",
+        "ZONGC v. Quillfeather Pipes Ltd.",
+        "Quillfeather Pipes v. ZONGC",
+        "ZONGC Ltd v. Quillfeather Pipes",
+    ],
 )
 def test_an_acronym_that_is_the_initials_of_the_case_party_is_strong(tmp_path: Path, typed: str) -> None:
     conn = _db(tmp_path, "acro_ok", ZONGC, ZONGC_TITLE)
@@ -269,25 +319,58 @@ def test_an_acronym_that_is_the_initials_of_the_case_party_is_strong(tmp_path: P
 
 
 def test_only_the_full_initials_of_a_party_are_strong_a_prefix_is_not(tmp_path: Path) -> None:
-    """#511: a 3-letter acronym that is only the FIRST initials of a longer party (BSE for Bihar School Examination Board) is not strong."""
-    conn = _db(tmp_path, "acro_full", [("Zorbland School Examination Board", "Consumer Education Centre")], "Zorbland School Examination Board vs Consumer Education Centre")
-    assert exists_in_index_detail(conn, f"ZSEB v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)  # the full initials
+    """#511: a 3-letter acronym that is only the FIRST initials of a longer party (BSE for Bihar School Examination Board) is
+    not strong."""
+    conn = _db(
+        tmp_path,
+        "acro_full",
+        [("Zorbland School Examination Board", "Consumer Education Centre")],
+        "Zorbland School Examination Board vs Consumer Education Centre",
+    )
+    assert exists_in_index_detail(conn, f"ZSEB v. Consumer Education Centre, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )  # the full initials
     assert exists_in_index_detail(conn, f"ZSE v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)  # a prefix
     assert exists_in_index_detail(conn, f"ZS v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)
 
 
 def test_the_full_initials_ignore_trailing_generic_words(tmp_path: Path) -> None:
-    conn = _db(tmp_path, "acro_trailing", [("Ashok Kumar Yadav and Ors. Etc.", "State of Zorbland")], "Ashok Kumar Yadav And Ors Etc Etc vs State Of Zorbland")
-    assert exists_in_index_detail(conn, f"AKY v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)  # a, k, y: the full initials without Ors Etc
+    conn = _db(
+        tmp_path,
+        "acro_trailing",
+        [("Ashok Kumar Yadav and Ors. Etc.", "State of Zorbland")],
+        "Ashok Kumar Yadav And Ors Etc Etc vs State Of Zorbland",
+    )
+    assert exists_in_index_detail(conn, f"AKY v. State of Zorbland, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )  # a, k, y: the full initials without Ors Etc
     assert exists_in_index_detail(conn, f"AK v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)
-    conn2 = _db(tmp_path, "acro_corp", [("Life Insurance Corporation of Zorbland", "Consumer Education Centre")], "Life Insurance Corporation Of Zorbland vs Consumer Education Centre")
+    conn2 = _db(
+        tmp_path,
+        "acro_corp",
+        [("Life Insurance Corporation of Zorbland", "Consumer Education Centre")],
+        "Life Insurance Corporation Of Zorbland vs Consumer Education Centre",
+    )
     assert exists_in_index_detail(conn2, f"LICZ v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
-    assert exists_in_index_detail(conn2, f"LIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)  # a prefix of lic z
+    assert exists_in_index_detail(conn2, f"LIC v. Consumer Education Centre, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        False,
+    )  # a prefix of lic z
 
 
 def test_an_acronym_with_a_trailing_india_is_the_party_without_it(tmp_path: Path) -> None:
-    conn = _db(tmp_path, "acro_india", [("Life Insurance Corporation of India", "Consumer Education Centre")], "Life Insurance Corporation Of India vs Consumer Education Centre")
-    assert exists_in_index_detail(conn, f"LIC v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)  # lic = the party without "of India"
+    conn = _db(
+        tmp_path,
+        "acro_india",
+        [("Life Insurance Corporation of India", "Consumer Education Centre")],
+        "Life Insurance Corporation Of India vs Consumer Education Centre",
+    )
+    assert exists_in_index_detail(conn, f"LIC v. Consumer Education Centre, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )  # lic = the party without "of India"
     assert exists_in_index_detail(conn, f"LICI v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, True)
     assert exists_in_index_detail(conn, f"LI v. Consumer Education Centre, {KEY}") == (VerifyResult.IN_INDEX, False)
 
@@ -295,7 +378,10 @@ def test_an_acronym_with_a_trailing_india_is_the_party_without_it(tmp_path: Path
 def test_a_wrong_acronym_is_not_a_mismatch_by_itself_and_not_a_comparison(tmp_path: Path) -> None:
     conn = _db(tmp_path, "acro_wrong", ZONGC, ZONGC_TITLE)
     assert exists_in_index_detail(conn, f"XYZW v. Quillfeather Pipes, {KEY}") == (VerifyResult.IN_INDEX, False)
-    assert exists_in_index_detail(conn, f"ZONGC v. Other Pipes, {KEY}") == (VerifyResult.IN_INDEX, False)  # shares a word: the half-match state
+    assert exists_in_index_detail(conn, f"ZONGC v. Other Pipes, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        False,
+    )  # shares a word: the half-match state
 
 
 def test_an_acronym_beside_a_clearly_different_other_party_is_a_mismatch(tmp_path: Path) -> None:
@@ -318,15 +404,35 @@ def test_a_dotted_acronym_beside_a_wrong_other_party_is_still_a_mismatch(tmp_pat
 
 def test_an_acronym_that_is_not_the_initials_of_a_leading_run_is_never_compared(tmp_path: Path) -> None:
     conn = _db(tmp_path, "acro_not_initials", ZONGC, ZONGC_TITLE)
-    for typed in ("LIC v. Quillfeather Pipes", "NGC v. Quillfeather Pipes", "GCL v. Quillfeather Pipes", "XYZW v. Quillfeather Pipes"):
+    for typed in (
+        "LIC v. Quillfeather Pipes",
+        "NGC v. Quillfeather Pipes",
+        "GCL v. Quillfeather Pipes",
+        "XYZW v. Quillfeather Pipes",
+    ):
         answer = exists_in_index_detail(conn, f"{typed}, {KEY}")
         assert answer == (VerifyResult.IN_INDEX, False), typed  # found; not claimed as compared (NGC/GCL are not LEADING runs)
     other = exists_in_index_detail(conn, f"LIC v. Brenwick Taplow, {KEY}")
     assert other.result == VerifyResult.NAME_MISMATCH  # the other party decides
 
 
-@pytest.mark.parametrize("title_word,typed_word", [("Hooda", "Hoda"), ("Dena", "Deena"), ("Deep", "Dep"), ("Hoda", "Hooda"), ("Deena", "Dena")])
-def test_different_words_that_differ_in_a_doubled_vowel_are_never_strong(tmp_path: Path, title_word: str, typed_word: str) -> None:
-    conn = _db(tmp_path, f"vow_{title_word}_{typed_word}", [(f"Quillbert {title_word}", "State of Zorbland")], f"Quillbert {title_word} vs State Of Zorbland")
-    assert exists_in_index_detail(conn, f"Quillbert {title_word} v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, True)  # the right word is strong
-    assert exists_in_index_detail(conn, f"Quillbert {typed_word} v. State of Zorbland, {KEY}") == (VerifyResult.IN_INDEX, False)  # the other word is not
+@pytest.mark.parametrize(
+    "title_word,typed_word", [("Hooda", "Hoda"), ("Dena", "Deena"), ("Deep", "Dep"), ("Hoda", "Hooda"), ("Deena", "Dena")]
+)
+def test_different_words_that_differ_in_a_doubled_vowel_are_never_strong(
+    tmp_path: Path, title_word: str, typed_word: str
+) -> None:
+    conn = _db(
+        tmp_path,
+        f"vow_{title_word}_{typed_word}",
+        [(f"Quillbert {title_word}", "State of Zorbland")],
+        f"Quillbert {title_word} vs State Of Zorbland",
+    )
+    assert exists_in_index_detail(conn, f"Quillbert {title_word} v. State of Zorbland, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )  # the right word is strong
+    assert exists_in_index_detail(conn, f"Quillbert {typed_word} v. State of Zorbland, {KEY}") == (
+        VerifyResult.IN_INDEX,
+        False,
+    )  # the other word is not

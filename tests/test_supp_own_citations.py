@@ -322,6 +322,12 @@ def test_a_typed_name_is_compared_on_a_supp_citation_too(full: Path, tmp_path: P
     from pravrudhi.application.verify import exists_in_index_detail
 
     conn = _slim(full, tmp_path, "supp_name", own_supp=True)
-    assert exists_in_index_detail(conn, "Aldric Vennoway v. State of Zorbland, 2089 Supp (1) SCC 335") == (VerifyResult.IN_INDEX, True)
-    assert exists_in_index_detail(conn, "Brenwick Taplow v. State of Qualdoria, 2089 Supp (1) SCC 335") == (VerifyResult.NAME_MISMATCH, True)
+    assert exists_in_index_detail(conn, "Aldric Vennoway v. State of Zorbland, 2089 Supp (1) SCC 335") == (
+        VerifyResult.IN_INDEX,
+        True,
+    )
+    assert exists_in_index_detail(conn, "Brenwick Taplow v. State of Qualdoria, 2089 Supp (1) SCC 335") == (
+        VerifyResult.NAME_MISMATCH,
+        True,
+    )
     assert exists_in_index_detail(conn, "2089 Supp (1) SCC 335") == (VerifyResult.IN_INDEX, False)

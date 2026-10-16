@@ -482,8 +482,11 @@ class VerifyCitationRequest(BaseModel):
 
 class VerifyCitationResponse(BaseModel):
     result: str = Field(
-        description="VERIFIED, EXISTS_QUOTE_NOT_FOUND, IN_INDEX (no quote sent), NOT_IN_INDEX, CONFLICT, MALFORMED or NAME_MISMATCH (#509: the "
-        "citation resolves to one indexed case but the case name sent with it does not match that case). Handle a value you do not know."
+        description=(
+            "VERIFIED, EXISTS_QUOTE_NOT_FOUND, IN_INDEX (no quote sent), NOT_IN_INDEX, CONFLICT, MALFORMED or "
+            "NAME_MISMATCH (#509: the citation resolves to one indexed case but the case name sent with it does "
+            "not match that case). Handle a value you do not know."
+        ),
     )
     note: str
     #: #533 (preview): the product wording. `status` is one of verified, quote_not_found, not_in_index, conflict, malformed;
@@ -496,12 +499,19 @@ class VerifyCitationResponse(BaseModel):
     #: #832 E2: what the index holds and what a citation can resolve to (courts held vs courts resolvable), so a client reads
     #: "Supreme Court judgments only" from the engine. Null only if the index could not be summarised.
     coverage: dict[str, Any] | None = None
-    #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX where every typed
-    #: party matched, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other result, the quote
+    #: #509: present (true) only when a case name typed in front of the citation was COMPARED with the index: an IN_INDEX where
+    #: every typed
+    #: party matched, or NAME_MISMATCH. Absent from every other reply (no name, a name with no distinctive word, any other
+    #: result, the quote
     #: path), which is therefore byte-identical to the reply before this field existed.
     name_compared: bool | None = Field(
         default=None,
-        description="True only when a case name typed in front of the citation was compared with the index: for an IN_INDEX, when every party typed matched a party of the indexed case (a party named only by common words matches only when it equals the case's own party), and for NAME_MISMATCH. The field is absent from every other reply, including an IN_INDEX where the name only partly matched.",
+        description=(
+            "True only when a case name typed in front of the citation was compared with the index: for an "
+            "IN_INDEX, when every party typed matched a party of the indexed case (a party named only by common "
+            "words matches only when it equals the case's own party), and for NAME_MISMATCH. The field is absent "
+            "from every other reply, including an IN_INDEX where the name only partly matched."
+        ),
     )
 
 
@@ -2092,7 +2102,8 @@ def build_partner_router(
     def _lookup(
         path: Path, req: VerifyCitationRequest, timeout_s: float
     ) -> tuple[citation_status.CitationStatus, dict[str, Any] | None, bool]:
-        """One bounded, read-only lookup; the third item is #509's name_compared (a typed case name was compared with the index). The progress handler aborts the statement once the deadline passes, so a
+        """One bounded, read-only lookup; the third item is #509's name_compared (a typed case name was compared with the
+        index). The progress handler aborts the statement once the deadline passes, so a
         pathological party pair can hold a worker for `timeout_s` at most."""
         deadline = time.monotonic() + timeout_s
         conn = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
@@ -2163,10 +2174,18 @@ def build_partner_router(
         if metered:
             response.headers.update(_rate_headers(metered[0], per_minute[0]))
         _verify_audit(metered, 200, result.result)
-        reply: dict[str, Any] = {"result": result.result, "note": _VERIFY_NOTES[result.result], "status": result.status,
-                                 "label": result.label, "verified": result.verified, "preview": result.preview, "coverage": coverage}
+        reply: dict[str, Any] = {
+            "result": result.result,
+            "note": _VERIFY_NOTES[result.result],
+            "status": result.status,
+            "label": result.label,
+            "verified": result.verified,
+            "preview": result.preview,
+            "coverage": coverage,
+        }
         if name_compared:
-            reply["name_compared"] = True  # #509: only when a typed case name was compared; absent otherwise (older replies unchanged)
+            # #509: only when a typed case name was compared; absent otherwise (older replies unchanged)
+            reply["name_compared"] = True
         return reply
 
     @router.post("/orgs", response_model=OrgOut)
