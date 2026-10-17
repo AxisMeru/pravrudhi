@@ -3,6 +3,18 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.20 (2026-10-17)
+
+PATCH release on 0.6.19. Five new workflows are added and ship **disabled**: the whole-draft citation check (A1), the matter span index (A2), the chronology (A3), the s.138 cheque checklist (B3) and the s.138 review agenda (A5). With them off, responses and the API are unchanged from 0.6.19 (golden set, OpenAPI and a replay of recorded probes identical). **Rebuild the image.**
+
+### Added (none of this is reachable until its flag is turned on)
+
+- **Five configuration flags, all absent or off by default:** `wf_a1_draft_citation_check`, `wf_a2_span_index`, `wf_b3_s138_checklist`, `wf_a3_chronology`, `wf_a5_ingredient_agenda`. While a flag is off its routes answer 404, `docs/api/openapi-v1.json` does not list them, and existing routes answer exactly as in 0.6.19. Turning any flag on is a separate decision.
+
+### Known limits
+
+- With the flags off, the engine reads its configuration file up to five more times at start-up (one small reader per workflow, at router build); the measured median start-up is 0.252 s against 0.247 s for 0.6.19.
+
 ## 0.6.19 (2026-10-16)
 
 PATCH release on 0.6.18: a case name typed in front of a citation is now compared with the case the citation resolves to, and a citation whose case title prints "Corp" is found. **Rebuild the image.** The change is under `src/`, so it reaches a running container only by a rebuild of the engine image and the RunPod worker template from 0.6.19; the citation index is unchanged.
