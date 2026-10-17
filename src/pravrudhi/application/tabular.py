@@ -251,7 +251,7 @@ def _paper(d: Doc, ps: list[Passage], label: str | None, cfg: TabularConfig, tod
         "type_label": label,
     }
     # dates: A3's scanner ONCE for the whole paper, with the injected `today`
-    rows = [(p.doc_id, p.page, p.start, p.text, p.span_id) for p in ps]
+    rows: list[tuple[str, int, int, str, int | str]] = [(p.doc_id, p.page, p.start, p.text, p.span_id) for p in ps]
     scan = CD.scan_document(rows, today) if rows else None
     hits = scan.hits if scan is not None else []
     claimed: dict[int, list[tuple[int, int]]] = {}
@@ -266,7 +266,7 @@ def _paper(d: Doc, ps: list[Passage], label: str | None, cfg: TabularConfig, tod
                 "text": h.text[:CELL_TEXT_MAX],
                 "category": h.category,
                 "how": h.how,
-                "readings": [r.isoformat() for r in h.readings] if getattr(h, "readings", None) else None,
+                "readings": [r.isoformat() for r in rd] if (rd := getattr(h, "readings", None)) else None,
                 "reason": h.not_read_reason if h.category == "not_read" else None,
                 "page": p.page,
                 "start": h.start,

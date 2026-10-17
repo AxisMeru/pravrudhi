@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 CUES = Path(__file__).resolve().parent.parent / "assets" / "tabular" / "cues.json"
 
@@ -36,7 +36,7 @@ class Form:
 
 @lru_cache(maxsize=1)
 def cues() -> dict[str, Any]:
-    return json.loads(CUES.read_text(encoding="utf-8"))
+    return cast("dict[str, Any]", json.loads(CUES.read_text(encoding="utf-8")))
 
 
 def _loose(form: str) -> str:
@@ -140,7 +140,7 @@ def scan_sections(text: str) -> list[Form]:
             claimed.append((m.start(), b + aft.end()))
             continue
         reason = "act_not_on_list" if r["unlisted"].match(tail) is not None else "act_not_named"  # "the Act", "the said Act" and no Act at all are act_not_named
-        end = b + (r["bare"].match(tail).end() if r["bare"].match(tail) else (r["unlisted"].match(tail).end() if reason == "act_not_on_list" else 0))  # type: ignore[union-attr]
+        end = b + (r["bare"].match(tail).end() if r["bare"].match(tail) else (r["unlisted"].match(tail).end() if reason == "act_not_on_list" else 0))
         g = nxt()
         for s, e, tx in nums:
             forms.append(Form("section", s, e, tx, "not_read", reason, None, None, g))
@@ -167,7 +167,7 @@ def _match_form(r: dict[str, Any], matched: str) -> str:
     key = re.sub(r"[\s.]+", "", matched).casefold()
     for form in r["act_forms"]:
         if re.sub(r"[\s.]+", "", form).casefold() == key:
-            return form
+            return str(form)
     return matched
 
 

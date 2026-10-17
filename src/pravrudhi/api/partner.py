@@ -3207,6 +3207,7 @@ def build_partner_router(
             try:
                 from pravrudhi.application.matter_spans import MatterStore as _Store
 
+                assert _s2_a2 is not None  # the route exists only when A2 is on
                 out = _s2.table_for_matter(_Store(_s2m.store_dir(engine_root), _s2_a2), tenant, req, run["run_id"], _s2_cfg)
             except Exception as e:
                 status = getattr(e, "status_code", None)
