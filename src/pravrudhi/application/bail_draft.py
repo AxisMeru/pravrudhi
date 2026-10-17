@@ -40,7 +40,9 @@ SENSITIVE_REFUSAL = (
     "No draft is made for this kind of case (a case under the POCSO Act or involving a minor, a sexual offence, or one you marked "
     "sensitive). A lawyer drafts the application."
 )  # R1's a4_sensitive_refusal (9b9bc5a83311f2a0); the route may override it from its own config
-NOTE_LEFT_OUT = "A note from the draft was left out because it used outcome language."
+MORE_NOTES_HEADING = "More notes"
+NOTES_SHOWN = 5  # the notes a lawyer sees first; the rest are folded under MORE_NOTES_HEADING
+ADVERSE_NOTE = "Fact {fid} reads like the court's, the prosecution's or the complainant's voice, or an adverse fact ({why}). It is drafted as given: check that it belongs in the applicant's grounds."
 INCOMPLETE_LINE = "INCOMPLETE: the model's answer was cut off at the length limit. No grounds were taken from it."
 TEMPLATE_ONLY_LINE = "The draft grounds could not be made, so this shows your facts and the notes only."  # R1's a4_template_only (59673ff74f88cd62)
 PRAYER = "PRAYER\nThe applicant prays that this Court may be pleased to consider the grounds above. [Lawyer to complete.]"
@@ -109,22 +111,6 @@ CONCLUSORY = (
     "certainly",
     "made out",
 )  # R1's barred list for the body
-#: Outcome and strength language: barred in the body AND in the notes (a note that uses it is left out and the lawyer is told).
-OUTCOME_WORDS = (
-    "entitled",
-    "fit case",
-    "should be granted",
-    "ought to be granted",
-    "will be granted",
-    "must be granted",
-    "likely",
-    "ready to file",
-    "bound to",
-    "certainly",
-    "no doubt",
-    "clearly",
-    "made out",
-)
 #: New-noun check (closed list): things a model tends to add that a bail ground would not carry unless the facts do. A paragraph that
 #: uses one of these words fails when the word is in none of the facts. Substring match on whole words.
 INVENTED_NOUNS = (
@@ -167,6 +153,15 @@ SENSITIVE_RE = re.compile(
     r"minor (?:victim|girl|boy)|victim (?:is|was) a minor|molest\w*|outrag\w+ (?:the )?modesty)\b",
     re.I,
 )
+#: Facts that read like the other side's voice or an adverse fact. ADVISORY only: the lawyer ticked the fact, so it is never excluded; it is named in a note and in an info check.
+ADVERSE_RE = re.compile(
+    r"\b(public prosecutor|state counsel|learned counsel for the (?:state|complainant)|prosecution|the court (?:has )?observed|"
+    r"observed that|opposed|opposes|opposing the bail|complainant (?:states|alleges|submits)|alleged by the complainant|convicted|"
+    r"conviction|habitual offender|history[- ]sheeter|proclaimed offender|absconder)\b",
+    re.I,
+)
+#: Tokens the engine reads as numbers, dates and amounts: runs of digits with the separators dates and amounts use.
+NUMBER_RE = re.compile(r"\d[\d,./-]*\d|\d")
 FACT_MARK = re.compile(r"\[(F[0-9]{1,4})\]")
 BRACKET = re.compile(r"\[(?!F[0-9]{1,4}\])[^\[\]\n]{1,60}\]")
 WORD = re.compile(r"[a-z][a-z'-]*")
@@ -350,6 +345,16 @@ def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
     ]
     if invented:
         why.append(f"new_noun: {', '.join(invented[:4])} is in no fact")
+    # every number, date and amount must be in the facts AS WRITTEN (a reformatted date or a computed figure is a blurred fact)
+    bare = BRACKET.sub(" ", FACT_MARK.sub(" ", text))
+    facts_nocomma = corpus_all.replace(",", "")
+    loose = [
+        t
+        for t in dict.fromkeys(x.rstrip(".,/-") for x in NUMBER_RE.findall(bare))
+        if t not in corpus_all and t.replace(",", "") not in facts_nocomma
+    ]
+    if loose:
+        why.append(f"number_not_in_facts: {', '.join(loose[:5])} is not written like that in any fact")
     # authorities only from the supplied list
     supplied = {_key(x) for a in case.authorities for x in parse_citations(a)}
     unresolved = [text[x.span[0] : x.span[1]] for x in parse_citations(text) if _key(x) not in supplied]
@@ -366,6 +371,30 @@ def _fill_ins(case: Any, kept: list[dict[str, Any]]) -> list[str]:
             repeated = any(f.fact_id in {*p["facts"], *FACT_MARK.findall(p["text"])} and tok in p["text"] for p in kept)
             if not repeated:
                 out.append(f"Fact {f.fact_id} contains {tok}; no paragraph repeats it: fill it in where it belongs.")
+    return out
+
+
+NOTE_KEYS = (
+    "contradict",
+    "conflict",
+    "different",
+    "differ",
+    "inconsisten",
+    "disclos",
+    "adverse",
+    "convict",
+    "opposed",
+    "earlier",
+)
+
+
+def _adverse_flags(case: Any) -> list[tuple[str, str]]:
+    """Facts that read like the other side's voice or an adverse fact: (fact id, the words matched). Advisory; nothing is excluded."""
+    out: list[tuple[str, str]] = []
+    for f in case.facts:
+        hits = list(dict.fromkeys(m.group(0).lower() for m in ADVERSE_RE.finditer(f.text)))
+        if hits:
+            out.append((f.fact_id, ", ".join(hits[:3])))
     return out
 
 
@@ -394,7 +423,13 @@ def _feedback(failed: list[tuple[int, list[str]]]) -> str:
 
 
 def _sections(
-    case: Any, framing: Any, grounds: list[dict[str, Any]], fill_ins: list[str], notes: list[str], tail: str | None
+    case: Any,
+    framing: Any,
+    grounds: list[dict[str, Any]],
+    fill_ins: list[str],
+    notes: list[str],
+    tail: str | None,
+    more_notes: list[str],
 ) -> list[dict[str, Any]]:
     title = KIND_TITLES[case.kind]
     parties = (
@@ -414,6 +449,10 @@ def _sections(
         )
     if notes:
         out.append({"id": "notes", "source": "model", "text": NOTES_HEADING + "\n" + "\n".join(f"- {n}" for n in notes)})
+    if more_notes:
+        out.append(
+            {"id": "more_notes", "source": "model", "text": MORE_NOTES_HEADING + "\n" + "\n".join(f"- {n}" for n in more_notes)}
+        )
     out.append({"id": "prayer", "source": "engine", "text": PRAYER})
     out.append(
         {
@@ -435,6 +474,7 @@ def _result(
     notes: list[str],
     fill_ins: list[str],
     checks: list[dict[str, Any]],
+    more_notes: list[str] | None = None,
     calls: int,
     tin: int,
     tout: int,
@@ -445,7 +485,7 @@ def _result(
     refused: str | None = None,
     unresolved: list[str] | None = None,
 ) -> dict[str, Any]:
-    secs: list[dict[str, Any]] = [] if refused else _sections(case, framing, grounds, fill_ins, notes, tail)
+    secs: list[dict[str, Any]] = [] if refused else _sections(case, framing, grounds, fill_ins, notes, tail, more_notes or [])
     return {
         "run_id": run_id,
         "version": VERSION,
@@ -457,6 +497,7 @@ def _result(
         "text": "\n\n".join(s["text"] for s in secs),
         "grounds": grounds,
         "notes_for_lawyer": notes,
+        "more_notes": list(more_notes or []),
         "fill_ins": fill_ins,
         "checks": checks,
         "unresolved_authorities": unresolved or [],
@@ -613,27 +654,32 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         for u in [p["text"][x.span[0] : x.span[1]]]
     ]
     adv = _advisory_words(case, kept)
-    facts_low = " ".join(
-        f.text for f in case.facts
-    ).lower()  # a note that quotes the lawyer's own fact is not the model's outcome claim
-    kept_notes = [n for n in notes if not any(_has_phrase(n.lower(), w) and not _has_phrase(facts_low, w) for w in OUTCOME_WORDS)]
-    if len(kept_notes) != len(notes):
+    tiered: list[
+        tuple[int, str]
+    ] = []  # (tier, note): 0 engine warnings, 1 model notes on conflicts and adverse points, 2 other model notes, 3 engine info
+    flags = _adverse_flags(case)
+    if flags:
         checks.append(
             {
-                "name": "notes_outcome_language",
-                "passed": False,
-                "detail": f"{len(notes) - len(kept_notes)} note(s) left out for outcome language",
+                "name": "adverse_voice",
+                "passed": True,
+                "info": True,
+                "detail": f"{len(flags)} fact(s) read like an adverse or other-side fact",
+                "fact_ids": [f for f, _ in flags],
             }
         )
-        kept_notes.append(NOTE_LEFT_OUT)
-    final_notes = [*kept_notes, *dropped]
+        tiered += [(0, ADVERSE_NOTE.format(fid=f, why=why)) for f, why in flags]
+    tiered += [(0, n) for n in dropped]
+    tiered += [(1 if any(k in n.lower() for k in NOTE_KEYS) else 2, n) for n in notes]
     if adv:
-        final_notes.append("Words in the grounds that are not in your facts (check each): " + ", ".join(adv) + ".")
+        tiered.append((3, "Words in the grounds that are not in your facts (check each): " + ", ".join(adv) + "."))
     if int(getattr(case, "n_facts_excluded", 0)):
-        final_notes.append(
-            f"{int(getattr(case, 'n_facts_excluded', 0))} fact(s) were not marked as the applicant's side and were not used."
+        tiered.append(
+            (3, f"{int(getattr(case, 'n_facts_excluded', 0))} fact(s) were not marked as the applicant's side and were not used.")
         )
-    final_notes += _gaps(case, kept) if kept else []
+    tiered += [(3, g) for g in (_gaps(case, kept) if kept else [])]
+    ordered = [t[1] for _, t in sorted(enumerate(tiered), key=lambda x: (x[1][0], x[0]))]
+    final_notes, more_notes = ordered[:NOTES_SHOWN], ordered[NOTES_SHOWN:]
     state = "drafted" if kept else "template_only"
     tail = INCOMPLETE_LINE if incomplete else None
     return _result(
@@ -643,6 +689,7 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         state=state,
         grounds=kept,
         notes=final_notes,
+        more_notes=more_notes,
         fill_ins=_fill_ins(case, kept),
         checks=checks,
         calls=calls,
