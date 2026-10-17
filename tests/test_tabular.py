@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from datetime import date
 from typing import Any
 
@@ -152,7 +153,31 @@ def test_cells_are_in_first_appearance_order_never_sorted_by_count() -> None:
         3,
         1,
     ]
-    assert out["papers"][0]["columns"]["sections"]["cells"][1]["count_line"] == "Mentioned 3 times in this paper."
+    assert out["papers"][0]["columns"]["sections"]["cells"][1]["count"] == 3  # the count stays in the JSON only (R1, addendum 2)
+
+
+def test_no_rendered_string_shows_a_count_of_occurrences_only_the_json_count_field_carries_it() -> None:
+    # R1 addendum 2: the count is a ranking cue, kept in the JSON only; no sentence, label or heading says "mentioned N times".
+    out = table(*world("Section 302 IPC, section 302 IPC, section 302 IPC and section 34 IPC; 12.03.2020 and 12.03.2020."))
+    strings: list[str] = []
+
+    def walk(o: Any, key: str = "") -> None:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                walk(v, k)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v, key)
+        elif isinstance(o, str) and key not in ("text", "value", "sha256", "name", "doc_id", "span_id"):
+            strings.append(o)
+
+    walk(out)
+    assert not hasattr(T, "MENTIONED_MANY") and not hasattr(T, "mentioned_line")
+    for s in strings:
+        low = s.lower()
+        assert not re.search(r"mentioned (once|\d+ times)|\d+ times|\btimes\b|occurrence", low), s
+    assert all("count_line" not in c for col in out["papers"][0]["columns"].values() for c in col["cells"])
+    assert out["papers"][0]["columns"]["sections"]["cells"][0]["count"] == 3
 
 
 def test_ipc_and_bns_are_never_merged_in_distinct_values() -> None:

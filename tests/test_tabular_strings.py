@@ -28,8 +28,6 @@ H = {
     "TOO_MANY_PASSAGES": "0ff72f91e50584c7",
     "TOO_LONG_TEXT": "6b9252fcb559b260",
     "BUSY": "724eb3dc834d0209",
-    "MENTIONED_MANY": "813ad065da8475bf",
-    "MENTIONED_ONCE": "2bf0b9d615ac8f0b",
 }
 HEADING_HASHES = {
     "paper": "35045eff549e30b5",
@@ -82,7 +80,6 @@ def test_the_cap_renders_as_a_size_never_raw_bytes() -> None:
 def test_the_not_read_line_has_the_count_first_and_is_singular_for_one() -> None:
     assert T.not_read_line("act_not_named", 1) == "1 not read: a section number with no Act named beside it. Check it yourself."
     assert T.not_read_line("name_not_clear", 3) == "3 not read: police station names with no clear end. Check them yourself."
-    assert T.mentioned_line(1) == "Mentioned once in this paper." and T.mentioned_line(4) == "Mentioned 4 times in this paper."
 
 
 def test_no_ruled_string_outside_a_negation_holds_a_barred_word() -> None:
@@ -109,8 +106,6 @@ def test_no_ruled_string_outside_a_negation_holds_a_barred_word() -> None:
         T.TOO_SLOW,
         T.LABEL_TOO_LONG,
         T.LABEL_UNUSABLE,
-        T.MENTIONED_MANY,
-        T.MENTIONED_ONCE,
     ]
     own += [T.TOO_MANY_PASSAGES, T.TOO_LONG_TEXT, T.BUSY, *T.HEADINGS.values()]
     for s in own:

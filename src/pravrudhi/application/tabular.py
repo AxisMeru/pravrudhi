@@ -73,8 +73,6 @@ TOO_BIG = "The table for this matter would be larger than {cap}, so no table was
 TOO_SLOW = "The table took too long, so no table was made."
 LABEL_TOO_LONG = "A label you typed is longer than {cap} characters, so no table was made."
 LABEL_UNUSABLE = "A label could not be used, so no table was made."
-MENTIONED_MANY = "Mentioned {N} times in this paper."
-MENTIONED_ONCE = "Mentioned once in this paper."
 # R1's rulings for the passage and character cap refusals and the busy line ({cap} renders as a plain integer from the config)
 TOO_MANY_PASSAGES = "The papers you added hold more than {cap} stored passages, so no table was made."
 TOO_LONG_TEXT = "The papers you added are longer than {cap} characters together, so no table was made."
@@ -136,10 +134,6 @@ def pages_note(blank: int, total: int) -> str | None:
 def not_read_line(reason: str, n: int) -> str:
     one, many = NOT_READ_LINES[reason]
     return (one if n == 1 else many).replace("{N}", str(n))
-
-
-def mentioned_line(n: int) -> str:
-    return MENTIONED_ONCE if n == 1 else MENTIONED_MANY.replace("{N}", str(n))
 
 
 def sha256_text(text: str) -> str:
@@ -399,7 +393,6 @@ def _column(read: list[dict[str, Any]], not_read: list[dict[str, Any]], recognis
         v["mentions"].append({k: e[k] for k in ("page", "start", "end", "doc_start", "span_id", "sha256")})
     for v in distinct.values():
         v["count"] = len(v["mentions"])
-        v["count_line"] = mentioned_line(v["count"])
     reasons = Counter(n["reason"] for n in not_read)
     den = {"recognised": recognised, "read": len(read), "not_read": len(not_read), "claimed_by_date": claimed}
     if recognised != den["read"] + den["not_read"] + claimed:
