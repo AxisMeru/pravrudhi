@@ -72,7 +72,15 @@ from pydantic import BaseModel, Field, StrictBool, computed_field, field_validat
 from starlette.responses import JSONResponse
 
 from pravrudhi import __version__
-from pravrudhi.api.errors import AGENT_AT_CAPACITY, AGENT_UNAVAILABLE, INTAKE_TIMEOUT, coded_500, coded_503
+from pravrudhi.api.errors import (
+    AGENT_AT_CAPACITY,
+    AGENT_UNAVAILABLE,
+    ASSISTANT_SESSION_BILLED,
+    INTAKE_TIMEOUT,
+    MESSAGES,
+    coded_500,
+    coded_503,
+)
 from pravrudhi.api.identity import CurrentUserDep, User
 from pravrudhi.application import audit, citation_status, tenancy
 from pravrudhi.application import nyaya_lean_registry as reg
@@ -240,7 +248,10 @@ def _intake_timeout(raw: Any) -> float:
     checked by `PartnerApiConfig`."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ValueError(f"intake_timeout_s must be a number of seconds (0 = off), got {raw!r}"[:200])
-    return float(raw)
+    try:
+        return float(raw)
+    except OverflowError:  # an integer too large for a float
+        raise ValueError("intake_timeout_s must be a number of seconds (0 = off), got a number too large to use") from None
 
 
 def _peek_flags(engine_root: Path) -> dict[str, Any]:
@@ -1692,7 +1703,10 @@ def build_partner_router(
             summarise=a0.screening_summarise,
         )
         caller = a0.Caller(admitted.authenticated, admitted.user_id, admitted.org_id, admitted.ip)
-        out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
+        try:
+            out = a0.run_assisted(matter, caller, req.consent, req.session_id, deps, workflow=req.workflow)
+        except a0.CoreFailedAfterSpend as e:
+            return _billed_core_failure(e, "/analyse-facts/assist")
         if isinstance(out, dict):
             # The facts went to a third party for this request (or may have): the ordinary retention notice would be wrong here,
             # so no response of this route carries one. The consent line and the data-handling page say what is true.
@@ -1782,6 +1796,16 @@ def build_partner_router(
             return result.result
 
         return exists
+
+    def _billed_core_failure(exc: Any, route: str) -> JSONResponse:
+        """The assisted session was billed and the core result then failed: a coded 502 that is NOT `internal_error` (so a client
+        does not read it as retry-safe), with the `assistant` block (cost, session id; no text). Only the type of the exception
+        that caused it and the route are logged."""
+        _logger.error("assistant_session_billed on %s: the core raised %s", route, type(exc.__cause__).__name__)
+        return JSONResponse(
+            status_code=502,
+            content={"error": ASSISTANT_SESSION_BILLED, "detail": MESSAGES[ASSISTANT_SESSION_BILLED], "assistant": exc.block},
+        )
 
     def _intake_core(req: IntakeRequest, exists_fn: Callable[[str], str] | None) -> dict[str, Any]:
         """The plain deterministic intake result (no model): the same bundle the assisted run falls back to."""
@@ -1889,6 +1913,9 @@ def build_partner_router(
             return coded_503(AGENT_AT_CAPACITY)
         try:
             out = a0.run_assisted({"text": req.text}, caller, req.consent, req.session_id, deps, workflow="intake")
+        except a0.CoreFailedAfterSpend as e:
+            _intake_audit(metered, "intake_assist", 502)
+            return _billed_core_failure(e, "/intake/assist")
         except IntakeTimeout:
             _intake_audit(metered, "intake_assist", 503)
             return coded_503(INTAKE_TIMEOUT)
