@@ -251,7 +251,7 @@ def test_a_half_ingested_document_is_never_swept_and_is_counted_not_ready(
         conn.execute("UPDATE document SET ingest_done = 0 WHERE name = 'b.pdf'")
     b = c.post(PATH, json={"matter_id": m}).json()
     assert [p["name"] for p in b["papers_read"]] == ["a.pdf"] and b["matter_denominator"]["papers_excluded_not_ready"] == 1
-    assert "1 not ready and not included." in b["notes"] and b["state"] == "unread_or_unchecked_remain"
+    assert "1 paper was not ready and is not included." in b["notes"] and b["state"] == "unread_or_unchecked_remain"
 
 
 def test_one_sweep_per_matter_at_a_time_a_second_gets_409_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

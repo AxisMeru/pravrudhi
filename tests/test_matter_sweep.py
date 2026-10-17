@@ -266,9 +266,10 @@ def test_papers_and_passages_over_their_caps_are_counted_not_searched_and_the_st
         and d["passages_not_searched"] == 2
         and out["state"] == "unread_or_unchecked_remain"
     )
-    assert out["notes"] == ["The sweep reached its limit: 2 papers and 2 passages were not searched."]
+    assert out["notes"] == ["The sweep reached its size limit. Papers not searched in full: 2. Check those yourself."]
     out2 = sweep(docs, ps, cfg=SweepConfig(max_passages=1))
     assert out2["matter_denominator"]["passages_not_searched"] == 3 and out2["matter_denominator"]["read"] == 1
+    assert out2["notes"] == ["The sweep reached its size limit. Papers not searched in full: 3. Check those yourself."]
     out3 = sweep(docs, ps, cfg=SweepConfig(max_chars=40))
     assert out3["matter_denominator"]["passages_not_searched"] >= 1
 
@@ -351,7 +352,11 @@ def test_duplicates_are_counted_per_paper_and_in_the_matter_with_the_standing_no
 def test_a_paper_not_ready_is_counted_beside_the_heading_and_the_state_is_not_listed_strings() -> None:
     docs, ps = one_passage_docs(f"See {CITE}.")
     out = sweep(docs, ps, not_ready=2)
-    assert out["matter_denominator"]["papers_excluded_not_ready"] == 2 and "2 not ready and not included." in out["notes"]
+    assert (
+        out["matter_denominator"]["papers_excluded_not_ready"] == 2
+        and "2 papers were not ready and are not included." in out["notes"]
+    )
+    assert "1 paper was not ready and is not included." in sweep(docs, ps, not_ready=1)["notes"]
     assert out["state"] == "unread_or_unchecked_remain"
 
 
@@ -360,3 +365,25 @@ def test_names_are_returned_raw_and_the_report_holds_no_text_of_another_matter()
     ps = [S.Passage(1, "d0", 1, 0, 30, f"See {CITE}.")]
     out = sweep(docs, ps)
     assert out["papers_read"][0]["name"] == 'A&B <1> "x".pdf'
+
+
+def test_a_name_mismatch_and_a_conflict_are_never_folded_into_found_and_get_one_clause_each_with_the_engines_labels() -> None:
+    docs, ps = one_passage_docs(
+        f"As in {NAMED} the court said.", f"As in Another Person v. State of Elsewhere {OTHER} here.", f"See {GOOD_C} too."
+    )
+    rec = Recorder({f"Another Person v. State of Elsewhere {OTHER}": ("NAME_MISMATCH", True), GOOD_C: ("CONFLICT", False)})
+    out = sweep(docs, ps, rec)
+    assert out["summary"].endswith(
+        '1 found in our index, 0 not found in our index. 1 marked "Case name did not match". '
+        '1 marked "conflict: the citation matches more than one indexed case". This does not say what any case held.'
+    )
+    assert (
+        out["matter_denominator"]["found"] == 1
+        and out["matter_denominator"]["name_mismatch"] == 1
+        and out["matter_denominator"]["conflict"] == 1
+    )
+    plain = sweep(*one_passage_docs(f"See {CITE}."))
+    assert "marked" not in plain["summary"]  # a clause appears only when its count is not zero
+
+
+GOOD_C = "(2013) 5 SCC 44"

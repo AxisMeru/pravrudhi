@@ -43,13 +43,27 @@ ORDER_LABEL = "In the order first cited in the papers you added; not ranked."
 CUT_LINE = "A citation may have been split where the stored text is cut. It was not read: check it yourself."
 SUMMARY_LEAD = "Existence check only, in the papers you added."
 SUMMARY_TAIL = "This does not say what any case held."
-DATA_STATEMENT = "Built and tested on invented text and public court judgments only. No lawyer has used this on a live matter."  # PROPOSED: R1 rules
-# PROPOSED strings for the cases the signed design names but does not word (R1 rules each; hash-pinned once ruled)
+DATA_STATEMENT = "Built and tested on invented text and public court judgments only. No lawyer has used this on a live matter."
 SNAPSHOT_LINE = "Read as the papers were stored when the sweep started."
 DUPLICATES_LINE = "Counts are of the citations listed in the papers as stored, duplicates included."
-NOT_READY_LINE = "{k} not ready and not included."
-NOT_SEARCHED_LINE = "The sweep reached its limit: {papers} papers and {passages} passages were not searched."
-BUSY = "Another sweep of this matter is running. Try again when it ends."
+NOT_READY_ONE = "1 paper was not ready and is not included."
+NOT_READY_MANY = "{k} papers were not ready and are not included."
+NOT_SEARCHED_LINE = "The sweep reached its size limit. Papers not searched in full: {papers}. Check those yourself."
+BUSY = "Another sweep of these papers is running. Try again when it ends."
+# the summary clauses for the two statuses that resolve to an indexed case but are neither "found" nor "not found" (R1); the labels are the engine's own
+MISMATCH_CLAUSE = "{m} marked \"{label}\"."
+CONFLICT_CLAUSE = "{c} marked \"{label}\"."
+
+
+def _engine_label(name: str) -> str:
+    from pravrudhi.application.citation_status import _LABELS
+    from pravrudhi.application.verify import VerifyResult
+
+    return _LABELS[VerifyResult[name]][1]
+
+
+def not_ready_line(k: int) -> str:
+    return NOT_READY_ONE if k == 1 else NOT_READY_MANY.format(k=k)
 
 STATES = ("none_listed", "nothing_checked", "unread_or_unchecked_remain", "listed_strings_looked_up")
 
@@ -226,6 +240,7 @@ def run_sweep(
     n_pass = n_chars = 0
     capped = False
     not_searched_passages = 0
+    partly_searched: set[str] = set()  # papers of which some passage was left unsearched at a cap
     for p in passages:
         if p.doc_id not in by_doc:
             not_searched_passages += 1
@@ -233,6 +248,7 @@ def run_sweep(
         if capped or n_pass >= cfg.max_passages or n_chars + len(p.text) > cfg.max_chars:
             capped = True
             not_searched_passages += 1
+            partly_searched.add(p.doc_id)
             continue
         by_doc[p.doc_id].append(p)
         n_pass += 1
@@ -389,6 +405,10 @@ def run_sweep(
             parts.append(f"{sums['not_checked']} not checked.")
         parts.append(count_line(n_read, m_papers, d_distinct))
         parts.append(f"{sums['found']} found in our index, {sums['not_found']} not found in our index.")
+        if sums["name_mismatch"]:
+            parts.append(MISMATCH_CLAUSE.format(m=sums["name_mismatch"], label=_engine_label("NAME_MISMATCH")))
+        if sums["conflict"]:
+            parts.append(CONFLICT_CLAUSE.format(c=sums["conflict"], label=_engine_label("CONFLICT")))
         parts.append(SUMMARY_TAIL)
         summary = " ".join(parts)
 
@@ -396,9 +416,10 @@ def run_sweep(
     truncated = _truncate(per_doc, distinct, cfg.max_rows, cfg.max_bytes)
     notes = []
     if not_ready:
-        notes.append(NOT_READY_LINE.format(k=not_ready))
-    if not_searched_papers or not_searched_passages:
-        notes.append(NOT_SEARCHED_LINE.format(papers=not_searched_papers, passages=not_searched_passages))
+        notes.append(not_ready_line(not_ready))
+    unsearched_papers = not_searched_papers + len(partly_searched)
+    if unsearched_papers:
+        notes.append(NOT_SEARCHED_LINE.format(papers=unsearched_papers))
     return {
         "run_id": run_id,
         "client_data": True,
