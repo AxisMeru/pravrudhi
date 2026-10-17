@@ -372,13 +372,13 @@ def run_sweep(
         e["statuses"] = [s for s in _WORST_FIRST if s in seen]
         counts = Counter(o["doc_id"] for o in e["occurrences"])
         e["papers"] = [{"doc_id": k, "count": n} for k, n in counts.items()]
-    sums = Counter()
-    for p in per_doc:
-        for k, v in p["denominator"].items():
+    sums: Counter[str] = Counter()
+    for pd in per_doc:
+        for k, v in pd["denominator"].items():
             if isinstance(v, int):
                 sums[k] += v
     n_read, n_unread = sums["read"], sums["not_read"]
-    m_papers = sum(1 for p in per_doc if p["denominator"]["read"] > 0)
+    m_papers = sum(1 for pd in per_doc if pd["denominator"]["read"] > 0)
     d_distinct = len(distinct)
     if d_distinct > n_read or sums["like_strings"] != n_read + n_unread or n_read != sums["checked"] + sums["not_checked"]:
         raise AssertionError("the matter denominator does not add up")
@@ -464,20 +464,20 @@ def run_sweep(
 def _truncate(per_doc: list[dict[str, Any]], distinct: dict[str, dict[str, Any]], max_rows: int, max_bytes: int) -> bool:
     """Drop listed rows from the END until the row count and the byte size are within the caps. Counts are never touched."""
     truncated = False
-    total = sum(len(p["citations"]) for p in per_doc)
+    total = sum(len(pd["citations"]) for pd in per_doc)
     while total > max_rows:
-        for p in reversed(per_doc):
-            if p["citations"]:
-                p["citations"].pop()
+        for pd in reversed(per_doc):
+            if pd["citations"]:
+                pd["citations"].pop()
                 total -= 1
                 truncated = True
                 break
     size = len(json.dumps([per_doc, list(distinct.values())], ensure_ascii=False))
     while size > max_bytes:
         dropped = False
-        for p in reversed(per_doc):
-            if p["citations"]:
-                size -= len(json.dumps(p["citations"].pop(), ensure_ascii=False))
+        for pd in reversed(per_doc):
+            if pd["citations"]:
+                size -= len(json.dumps(pd["citations"].pop(), ensure_ascii=False))
                 dropped = truncated = True
                 break
         if not dropped:
