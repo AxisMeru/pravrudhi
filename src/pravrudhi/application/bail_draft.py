@@ -235,7 +235,7 @@ SENSITIVE_RE = re.compile(
 )
 #: Facts that read like the other side's voice or an adverse fact. ADVISORY only: the lawyer ticked the fact, so it is never excluded; it is named in a note and in an info check.
 ADVERSE_RE = re.compile(
-    r"\b(public prosecutor|state counsel|learned counsel for the (?:state|complainant)|prosecution|the court (?:has )?observed|"
+    r"\b(public prosecutor|state counsel|learned counsel for the (?:state|complainant)|the prosecution (?:has |had )?(?:opposed|states|submits|alleges|contends)|prosecution'?s (?:case|version|contention)|the court (?:has )?observed|"
     r"observed that|opposed|opposes|opposing the bail|complainant (?:states|alleges|submits)|alleged by the complainant|convicted|"
     r"conviction|habitual offender|history[- ]sheeter|proclaimed offender|absconder)\b",
     re.I,

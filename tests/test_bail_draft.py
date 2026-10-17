@@ -527,3 +527,24 @@ def test_repeated_subject_fails_the_paragraph():
 def test_the_prayer_is_labelled_to_be_completed_by_counsel():
     r = run(complete=Fake(answer(GOOD)))
     assert "To be completed by counsel" in next(x["text"] for x in r["sections"] if x["id"] == "prayer")
+
+
+def test_the_word_prosecution_inside_the_lawyers_own_ground_is_not_flagged_as_adverse():
+    c = Case(facts=[NS(fact_id="F1", text="There is no likelihood of the Applicant tampering with the prosecution evidence.")])
+    r = run(
+        c,
+        Fake(
+            answer(
+                [
+                    (
+                        "The Applicant states that there is no likelihood of his tampering with the prosecution evidence [F1].",
+                        ["F1"],
+                    )
+                ]
+            )
+        ),
+    )
+    assert not any(x["name"] == "adverse_voice" for x in r["checks"])
+    c2 = Case(facts=[NS(fact_id="F1", text="The prosecution has opposed the bail.")])
+    r2 = run(c2, Fake(answer([("The prosecution has opposed the bail [F1].", ["F1"])])))
+    assert any(x["name"] == "adverse_voice" for x in r2["checks"])
