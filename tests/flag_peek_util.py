@@ -18,6 +18,7 @@ ALL_FLAG_KEYS = (
     "wf_s1_matter_citation_sweep",
     "wf_s2_tabular_fact_table",
     "wf_b3_s138_checklist",
+    "wf_a6_cheque_case_check",
 )
 
 
