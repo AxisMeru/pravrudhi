@@ -393,6 +393,7 @@ def _column(read: list[dict[str, Any]], not_read: list[dict[str, Any]], recognis
         v["mentions"].append({k: e[k] for k in ("page", "start", "end", "doc_start", "span_id", "sha256")})
     for v in distinct.values():
         v["count"] = len(v["mentions"])
+        v["shown"] = v["mentions"][0]  # the display shows the FIRST place only; every place stays in `mentions` for the JSON/CSV (Track B: a list of places is a count by line count)
     reasons = Counter(n["reason"] for n in not_read)
     den = {"recognised": recognised, "read": len(read), "not_read": len(not_read), "claimed_by_date": claimed}
     if recognised != den["read"] + den["not_read"] + claimed:

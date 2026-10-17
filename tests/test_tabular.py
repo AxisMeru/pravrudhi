@@ -352,3 +352,21 @@ def test_the_paper_rows_keep_the_stored_order_never_sorted_by_name_or_by_count()
     out = table(docs, ps)
     assert [p["name"] for p in out["papers"]] == names
     assert [p["name"] for p in table(list(reversed(docs)), list(reversed(ps)))["papers"]] == list(reversed(names))
+
+
+def test_a_value_at_seven_places_displays_one_place_and_keeps_all_seven_in_the_json() -> None:
+    # Track B / Interim lead: with the count withdrawn, a displayed list of every place would still show the count by line count.
+    out = table(*world(" ".join(f"Section 302 IPC is cited here, item {i}." for i in range(7))))
+    cell = out["papers"][0]["columns"]["sections"]["cells"][0]
+    assert cell["count"] == 7 and len(cell["mentions"]) == 7  # JSON / CSV keep every place
+    assert isinstance(cell["shown"], dict) and cell["shown"] == cell["mentions"][0]  # the display shows one place line
+    assert not any(isinstance(v, list) and len(v) > 1 for k, v in cell.items() if k not in ("mentions", "readings"))
+
+
+def test_no_rendered_cell_string_has_a_number_beside_the_value_that_reads_as_a_count() -> None:
+    out = table(*world("Section 302 IPC; section 302 IPC; section 302 IPC; section 34 IPC; 12.03.2020 and 12.03.2020."))
+    for col in out["papers"][0]["columns"].values():
+        for c in col["cells"]:
+            for key in ("value", "text"):
+                assert not re.search(r"\(\d+\)|\bx\s*\d+\b|\b\d+\s*x\b|\b\d+\s*(places|mentions|times|occurrences)\b", str(c[key]).lower()), (key, c[key])
+            assert set(c["shown"]) <= {"page", "start", "end", "doc_start", "span_id", "sha256"}
