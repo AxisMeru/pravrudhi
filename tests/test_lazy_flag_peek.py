@@ -17,6 +17,7 @@ import pytest
 from pravrudhi.api import identity, partner, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.application import agenda_config as ac
+from pravrudhi.application import cheque_case_config as ccc
 from pravrudhi.application import chronology_config as cc
 from pravrudhi.application import draft_check_config as dcc
 from pravrudhi.application import matter_spans_config as msc
@@ -33,6 +34,7 @@ READER_MODULES = (
     "pravrudhi.application.chronology_config",
     "pravrudhi.application.agenda_config",
     "pravrudhi.application.quashing_config",
+    "pravrudhi.application.cheque_case_config",
 )
 SLICE_MODULES = (
     "pravrudhi.application.draft_check",
@@ -45,6 +47,8 @@ SLICE_MODULES = (
     "pravrudhi.application.quashing",
     "pravrudhi.application.quashing_matter",
     "pravrudhi.application.quashing_gate",
+    "pravrudhi.application.cheque_case",
+    "pravrudhi.application.cheque_case_route",
 )
 
 
@@ -72,7 +76,7 @@ def test_the_peek_is_one_mapping_read_and_never_raises(tmp_path: Path) -> None:
 
 
 def test_the_flag_keys_the_router_peeks_are_the_modules_own_flag_constants() -> None:
-    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, scc.FLAG}
+    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, scc.FLAG, ccc.FLAG}
 
 
 def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,6 +138,7 @@ def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path:
         ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
         ("wf_b2_quashing_agenda", qc, "load_quashing_config"),
         ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
+        ("wf_a6_cheque_case_check", ccc, "load_cheque_case_config"),
     ],
 )
 def test_a_flag_that_reads_true_calls_only_its_own_reader(
@@ -147,6 +152,7 @@ def test_a_flag_that_reads_true_calls_only_its_own_reader(
         (ac, "load_agenda_config"),
         (qc, "load_quashing_config"),
         (scc, "load_s138_checklist_config"),
+        (ccc, "load_cheque_case_config"),
     ):
         monkeypatch.setattr(mod, name, lambda _root, _n=name: (calls.append(_n), None)[1])
     monkeypatch.setattr(partner, "_peek_flags", lambda _root: {key: True})
@@ -165,7 +171,7 @@ def test_a_flag_of_false_or_a_look_alike_calls_no_reader(tmp_path: Path, monkeyp
     for mod, name in ((dcc, "load_draft_check_config"), (msc, "load_matter_spans_config"), (cc, "load_chronology_config")):
         monkeypatch.setattr(mod, name, lambda _root, _n=name: (calls.append(_n), None)[1])
     monkeypatch.setattr(
-        partner, "_peek_flags", lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on"), strict=True))
+        partner, "_peek_flags", lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no"), strict=True))
     )
     monkeypatch.setenv(msc.DIR_ENV, str(tmp_path / "no-such-store"))
     agent = _agent(tmp_path, _proof_script())
@@ -243,6 +249,7 @@ _REAL_YAML_FLAGS = (
     ("wf_a3_chronology", cc, "load_chronology_config"),
     ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
     ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
+    ("wf_a6_cheque_case_check", ccc, "load_cheque_case_config"),
 )
 
 
