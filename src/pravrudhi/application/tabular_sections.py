@@ -59,7 +59,7 @@ def _rx() -> dict[str, Any]:
     c = cues()
     act_forms = {f: a["id"] for a in c["acts"] for f in a["forms"]}
     act_alt = _alt(list(act_forms))
-    num = r"\d{1,4}(?:-?[A-Za-z](?![A-Za-z]))?(?:\(\d{1,3}\)(?:\([A-Za-z]\))*)*"
+    num = r"[0-9]{1,4}(?:-?[A-Za-z](?![A-Za-z]))?(?:\([0-9]{1,3}\)(?:\([A-Za-z]\))*)*"
     numlist = rf"{num}(?:\s*(?:,|and|&|or)\s*{num})*"
     cue = r"(?<![A-Za-z0-9/])(?:sections?|secs?\.?|ss\.?|s\.|u/s\.?)"
     return {
@@ -67,14 +67,14 @@ def _rx() -> dict[str, Any]:
         "act_rx": re.compile(rf"(?P<act>{act_alt})(?![A-Za-z])", re.I),
         "num": re.compile(num),
         "section": re.compile(rf"{cue}\s*(?P<nums>{numlist})", re.I),
-        "unsupported_tail": re.compile(r"(?:\s*(?:-|–|—|to)\s*\d|/\s*\d|\s*(?:r\s*/\s*w|r\.\s*w\.|read\s+with)\s*\d)", re.I),
-        "unsupported_run": re.compile(r"(?:[\d\-–—/,&]|\s|to\b|and\b|r\s*/\s*w|r\.\s*w\.|read\s+with)+", re.I),
+        "unsupported_tail": re.compile(r"(?:\s*(?:-|–|—|to)\s*[0-9]|/\s*[0-9]|\s*(?:r\s*/\s*w|r\.\s*w\.|read\s+with)\s*[0-9])", re.I),
+        "unsupported_run": re.compile(r"(?:[0-9\-–—/,&]|\s|to\b|and\b|r\s*/\s*w|r\.\s*w\.|read\s+with)+", re.I),
         "after_act": re.compile(rf"\s*(?:,\s*)?(?:of\s+(?:the\s+)?)?(?:{act_alt})(?![A-Za-z])", re.I),
         "bare_list": re.compile(
             rf"(?<![\w/.\-])(?P<run>{num}(?:\s*(?:,|and|&|/|-|–|to|r\s*/\s*w|r\.\s*w\.|read\s+with)\s*{num})*)\s*,?\s*(?P<act>{act_alt})(?![A-Za-z])", re.I
         ),
         "act_before": re.compile(rf"(?:{act_alt})(?![A-Za-z])\s*,?\s*$", re.I),
-        "unsupported_in_run": re.compile(r"-\d|–\d|/|\bto\b|r\s*/\s*w|r\.\s*w\.|read\s+with", re.I),
+        "unsupported_in_run": re.compile(r"-[0-9]|–[0-9]|/|\bto\b|r\s*/\s*w|r\.\s*w\.|read\s+with", re.I),
         "reverse": re.compile(rf"(?P<act>{act_alt})(?![A-Za-z])\s*,?\s*(?:sections?|secs?\.?|s\.)\s*(?P<nums>{numlist})", re.I),
         "unlisted": re.compile(
             r"\s*(?:,\s*)?(?:of\s+(?:the\s+)?)?(?:" + "|".join(_loose(f) for f in sorted(c["unlisted_acts"], key=len, reverse=True)) + r"|(?:[A-Z][\w.&/]*\s+){1,6}Act)(?![A-Za-z])"
@@ -206,6 +206,10 @@ def scan_places(text: str) -> list[Form]:
         for w in r["word"].finditer(text, m.end()):
             tok = w.group(0)
             core = tok.rstrip(",").casefold()
+            if core == "":  # a comma straight after the cue: no name at all
+                bad = True
+                words.append(w)
+                break
             if core.rstrip(".") in terms:
                 reached = True
                 break
@@ -222,9 +226,10 @@ def scan_places(text: str) -> list[Form]:
                 break
         shown_end = (words[-1].end() if words else m.end())
         if bad or not words or not reached or len(words) > c["station_max_words"]:
-            span_end = min(shown_end, m.start() + 200)
+            txt = text[m.start() : min(shown_end, m.start() + 200)].rstrip(", ")
+            span_end = m.start() + len(txt)
             taken.append((m.start(), span_end))
-            forms.append(Form("place", m.start(), span_end, text[m.start() : span_end].rstrip(", "), "not_read", "name_not_clear", None, "station", 1_000 + len(forms)))
+            forms.append(Form("place", m.start(), span_end, txt, "not_read", "name_not_clear", None, "station", 1_000 + len(forms)))
         else:
             taken.append((m.start(), end))
             forms.append(Form("place", m.start(), end, text[m.start() : end], "read", None, None, "station", 1_000 + len(forms)))

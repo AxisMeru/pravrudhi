@@ -76,7 +76,7 @@ MENTIONED_MANY = "Mentioned {N} times in this paper."
 MENTIONED_ONCE = "Mentioned once in this paper."
 # PROPOSED (not in R1's table yet; R1 rules them and they are then hash-pinned): the refusals for the passage and character caps, and the busy line
 TOO_MANY_PASSAGES = "This matter's papers hold more than {cap} stored passages, so no table was made."
-TOO_LONG_TEXT = "This matter's papers are longer than {cap} characters in all, so no table was made."
+TOO_LONG_TEXT = "This matter's papers are longer than {cap} characters together, so no table was made."
 BUSY = "Another table of these papers is being made. Try again when it ends."
 
 STATES = ("read_papers_listed", "partly_read", "nothing_found")
@@ -84,7 +84,7 @@ COLUMNS = ("dates", "sections", "places")
 
 BARRED = (
     "charged", "alleged", "chargesheeted", "filed", "complete", "completeness", "all", "good law", "fake", "equivalent", "corresponds", "verified",
-    "confirmed", "in force", "applicable", "applies", "made out", "named", "dated", "proved", "proves",
+    "confirmed", "in force", "applicable", "applies", "made out", "proved", "proves",
 )  # fmt: skip
 _BARRED_RX = re.compile(r"(?<![A-Za-z_])(?:" + "|".join(re.escape(b) for b in sorted(BARRED, key=len, reverse=True)) + r")(?![A-Za-z_])", re.I)
 
