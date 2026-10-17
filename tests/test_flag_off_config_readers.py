@@ -4,6 +4,7 @@ reader has to be added here by name (prabhasa-nyaya#984: the release condition i
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -63,3 +64,56 @@ def test_only_the_boolean_true_turns_a_reader_on(name: str, load: Callable[[Path
 def test_the_five_readers_are_the_five_flagged_modules() -> None:
     """Adding a config reader means adding it here (and to the declared flag-off import list)."""
     assert IDS == ["A1", "A2", "A3", "A5", "B3"]
+
+
+@pytest.mark.parametrize(("name", "load", "parse", "flag"), READERS, ids=IDS)
+@pytest.mark.parametrize("literal", ["false", "null", "1", '"true"', "[]"])
+def test_a_file_with_the_key_set_to_anything_but_the_boolean_true_is_off(
+    name: str, load: Callable[[Path], Any], parse: Callable[[Any], Any], flag: str, literal: str, tmp_path: Path
+) -> None:
+    """The loader itself (file -> yaml -> parse), not only the pure parser: the yaml spellings of false, null, 1, "true"."""
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "partner_api.yaml").write_text(f"{flag}: {literal}\n", encoding="utf-8")
+    assert load(tmp_path) is None
+    (tmp_path / "configs" / "partner_api.yaml").write_text("some_other_key: true\n", encoding="utf-8")
+    assert load(tmp_path) is None  # the key is missing
+
+
+@pytest.mark.parametrize(("name", "load", "parse", "flag"), READERS, ids=IDS)
+def test_the_loader_turns_a_reader_on_only_for_the_yaml_boolean_true(
+    name: str, load: Callable[[Path], Any], parse: Callable[[Any], Any], flag: str, tmp_path: Path
+) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "partner_api.yaml").write_text(f"{flag}: true\n", encoding="utf-8")
+    assert load(tmp_path) is not None
+
+
+MODULES = [
+    draft_check_config,
+    matter_spans_config,
+    s138_checklist_config,
+    chronology_config,
+    agenda_config,
+]
+
+
+@pytest.mark.parametrize("module", MODULES, ids=[m.__name__.rsplit(".", 1)[1] for m in MODULES])
+def test_no_module_level_call_but_the_logger_and_the_dataclass_decorator(module: Any) -> None:
+    """Source scan: at import each of the five runs no call except logging.getLogger(__name__) and @dataclass(frozen=True); a
+    function or class BODY is not executed at import, and a class body holds no call (only field defaults)."""
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    calls: list[str] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if isinstance(node, ast.ClassDef):
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call) and ast.unparse(dec.func) == "dataclass") and not (
+                    isinstance(dec, ast.Name) and dec.id == "dataclass"
+                ):
+                    calls.append(f"decorator {ast.unparse(dec)}")
+            for inner in node.body:
+                calls += [ast.unparse(c.func) for c in ast.walk(inner) if isinstance(c, ast.Call)]
+            continue
+        calls += [ast.unparse(c.func) for c in ast.walk(node) if isinstance(c, ast.Call)]
+    assert [c for c in calls if c != "logging.getLogger"] == [], module.__name__
