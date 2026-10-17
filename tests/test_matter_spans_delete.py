@@ -413,3 +413,32 @@ def test_a_tenant_folder_that_resolves_outside_the_store_without_being_a_symlink
         store.create_matter(TENANT)
     monkeypatch.undo()
     assert store._tenant_dir(TENANT) == tdir  # control: the same folder is accepted when it really resolves inside the store
+
+def test_a_tenant_folder_that_is_a_symlink_to_another_tenants_folder_inside_the_store_is_refused(
+    store: MatterStore,
+) -> None:
+    """Only the FIRST half of `_tenant_dir` (the is_symlink check) catches this: the link resolves INSIDE the store, so the
+    second half (resolves outside) accepts it. Org A's folder is replaced by a link to org B's folder; org A must not read, list,
+    add to or delete org B's matter, and org B's matter must be intact."""
+    import shutil
+
+    mb = store.create_matter(OTHER)
+    store.add_document(OTHER, mb, _text(KEEP), "theirs")
+    store.create_matter(TENANT)
+    a_dir = store.base / M.tenant_dir_name(TENANT)
+    b_dir = store.base / M.tenant_dir_name(OTHER)
+    shutil.rmtree(a_dir)
+    os.symlink(b_dir, a_dir)
+    assert a_dir.resolve() == b_dir.resolve() and store.base.resolve() in a_dir.resolve().parents
+    for call in (
+        lambda: store.query(TENANT, mb, "cheque"),
+        lambda: store.list_documents(TENANT, mb),
+        lambda: store.add_document(TENANT, mb, "an invented paragraph about a notice", "intruder"),
+        lambda: store.delete_matter(TENANT, mb),
+    ):
+        with pytest.raises(MatterError) as err:
+            call()
+        assert err.value.code == "bad_path"
+    docs = store.list_documents(OTHER, mb)["documents"]
+    assert [d["name"] for d in docs] == ["theirs"]
+    assert store.query(OTHER, mb, "cheque")["found"] is True
