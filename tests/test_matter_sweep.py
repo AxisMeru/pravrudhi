@@ -387,3 +387,35 @@ def test_a_name_mismatch_and_a_conflict_are_never_folded_into_found_and_get_one_
 
 
 GOOD_C = "(2013) 5 SCC 44"
+
+
+# ---- R2: a summary never opens with "none found" when material was not read or not searched ----------------------------------
+
+
+def _leads_with_what_was_not_read(out: dict[str, Any]) -> None:
+    assert not out["summary"].startswith("No citation in a form this tool recognises")
+    assert "does not mean the draft cites nothing" not in out["summary"]
+    assert out["summary"].endswith(S.SUMMARY_TAIL) and S.SUMMARY_LEAD in out["summary"]
+
+
+def test_a_paper_with_no_text_on_any_page_leads_with_the_pages_not_read_never_the_none_found_sentence() -> None:
+    docs = [S.Doc("d0", "Scan.pdf", 3, (1, 2, 3))]
+    out = sweep(docs, [])
+    assert out["state"] == "nothing_checked"
+    _leads_with_what_was_not_read(out)
+    assert out["summary"].startswith("3 of 3 pages had no text: check them yourself.")
+
+
+def test_papers_not_ready_or_not_searched_lead_the_summary_never_the_none_found_sentence() -> None:
+    docs, ps = one_passage_docs("Nothing citable here.", "Nor here.", "Nor here either.")
+    out = sweep(docs, ps, cfg=SweepConfig(max_papers=1), not_ready=2)
+    assert out["state"] == "nothing_checked"
+    _leads_with_what_was_not_read(out)
+    assert out["summary"].startswith("2 papers were not ready and are not included.")
+    assert "Papers not searched in full: 2" in out["summary"]
+
+
+def test_the_none_found_sentence_is_kept_only_when_the_state_is_none_listed() -> None:
+    docs, ps = one_passage_docs("Nothing citable here.")
+    out = sweep(docs, ps)
+    assert out["state"] == "none_listed" and out["summary"].startswith("No citation in a form this tool recognises")

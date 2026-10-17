@@ -394,10 +394,17 @@ def run_sweep(
         state = "unread_or_unchecked_remain"
     else:
         state = "listed_strings_looked_up"
-    if n_read == 0 and n_unread == 0:
+    if n_read == 0 and n_unread == 0 and state == "none_listed":
         summary = A1._summary(
             {"read": 0, "checked": 0, "found": 0, "not_found": 0, "conflict": 0, "name_mismatch": 0}, "none_recognised", ""
         )
+    elif n_read == 0 and n_unread == 0:
+        # nothing was read AND material was not read or not searched: the summary leads with that, never with a clean-sounding "none found" (R2)
+        lead = [pages_note(unread_pages, sum(d.n_pages for d in searched)) if unread_pages else None]
+        lead.append(not_ready_line(not_ready) if not_ready else None)
+        unsearched = not_searched_papers + len(partly_searched)
+        lead.append(NOT_SEARCHED_LINE.format(papers=unsearched) if unsearched else None)
+        summary = " ".join([x for x in lead if x] + [SUMMARY_LEAD, SUMMARY_TAIL])
     else:
         parts = [SUMMARY_LEAD]
         if n_unread:
