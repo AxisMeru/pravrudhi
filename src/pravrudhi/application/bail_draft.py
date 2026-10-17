@@ -32,18 +32,17 @@ from pravrudhi.application.citations import Citation, parse_citations
 VERSION = "bail-draft-1"
 BANNER = "Draft for lawyer review."
 GROUNDS_HEADING = "GROUNDS"
-NOTES_HEADING = "NOTES FOR THE LAWYER"
-FILL_INS_HEADING = "FILL-INS (placeholders from your facts that the grounds do not repeat)"
+NOTES_HEADING = "Notes for the lawyer"
+FILL_INS_HEADING = "Details to fill in"
 KIND_TITLES = {"regular": "BAIL APPLICATION", "anticipatory": "APPLICATION FOR ANTICIPATORY BAIL"}
 KIND_WORDS = {"regular": "a regular bail application", "anticipatory": "an application for anticipatory bail"}
 SENSITIVE_REFUSAL = (
-    "This matter touches an area this draft tool does not handle (sensitive offences or a minor). No draft was made. "
-    "Please refer it to counsel."
-)  # fixed string; R1 words the final text, the route may override it from its own config
+    "No draft is made for this kind of case (a case under the POCSO Act or involving a minor, a sexual offence, or one you marked "
+    "sensitive). A lawyer drafts the application."
+)  # R1's a4_sensitive_refusal (9b9bc5a83311f2a0); the route may override it from its own config
+NOTE_LEFT_OUT = "A note from the draft was left out because it used outcome language."
 INCOMPLETE_LINE = "INCOMPLETE: the model's answer was cut off at the length limit. No grounds were taken from it."
-TEMPLATE_ONLY_LINE = (
-    "No grounds could be drafted that passed the checks: the facts and the notes are given, the grounds are left to you."
-)
+TEMPLATE_ONLY_LINE = "The draft grounds could not be made, so this shows your facts and the notes only."  # R1's a4_template_only (59673ff74f88cd62)
 PRAYER = "PRAYER\nThe applicant prays that this Court may be pleased to consider the grounds above. [Lawyer to complete.]"
 
 SYSTEM = (
@@ -92,9 +91,40 @@ META_PHRASES = (
     "not given",
     "the lawyer",
     "for the lawyer",
+    "supplied",
 )
 #: Conclusory prayers and outcome claims inside the grounds.
-CONCLUSORY = ("entitled", "fit case", "should be granted", "ought to be granted", "deserves bail", "is a fit")
+CONCLUSORY = (
+    "entitled",
+    "fit case",
+    "should be granted",
+    "ought to be granted",
+    "deserves bail",
+    "is a fit",
+    "likely",
+    "ready to file",
+    "clearly",
+    "no doubt",
+    "bound to",
+    "certainly",
+    "made out",
+)  # R1's barred list for the body
+#: Outcome and strength language: barred in the body AND in the notes (a note that uses it is left out and the lawyer is told).
+OUTCOME_WORDS = (
+    "entitled",
+    "fit case",
+    "should be granted",
+    "ought to be granted",
+    "will be granted",
+    "must be granted",
+    "likely",
+    "ready to file",
+    "bound to",
+    "certainly",
+    "no doubt",
+    "clearly",
+    "made out",
+)
 #: New-noun check (closed list): things a model tends to add that a bail ground would not carry unless the facts do. A paragraph that
 #: uses one of these words fails when the word is in none of the facts. Substring match on whole words.
 INVENTED_NOUNS = (
@@ -583,7 +613,20 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         for u in [p["text"][x.span[0] : x.span[1]]]
     ]
     adv = _advisory_words(case, kept)
-    final_notes = [*notes, *dropped]
+    facts_low = " ".join(
+        f.text for f in case.facts
+    ).lower()  # a note that quotes the lawyer's own fact is not the model's outcome claim
+    kept_notes = [n for n in notes if not any(_has_phrase(n.lower(), w) and not _has_phrase(facts_low, w) for w in OUTCOME_WORDS)]
+    if len(kept_notes) != len(notes):
+        checks.append(
+            {
+                "name": "notes_outcome_language",
+                "passed": False,
+                "detail": f"{len(notes) - len(kept_notes)} note(s) left out for outcome language",
+            }
+        )
+        kept_notes.append(NOTE_LEFT_OUT)
+    final_notes = [*kept_notes, *dropped]
     if adv:
         final_notes.append("Words in the grounds that are not in your facts (check each): " + ", ".join(adv) + ".")
     if int(getattr(case, "n_facts_excluded", 0)):
