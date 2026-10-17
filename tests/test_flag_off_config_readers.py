@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """The five flag-off config readers (A1, A2, A3, A5, B3) all answer None (off) in every flag-OFF situation: the shipped config,
 no file, a broken file, the flag false, and every value that is not the boolean true. One test over all five, so a new
 reader has to be added here by name (prabhasa-nyaya#984: the release condition is OFF behaviour, not import lists)."""
