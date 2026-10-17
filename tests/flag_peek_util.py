@@ -14,6 +14,7 @@ ALL_FLAG_KEYS = (
     "wf_a2_span_index",
     "wf_a3_chronology",
     "wf_a5_ingredient_agenda",
+    "wf_b2_quashing_agenda",
     "wf_b3_s138_checklist",
 )
 

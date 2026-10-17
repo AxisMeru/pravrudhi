@@ -1,0 +1,264 @@
+{
+ "archive_rows": 70,
+ "archive_sha256": "8c094cdde4442a47badf7283b0ebf1c8ccd39044a146c29495f6f3d7d836359a",
+ "builder_script_sha256": "2448483dbc1ebe9a34f168d9941a942e9cd33bdc416fa81928fe5c5f6a114026",
+ "case_citations_for_pin": [],
+ "case_id": "5ecd439db292f46d0bbad761",
+ "cleaner_a_sha256": "eb01fc0696c064056345a234c41906be1c87b471ad1e8904324b2a1e9065180d",
+ "corroboration": [
+  {
+   "n_computable": 56,
+   "n_equal": 42,
+   "status": "CORROBORATED",
+   "unit": "stem",
+   "variants": [
+    {
+     "class": "C",
+     "hash": "f39de1dcb2d59d6b",
+     "n": 4
+    },
+    {
+     "class": "D",
+     "hash": "530eea6410445282",
+     "n": 2
+    },
+    {
+     "class": "D",
+     "hash": "2324de12fce590f3",
+     "n": 2
+    },
+    {
+     "class": "D",
+     "hash": "cd7b985f9781cb62",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "4c613d326a282aab",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "0ed5a43693902fac",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "a67675f94ed7eab0",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "9c2ba129601e328a",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "40cfc83f7feedeb3",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 55,
+   "n_equal": 53,
+   "status": "CORROBORATED",
+   "unit": "item1",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "ad1ec53deb476795",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "b4e030ca218f6cba",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 54,
+   "n_equal": 49,
+   "status": "CORROBORATED",
+   "unit": "item2",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "f712552cb644a713",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "d8aa544b604671f6",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "a1816163b3dd67fc",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "58a2e07340cde1b8",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "ea4efff3fa5e5f99",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 57,
+   "n_equal": 55,
+   "status": "CORROBORATED",
+   "unit": "item3",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "12eb1cff643b2551",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "0ebfaf777d219c54",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 54,
+   "n_equal": 48,
+   "status": "CORROBORATED",
+   "unit": "item4",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "f98d756bdfdcdb21",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "43c11aed5730836c",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "4a73e24b07728fb8",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "68a82b2abf0026c6",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "5b6f250efd830926",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "dee1206b6ff2bdd1",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 57,
+   "n_equal": 57,
+   "status": "CORROBORATED",
+   "unit": "item5",
+   "variants": []
+  },
+  {
+   "n_computable": 54,
+   "n_equal": 48,
+   "status": "CONFLICT",
+   "unit": "item6",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "2e74e88a56704a8f",
+     "n": 4
+    },
+    {
+     "class": "D",
+     "hash": "4149f5e09a565d2c",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "1f48b0c71681150b",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 55,
+   "n_equal": 48,
+   "status": "CORROBORATED",
+   "unit": "item7",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "a54f5dc777760e3b",
+     "n": 2
+    },
+    {
+     "class": "D",
+     "hash": "804a168de42a958c",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "38e79732d1d29db6",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "3daa396c03267d51",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "a79eddd69bba9ccb",
+     "n": 1
+    },
+    {
+     "class": "D",
+     "hash": "0f575258b6c93465",
+     "n": 1
+    }
+   ]
+  },
+  {
+   "n_computable": 16,
+   "n_equal": 15,
+   "status": "INSUFFICIENT COPIES",
+   "unit": "caution",
+   "variants": [
+    {
+     "class": "D",
+     "hash": "5e56d390da544cb9",
+     "n": 1
+    }
+   ]
+  }
+ ],
+ "dev_index_file_sha256": "a79df632459178476b123718e77584aaa484325cc4514449148680a7914c4d4a",
+ "fold": {
+  "name": "s3_fold_v1",
+  "sha256": "3777fde6c191f6f2643de080b3a7b7ebe4337c9943f7f17d087fe6bcb3ae6ff5"
+ },
+ "gate_module_sha256": "bc9dca7133c23656fd0ef1a5fd6a8fee37d72c4a316265c4ec1c0f659d3b1066",
+ "normaliser_sha256": "0412a5af53756a76b7ecaeb7cc4ca3cb8c39ac743a0f83ac4bb84c030261a2d9",
+ "quote_block_sha256": "47dd4e64f7ee8d503f117706d9325e040295ca5d065da86aa6cbd320dd9d5995",
+ "row_title": "Amanullah Anr vs State Of Bihar Ors",
+ "row_year": 2016,
+ "schema": 1,
+ "second_copy_case_id": "c688a5684f046cc585159999",
+ "text_sha256": "6c739205c7dd3a24e01a9a9b788526761985d91c3336684ba9ba174afbb07c0f"
+}
