@@ -20,6 +20,16 @@ H = {
     "BUSY": "4981b757184e31e1",
     "MISMATCH_CLAUSE": "d9dbebd3c6c42c0e",
     "CONFLICT_CLAUSE": "c4390486c3d3e700",
+    "STORE_OFF": "56e7735a0e4bca9a",
+    "NO_PAPERS": "b5024f38e71d13e9",
+    "INDEX_OFF": "fc141d17e94988bc",
+    "TOO_MANY": "ff1ad5861eb75c62",
+    "HEADING": "b686ad4e0258cc01",
+    "HEADING_LINE": "ed33abfa5832c73a",
+    "ORDER_LABEL": "73b6a3a83d195fc3",
+    "CUT_LINE": "ee5aa9d9ac121811",
+    "SUMMARY_LEAD": "dc4ecfc4eb6fcd5d",
+    "SUMMARY_TAIL": "3d25384f149ccffa",
 }
 
 
