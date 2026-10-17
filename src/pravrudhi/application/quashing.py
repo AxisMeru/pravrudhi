@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass
 from functools import lru_cache
@@ -189,6 +190,7 @@ def pin_status(index_path: Path | None, timeout_s: float = 2.0) -> str | None:
 
 
 _PIN_CACHE: dict[tuple[str, int, int], tuple[float, str | None]] = {}
+_PIN_LOCK = threading.Lock()  # the prune and the insert touch a shared dict from threadpool routes: one lock, reads stay lock-free
 PIN_CACHE_MAX = 16  # entries kept in all: a handful of index paths at most; the oldest are dropped first
 
 
@@ -212,11 +214,12 @@ def pin_status_cached(index_path: Path | None, now: float | None = None, ttl_s: 
     if hit is not None and 0 <= t - hit[0] < ttl_s:
         return hit[1]
     result = pin_status(index_path)
-    for k in [k for k in _PIN_CACHE if k[0] == key[0] and k != key]:
-        del _PIN_CACHE[k]  # an index file that changed under the same path leaves no stale entry behind
-    _PIN_CACHE[key] = (t, result)
-    while len(_PIN_CACHE) > PIN_CACHE_MAX:
-        del _PIN_CACHE[min(_PIN_CACHE, key=lambda k: _PIN_CACHE[k][0])]
+    with _PIN_LOCK:
+        for k in [k for k in _PIN_CACHE if k[0] == key[0] and k != key]:
+            del _PIN_CACHE[k]  # an index file that changed under the same path leaves no stale entry behind
+        _PIN_CACHE[key] = (t, result)
+        while len(_PIN_CACHE) > PIN_CACHE_MAX:
+            del _PIN_CACHE[min(_PIN_CACHE, key=lambda k: _PIN_CACHE[k][0])]
     return result
 
 

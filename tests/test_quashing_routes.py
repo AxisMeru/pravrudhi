@@ -582,3 +582,31 @@ def test_the_pin_cache_is_bounded_and_a_changed_file_under_the_same_path_leaves_
         p = _slim_index(tmp_path / f"p{n}.sqlite3")
         G.pin_status_cached(p, now=float(10 + n))
     assert len(G._PIN_CACHE) <= G.PIN_CACHE_MAX
+
+
+def test_concurrent_cache_misses_never_raise_and_the_cache_stays_within_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R2: the prune iterates and deletes from a shared dict; with threadpool routes it needs one lock (no RuntimeError, no KeyError)."""
+    import threading
+
+    G._PIN_CACHE.clear()
+    monkeypatch.setattr(G, "pin_status", lambda _p: None)
+    errors: list[BaseException] = []
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+
+    def worker(w: int) -> None:
+        try:
+            for i in range(500):
+                G.pin_status_cached(Path(f"/nonexistent/{w}/{i}"), now=float(i))
+        except BaseException as e:  # noqa: BLE001 - the test reports whatever a thread raised
+            errors.append(e)
+
+    try:
+        threads = [threading.Thread(target=worker, args=(w,)) for w in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old)
+    assert errors == [] and len(G._PIN_CACHE) <= G.PIN_CACHE_MAX
