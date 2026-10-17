@@ -224,9 +224,9 @@ STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
 IPC_TEXT_CAVEAT = "Section text is from the 1860 Act; amendments after 1997 are not included. Check the current text."
 
 
-#: sha256 of the Ministry of Home Affairs PDF the shipped IPC asset is built from (its `source.sha256`). The caveat is sent ONLY for an
-#: IPC asset with this provenance, never for the older asset that came from the IL-TUR statutes file (R1, 17 Oct): the app shows the
-#: 1860 line only when the engine sends `text_caveat` exactly.
+#: sha256 of the Ministry of Home Affairs PDF the shipped IPC asset is built from (its `source.sha256`). The caveat is sent
+#: ONLY for an IPC asset with this provenance, never for the older asset that came from the IL-TUR statutes file (R1, 17 Oct):
+#: the app shows the 1860 line only when the engine sends `text_caveat` exactly.
 IPC_ASSET_SHA256 = "f25d61547212f152dda8c96b19ac05a286f3a9eb6a95490ab55ec40aa4f53197"
 
 
