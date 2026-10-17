@@ -21,7 +21,7 @@ ROLE_LABELS = {
     "cheque": "the cheque's date",
     "presentation": "the cheque presented to the bank",
     "memo": "the bank's return memo",
-    "information": "the bank's information reaching the payee",
+    "information": "the bank's information reaching the person holding the cheque",
     "notice": "the notice given to the drawer",
     "receipt": "the drawer receiving the notice",
 }
