@@ -265,7 +265,7 @@ def test_placeholder_not_repeated_goes_to_fill_ins():
         and "[FIR number]" in r["fill_ins"][0]
         and "[police station]" in r["fill_ins"][1]
     )
-    assert "FILL-INS" in r["text"]
+    assert bd.FILL_INS_HEADING in r["text"] and bd.FILL_INS_HEADING == "Details to fill in"
 
 
 def test_uncited_fact_exclusions_and_advisory_words_are_in_the_notes():
@@ -326,3 +326,40 @@ def test_text_is_the_sections_joined_and_result_keys_are_stable():
         "incomplete",
     } <= set(r)
     assert (r["run_id"], r["version"]) == ("bail-draft-abc", bd.VERSION)
+
+
+@pytest.mark.parametrize("word", ["likely", "ready to file", "clearly", "no doubt", "bound to", "certainly", "made out"])
+def test_r1_barred_words_fail_a_paragraph_in_the_body(word):
+    paras = [GOOD[0], (f"The applicant states that the custody since 4 May 2023 is {word} relevant [F2].", ["F2"])]
+    r = run(complete=Fake(answer(paras), answer(paras)))
+    assert any("conclusory" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"]), r["checks"][0]
+
+
+def test_a_note_with_outcome_language_is_left_out_and_the_lawyer_is_told():
+    f = Fake(answer(GOOD, ["The applicant is likely to get bail.", "Confirm the FIR date."]))
+    r = run(complete=f)
+    assert "Confirm the FIR date." in r["notes_for_lawyer"] and not any("likely" in n for n in r["notes_for_lawyer"])
+    assert bd.NOTE_LEFT_OUT in r["notes_for_lawyer"] and any(c["name"] == "notes_outcome_language" for c in r["checks"])
+
+
+def test_r1_fixed_strings_are_in_place():
+    assert (
+        bd.SENSITIVE_REFUSAL.startswith("No draft is made for this kind of case")
+        and "A lawyer drafts the application." in bd.SENSITIVE_REFUSAL
+    )
+    assert bd.TEMPLATE_ONLY_LINE == "The draft grounds could not be made, so this shows your facts and the notes only."
+    assert bd.NOTES_HEADING == "Notes for the lawyer"
+
+
+def test_a_note_that_quotes_a_word_from_the_facts_is_kept():
+    c = Case(facts=[NS(fact_id="F1", text="The State submits that the case is made out against the applicant.")])
+    r = run(
+        c,
+        Fake(
+            answer(
+                [("The applicant states the matter is before this Court [F1].", ["F1"])],
+                ["F1 is the State's contention that the case is made out; it is not used."],
+            )
+        ),
+    )
+    assert r["notes_for_lawyer"][0].startswith("F1 is the State's contention") and bd.NOTE_LEFT_OUT not in r["notes_for_lawyer"]
