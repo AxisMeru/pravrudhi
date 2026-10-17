@@ -292,3 +292,27 @@ def test_the_time_cap_refuses_the_whole_request_with_one_fixed_text_never_a_part
     with pytest.raises(T.TableRefused) as e:
         T.run_table(docs, ps, TabularConfig(max_seconds=30.0), {}, run_id="tab-t", today=TODAY, clock=lambda: float(next(ticks)))
     assert str(e.value) == "The table took too long, so no table was made." and e.value.code == "too_slow"
+
+
+def test_a_column_whose_numbers_do_not_add_up_is_a_loud_error() -> None:
+    with pytest.raises(AssertionError, match="does not add up"):
+        T._column([], [], 5, 0)  # 5 recognised, none read, none not read, none claimed: a bug, never a quietly wrong table
+
+
+def test_dates_are_scanned_once_per_paper_not_per_passage_so_the_paper_wide_rules_apply() -> None:
+    t = "Notice dated 13.04.2020 was served. The case was listed on 5 May 2030 and then 04.05.2020 and also 07.08.2020 and 12.09.2020."
+    p1, p2 = t[:70], t[70:]
+    docs = [T.Doc("d0", "A.pdf", 1, ())]
+    out = table(docs, [T.Passage(1, "d0", 1, 0, len(p1), p1), T.Passage(2, "d0", 1, len(p1), len(t), p2)], today=date(2035, 1, 1))
+    rows = [("d0", 1, 0, p1, 1), ("d0", 1, len(p1), p2, 2)]
+    want = sorted((h.text[:200], h.category) for h in CD.scan_document(rows, date(2035, 1, 1)).hits if h.category != "not_read")
+    got = sorted((c["text"], c["category"]) for c in out["papers"][0]["columns"]["dates"]["cells"])
+    assert got == want and ("5 May 2030", "scheduled") not in got  # a per-passage call would read it differently
+
+
+def test_the_injected_today_decides_the_year_ceiling_not_the_real_clock() -> None:
+    docs, ps = world("A hearing on 5 May 2031 was fixed.")
+    early = table(docs, ps, today=date(2026, 10, 17))["papers"][0]["columns"]["dates"]
+    late = table(docs, ps, today=date(2035, 1, 1))["papers"][0]["columns"]["dates"]
+    assert [c["text"] for c in early["cells"]] == [] and early["denominator"]["not_read"] == 1
+    assert [c["text"] for c in late["cells"]] == ["5 May 2031"] and late["denominator"]["not_read"] == 0

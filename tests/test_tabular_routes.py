@@ -455,3 +455,16 @@ def test_over_a_cap_the_route_refuses_the_whole_request_with_the_fixed_text(
         "detail": "This matter holds more than 1 papers, so no table was made.",
         "error": "too_many_papers",
     }
+
+
+def test_a_map_of_501_entries_is_refused_on_the_input_alone_even_for_a_foreign_matter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m = _matter(c, ("a.pdf", PAPER))
+    big = {f"{i:032x}": "x" for i in range(501)}
+    foreign = _client(tmp_path, user=USER2).post(PATH, json={"matter_id": m, "type_labels": big})
+    assert (
+        foreign.status_code == 422 and foreign.json() == NEUTRAL
+    )  # the size check comes before ownership: it tells the caller nothing about the matter
