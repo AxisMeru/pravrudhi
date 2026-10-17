@@ -196,9 +196,10 @@ class PartnerApiConfig:
     #: `POST /intake`: the wall-clock budget of the whole intake (text processing and its citation lookups; the lookups alone are
     #: held to INTAKE_LOOKUP_BUDGET_S). An exceeded budget is a 503 `intake_timeout`; 0 turns the budget off.
     intake_timeout_s: float = 30.0
-    #: Per-client-IP requests per minute for the OPTIONAL workflow routes (A1-A5, B3, S1-S3 and the bail draft), each with its own limiter.
-    #: None = the same as `rate_limit_per_minute`. The shipped config sets 30: a preview user adding four papers and then searching
-    #: made more than 6 calls in a minute and was refused (Track B's quality pass). `rate_limit_per_minute` still guards analyse-facts.
+    #: Per-client-IP requests per minute for the OPTIONAL workflow routes (A1-A5, B3, S1-S3 and the bail draft), each with its own
+    #: limiter. None = the same as `rate_limit_per_minute`. The shipped config sets 30: a preview user adding four papers and then
+    #: searching made more than 6 calls in a minute and was refused (Track B's quality pass). `rate_limit_per_minute` still guards
+    #: analyse-facts.
     slice_rate_limit_per_minute: int | None = None
 
     @property

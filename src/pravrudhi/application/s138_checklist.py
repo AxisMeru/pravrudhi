@@ -55,7 +55,7 @@ COMPLAINT_REASON = (
     "The complaint window comes from s.142, which is not held: it is not computed here; a lawyer sets it. Nothing on this "
     "list says whether a complaint is in time"
 )
-#: One plain line saying WHY a pandemic-era date or period answers REFER (PENDING R1's wording; the window is this module's own `PANDEMIC`).
+#: One plain line saying WHY a pandemic-era date or period answers REFER (PENDING R1's wording; the window is `PANDEMIC` below).
 PANDEMIC_NOTE = (
     "Some dates or periods here touch 15 March 2020 to 31 May 2022. This tool does not work out limitation for that stretch: "
     "it answers REFER, and a lawyer decides how limitation applies."
