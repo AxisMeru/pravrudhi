@@ -3119,6 +3119,115 @@ def build_partner_router(
         router.add_api_route("/matter-citation-sweep", sweep_ep, methods=["POST"], include_in_schema=False, response_model=None)
         _s1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- S2 matter tabular table: registered ONLY when partner_api.yaml sets wf_s2_tabular_fact_table to true AND A2 is on (its
+    # flag wf_a2_span_index true, not just a store folder): with A2 off there is NO route and a request gets the 404 of any
+    # unknown path. It reads A2's passages (tenant-checked) and A3's date scanner; no index, no model, no A3 flag. Off (the
+    # default) adds nothing: no module import, no route, no limiter, no thread, no read. Own limiters and slots; audit mode
+    # "intake" with a "tab-" run id.
+    try:
+        _s2_cfg = None
+        _s2_a2 = None
+        if _flags.get("wf_s2_tabular_fact_table") is True:
+            from pravrudhi.application.tabular_config import load_tabular_config as _load_s2
+
+            _s2_cfg = _load_s2(engine_root)
+        if _s2_cfg is not None:
+            from pravrudhi.application import matter_spans_config as _s2m
+
+            _s2_a2 = _s2m.load_matter_spans_config(engine_root)
+            if _s2_a2 is None:
+                _s2_cfg = None  # S2 on, A2 off: the route is not registered at all
+        if _s2_cfg is not None:
+            from pravrudhi.application import tabular_matter as _s2
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("matter tabular table unavailable; it stays off", exc_info=True)
+        _s2_cfg = None
+    if _s2_cfg is not None:
+        _s2_state: dict[str, Any] = {}
+        _s2_lock = threading.Lock()
+
+        def _s2_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _s2_lock:
+                if not _s2_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _s2_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _s2_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _s2_state["slots"] = ConcurrencyLimiter(_s2_cfg.max_concurrent)
+                return _s2_state["ip"], _s2_state["key"], _s2_state["slots"]
+
+        def _s2_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _s2_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def tabular_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _s2_admit(request, user, metered)  # the limiter slot is taken BEFORE the ownership read
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, tenant = admitted
+            run = {"run_id": f"tab-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                from pravrudhi.application.matter_spans import MatterStore as _Store
+
+                assert _s2_a2 is not None  # the route exists only when A2 is on
+                out = _s2.table_for_matter(_Store(_s2m.store_dir(engine_root), _s2_a2), tenant, req, run["run_id"], _s2_cfg)
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"detail": str(e), "error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        tabular_ep.__annotations__["req"] = _s2.TabularRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/matter-tabular", tabular_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_s2.FixedValidationRoute,
+        )
+        _s2.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     # --- A7 matter hearing pack: registered ONLY when partner_api.yaml sets wf_a7_matter_hearing_pack to true. It reads A2's
     # stored papers (tenant-checked) and runs A3's chronology and A5's papers agenda as functions, plus S1's citation sweep ONLY
     # when the S1 flag is also on and the citation index is available; it needs A2 ON (wf_a2_span_index true, not just a store

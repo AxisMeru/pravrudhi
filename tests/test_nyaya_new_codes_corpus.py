@@ -33,7 +33,8 @@ def test_each_act_has_every_section_once_and_records_its_provenance(name: str) -
 def test_the_ipc_documents_are_unchanged_by_the_new_acts() -> None:
     c = nyaya.load_corpus()
     ipc = [d for d in c.documents if d.id.startswith("IPC/")]
-    assert len(ipc) == 100 and c.by_id["IPC/Section 302"].act == "Indian Penal Code, 1860"
+    # 100 ids less the five the official Act text does not hold (13, 161, 164, 174A, 229A)
+    assert len(ipc) == 95 and c.by_id["IPC/Section 302"].act == "Indian Penal Code, 1860"
 
 
 def test_a_bns_provision_question_now_retrieves_it_above_the_relevance_floor() -> None:
