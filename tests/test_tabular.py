@@ -226,11 +226,13 @@ def test_over_the_paper_cap_the_whole_request_is_refused_naming_the_cap() -> Non
 
 def test_passage_and_character_caps_refuse_the_whole_request_at_exactly_one_over() -> None:
     docs, ps = world("aaaa", "bbbb")
-    with pytest.raises(T.TableRefused):
+    with pytest.raises(T.TableRefused) as e1:
         table(docs, ps, TabularConfig(max_passages=1))
+    assert str(e1.value) == "The papers you added hold more than 1 stored passages, so no table was made."
     table(docs, ps, TabularConfig(max_passages=2))
-    with pytest.raises(T.TableRefused):
+    with pytest.raises(T.TableRefused) as e2:
         table(docs, ps, TabularConfig(max_chars=7))
+    assert str(e2.value) == "The papers you added are longer than 7 characters together, so no table was made."
     table(docs, ps, TabularConfig(max_chars=8))
 
 

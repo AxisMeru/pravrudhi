@@ -25,6 +25,9 @@ H = {
     "TOO_SLOW": "ef4a17e5c3511c3d",
     "LABEL_TOO_LONG": "8619e1d9e44ebbc3",
     "LABEL_UNUSABLE": "307d026a469908d2",
+    "TOO_MANY_PASSAGES": "0ff72f91e50584c7",
+    "TOO_LONG_TEXT": "6b9252fcb559b260",
+    "BUSY": "724eb3dc834d0209",
     "MENTIONED_MANY": "813ad065da8475bf",
     "MENTIONED_ONCE": "2bf0b9d615ac8f0b",
 }

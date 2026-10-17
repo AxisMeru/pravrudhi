@@ -75,9 +75,9 @@ LABEL_TOO_LONG = "A label you typed is longer than {cap} characters, so no table
 LABEL_UNUSABLE = "A label could not be used, so no table was made."
 MENTIONED_MANY = "Mentioned {N} times in this paper."
 MENTIONED_ONCE = "Mentioned once in this paper."
-# PROPOSED (not in R1's table yet; R1 rules them and they are then hash-pinned): the refusals for the passage and character caps, and the busy line
-TOO_MANY_PASSAGES = "This matter's papers hold more than {cap} stored passages, so no table was made."
-TOO_LONG_TEXT = "This matter's papers are longer than {cap} characters together, so no table was made."
+# R1's rulings for the passage and character cap refusals and the busy line ({cap} renders as a plain integer from the config)
+TOO_MANY_PASSAGES = "The papers you added hold more than {cap} stored passages, so no table was made."
+TOO_LONG_TEXT = "The papers you added are longer than {cap} characters together, so no table was made."
 BUSY = "Another table of these papers is being made. Try again when it ends."
 
 STATES = ("read_papers_listed", "partly_read", "nothing_found")
