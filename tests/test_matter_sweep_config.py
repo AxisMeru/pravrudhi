@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """The S1 flag: fail closed (only the boolean true is on), a malformed cap with the flag on turns it OFF, the shipped config has it off."""
 
 from __future__ import annotations
