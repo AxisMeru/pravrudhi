@@ -404,3 +404,63 @@ def test_every_shown_statute_string_is_the_raw_text_with_only_the_footnote_marke
         for n, note in G.footnotes().items():
             back = back.replace(f" [footnote {n}: {note}]", "")
         assert back == re.sub(r"\d+ \[([^\]]*)\]", r"\1", i["statute_words_raw"]), i["id"]
+
+
+# ---- the four before-switch-on items (prabhasa-nyaya#980) ------------------------------------------------------------------------
+
+
+def test_the_not_added_heading_is_absent_when_the_list_under_it_is_empty() -> None:
+    a, b, c = doc(1, "x1.pdf"), doc(2, "x2.pdf"), doc(3, "x3.pdf")
+    full = build_agenda([a, b, c], {a.doc_id: "cheque", b.doc_id: "demand_notice", c.doc_id: "bank_return_information"})
+    assert full["not_added"]["rows"] == [] and full["not_added"]["heading"] is None and full["not_added"]["none_line"] is not None
+    name_only = build_agenda([doc(1, "Cheque.pdf"), doc(2, "Demand notice.pdf"), doc(3, "return memo.pdf")])
+    # R1's case: only file-name guesses, so nothing is listed AND no none-line: no heading over an empty list either
+    assert name_only["not_added"] == {"heading": None, "rows": [], "none_line": None}
+    part = build_agenda([a], {a.doc_id: "cheque"})
+    assert part["not_added"]["heading"] == "Papers not added yet that may matter" and part["not_added"]["rows"]
+    unread = build_agenda([doc(1, "scan.pdf", 2, (1, 2))])
+    assert unread["not_added"]["heading"] == "Papers not added yet that may matter"
+
+
+@pytest.mark.parametrize(
+    "name", ["Reply to legal notice.pdf", "Response to demand notice.pdf", "objection_to_legal_notice.pdf", "Rejoinder legal notice.pdf"]
+)
+def test_a_reply_to_a_notice_is_not_typed_as_the_notice(name: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] is None, name
+    assert build_agenda([doc(1, "Legal notice.pdf")])["papers_read"]["papers"][0]["paper_type"] == "demand_notice"
+
+
+def test_a_declared_held_paper_beats_a_name_only_file_of_the_same_type_and_the_none_line_can_show() -> None:
+    a, b, c = doc(1, "Cheque.pdf"), doc(2, "Demand notice.pdf"), doc(3, "return memo.pdf")
+    p = build_agenda([a, b, c], held_without_file=["cheque", "demand_notice", "bank_return_information"])
+    assert {r["status"] for r in p["statute_names"]["rows"] if r["id"] != "complaint"} == {"Declared by you; no file added"}
+    assert p["not_added"]["none_line"] is not None
+    only = build_agenda([a], held_without_file=["cheque"])
+    assert {r["id"]: r for r in only["statute_names"]["rows"]}["cheque"]["status"] == "Declared by you; no file added"
+    assert {r["id"]: r for r in only["statute_names"]["rows"]}["notice_in_writing"]["status"] == "Not added yet"
+    declared = build_agenda([a], {a.doc_id: "cheque"}, held_without_file=["cheque"])
+    assert {r["id"]: r for r in declared["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+@pytest.mark.parametrize(
+    ("blank", "total", "note"),
+    [
+        (0, 10, None),
+        (1, 1, "1 page had no text: check it yourself."),
+        (1, 10, "1 of 10 pages had no text: check it yourself."),
+        (3, 10, "3 of 10 pages had no text: check them yourself."),
+        (2, 2, "2 of 2 pages had no text: check them yourself."),
+    ],
+)
+def test_the_blank_page_note_is_singular_for_one_page_and_never_says_zero(blank: int, total: int, note: str | None) -> None:
+    assert G.pages_note(blank, total) == note
+    pages = tuple(range(1, blank + 1))
+    d = Doc("a" * 32, "x.pdf", total, pages)
+    got = build_agenda([d])["papers_read"]["papers"] if d.read else []
+    if d.read:
+        assert got[0]["pages_note"] == note
+
+
+def test_a_one_page_file_with_that_page_blank_is_not_read_so_its_note_is_the_unread_line_instead() -> None:
+    p = build_agenda([doc(1, "one.pdf", 1, (1,))])
+    assert p["papers_read"]["n"] == 0 and any("one.pdf" in r.get("line", "") for r in p["not_added"]["rows"])

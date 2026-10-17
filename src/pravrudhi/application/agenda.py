@@ -73,6 +73,17 @@ def papers_read_heading(n: int) -> str:
     return f"Papers read ({n})"
 
 
+def pages_note(blank: int, total: int) -> str | None:
+    """R1's three notes (never "0 of M"): one page only, one of several, several of several."""
+    if blank <= 0:
+        return None
+    if blank == 1 and total == 1:
+        return "1 page had no text: check it yourself."
+    if blank == 1:
+        return f"1 of {total} pages had no text: check it yourself."
+    return f"{blank} of {total} pages had no text: check them yourself."
+
+
 def not_read_line(name: str) -> str:
     return f"Not added yet: a file named '{name}' was added but not read (scanned pages), so check it yourself."
 
@@ -207,7 +218,7 @@ def build_agenda(
                 "name": d.name,
                 "pages": d.n_pages,
                 "pages_without_text": len(d.pages_without_text),
-                "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text: check them yourself." if d.pages_without_text else None,
+                "pages_note": pages_note(len(d.pages_without_text), d.n_pages),
                 "paper_type": ptype if ptype in known else None,
                 "paper_type_basis": basis if ptype in known else None,
             }
@@ -236,10 +247,10 @@ def build_agenda(
         out["papers"] = [{"doc_id": h["doc_id"], "name": h["name"], "paper_type_basis": h["paper_type_basis"]} for h in hits]
         if any(h["paper_type_basis"] == BASIS_DECLARED for h in hits):
             out["status"] = ADDED
+        elif ptype in held:
+            out["status"] = HELD_NO_FILE  # the user's explicit declaration beats a file-name guess
         elif hits:
             out["status"] = NAME_ONLY  # only a file-name guess: never shown as plain "Added"
-        elif ptype in held:
-            out["status"] = HELD_NO_FILE
         else:
             out["status"] = NOT_ADDED
         return out
@@ -270,7 +281,7 @@ def build_agenda(
         "lawyer_confirmed": confirmed,
         "papers_read": {"heading": papers_read_heading(len(typed)), "n": len(typed), "papers": typed},
         "not_added": {
-            "heading": HEADINGS["not_added"],
+            "heading": HEADINGS["not_added"] if outstanding or unread else None,  # no heading over an empty list
             "rows": [{"id": r["id"], "label": r["label"], "basis": r["basis"]} for r in outstanding] + [{"line": u} for u in unread],
             "none_line": NONE_OUTSTANDING if not tier1_outstanding and not unread else None,
         },
