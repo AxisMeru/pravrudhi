@@ -22,6 +22,7 @@ from pravrudhi.application import audit, tenancy
 from pravrudhi.application import draft_check_config as dcc
 from pravrudhi.application.case_index import CaseRecord, insert_case, open_index
 from pravrudhi.application.draft_check_config import DraftCheckConfig
+from tests.flag_peek_util import peek_all_true
 from tests.test_api_partner import _agent, _proof_script
 from tests.test_draft_check import b64 as b64pdf
 from tests.test_draft_check import make_pdf
@@ -45,6 +46,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _on(monkeypatch: pytest.MonkeyPatch, cfg: DraftCheckConfig | None = None) -> None:
     monkeypatch.setattr(dcc, "load_draft_check_config", lambda _root: cfg or DraftCheckConfig())
+    peek_all_true(monkeypatch)
 
 
 def _index(tmp_path: Path) -> Path:

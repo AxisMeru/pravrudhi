@@ -21,6 +21,7 @@ from pravrudhi.api.server import create_app
 from pravrudhi.application import audit, tenancy
 from pravrudhi.application import matter_spans_config as msc
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
+from tests.flag_peek_util import peek_all_true
 from tests.test_api_partner import _agent, _proof_script
 from tests.test_draft_check import b64, make_pdf
 from tests.test_matter_spans_delete import NEEDLE, holders
@@ -45,6 +46,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def _on(monkeypatch: pytest.MonkeyPatch, cfg: MatterSpansConfig | None = None) -> None:
     monkeypatch.setattr(msc, "load_matter_spans_config", lambda _root: cfg or MatterSpansConfig())
+    peek_all_true(monkeypatch)
 
 
 def _client(tmp_path: Path, *, user: Any = USER, cfg: PartnerApiConfig = CFG) -> TestClient:
