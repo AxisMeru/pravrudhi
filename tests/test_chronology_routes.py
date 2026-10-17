@@ -23,6 +23,7 @@ from pravrudhi.application import chronology_config as cc
 from pravrudhi.application import matter_spans_config as msc
 from pravrudhi.application.chronology_config import ChronologyConfig
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
+from tests.flag_peek_util import peek_all_true
 from tests.test_api_partner import _agent, _proof_script
 
 USER = identity.User("u1", "user@example.test", "user")
@@ -47,6 +48,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def _flags(monkeypatch: pytest.MonkeyPatch, a3: ChronologyConfig | None = None, a2: MatterSpansConfig | None = None) -> None:
     monkeypatch.setattr(cc, "load_chronology_config", lambda _root: a3)
     monkeypatch.setattr(msc, "load_matter_spans_config", lambda _root: a2)
+    peek_all_true(monkeypatch)
 
 
 def _client(tmp_path: Path, *, user: Any = USER, cfg: PartnerApiConfig = CFG) -> TestClient:

@@ -21,6 +21,7 @@ from pravrudhi.api.server import create_app
 from pravrudhi.application import audit, tenancy
 from pravrudhi.application import s138_checklist_config as scc
 from pravrudhi.application.s138_checklist_config import S138ChecklistConfig
+from tests.flag_peek_util import peek_all_true
 from tests.test_api_partner import _agent, _proof_script
 
 BODY = {
@@ -50,6 +51,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _on(monkeypatch: pytest.MonkeyPatch, cfg: S138ChecklistConfig | None = None) -> None:
     monkeypatch.setattr(scc, "load_s138_checklist_config", lambda _root: cfg or S138ChecklistConfig())
+    peek_all_true(monkeypatch)
 
 
 def _client(tmp_path: Path, *, user: Any = USER, cfg: PartnerApiConfig = CFG) -> TestClient:

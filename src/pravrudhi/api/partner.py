@@ -243,6 +243,32 @@ def _intake_timeout(raw: Any) -> float:
     return float(raw)
 
 
+def _peek_flags(engine_root: Path) -> dict[str, Any]:
+    """ONE read of partner_api.yaml for the optional slices' switches, importing none of their modules (#986).
+
+    With every flag off the process imports exactly what the released tree imports: the slice config readers
+    (`draft_check_config`, `matter_spans_config`, ...) are imported only for a slice whose flag reads true here. A missing or
+    unreadable file, or a body that is not a mapping, is `{}` (everything off). Never raises.
+    """
+    try:
+        body = yaml.safe_load(config_file(Path(engine_root), "partner_api.yaml").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - an optional slice must never stop the engine's own routes from starting
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _peek_matter_store_dir(engine_root: Path, flags: dict[str, Any]) -> Path:
+    """Where A2's store would be, WITHOUT importing `matter_spans_config` (its `store_dir`, mirrored: the environment variable,
+    else the yaml key `matter_spans_dir`, else `<root>/matter_spans`); a test pins this function equal to `store_dir`."""
+    env = os.environ.get("PRAVRUDHI_MATTER_SPANS_DIR", "").strip()
+    if env:
+        return Path(env).expanduser()
+    raw = flags.get("matter_spans_dir")
+    if isinstance(raw, str) and raw.strip():
+        return Path(raw).expanduser()
+    return Path(engine_root) / "matter_spans"
+
+
 def load_partner_api_config(root: Path) -> PartnerApiConfig:
     body = yaml.safe_load(config_file(Path(root), "partner_api.yaml").read_text()) or {}
     # NYAYA_DEBUG_SECOND_JUDGE_FIELDS: an env override (this file's yaml has none of its own precedent for
@@ -2296,10 +2322,13 @@ def build_partner_router(
     # --- A1 whole-draft citation check: registered ONLY when partner_api.yaml sets wf_a1_draft_citation_check to true ---------
     # Off (the default, and every unreadable or malformed setting) adds nothing: no module import, no route, no limiter, no
     # thread. A new route spends none of an existing route's budget: it has its own limiters and its own slots.
+    _flags = _peek_flags(engine_root)  # ONE read; no slice module is imported for a flag that is not true (#986)
     try:
-        from pravrudhi.application.draft_check_config import load_draft_check_config as _load_a1
+        _a1_cfg = None
+        if _flags.get("wf_a1_draft_citation_check") is True:
+            from pravrudhi.application.draft_check_config import load_draft_check_config as _load_a1
 
-        _a1_cfg = _load_a1(engine_root)
+            _a1_cfg = _load_a1(engine_root)
         if _a1_cfg is not None:
             from pravrudhi.application import draft_check as _a1
     except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
@@ -2406,9 +2435,11 @@ def build_partner_router(
     # Off (the default, and every unreadable or malformed setting) adds nothing: no module import, no route, no limiter, no
     # thread, no file read. A new route spends none of an existing route's budget: it has its own limiters and its own slots.
     try:
-        from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _load_b3
+        _b3_cfg = None
+        if _flags.get("wf_b3_s138_checklist") is True:
+            from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _load_b3
 
-        _b3_cfg = _load_b3(engine_root)
+            _b3_cfg = _load_b3(engine_root)
         if _b3_cfg is not None:
             from pravrudhi.application import s138_checklist as _b3
     except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
@@ -2500,12 +2531,16 @@ def build_partner_router(
     # store directory (the default) adds nothing but one directory-existence check. Own limiters and own slots. Known limits: the
     # limiters are built from the first request's config; a wrong API key spends the existing per-address bad-key budget.
     try:
-        from pravrudhi.application import matter_spans_config as _a2c
+        _a2_cfg = None
+        _a2_on = False
+        _a2_delete = False
+        if _flags.get("wf_a2_span_index") is True or _peek_matter_store_dir(engine_root, _flags).is_dir():
+            from pravrudhi.application import matter_spans_config as _a2c
 
-        _a2_cfg = _a2c.load_matter_spans_config(engine_root)
-        _a2_dir = _a2c.store_dir(engine_root)
-        _a2_on = _a2_cfg is not None
-        _a2_delete = _a2_on or _a2_dir.is_dir()
+            _a2_cfg = _a2c.load_matter_spans_config(engine_root)
+            _a2_dir = _a2c.store_dir(engine_root)
+            _a2_on = _a2_cfg is not None
+            _a2_delete = _a2_on or _a2_dir.is_dir()
         if _a2_delete:
             from pravrudhi.application import matter_spans as _a2
     except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
@@ -2638,9 +2673,11 @@ def build_partner_router(
     # adds nothing: no module import, no route, no limiter, no thread. Own limiters and own slots; audit mode "intake" with a
     # "chronology-" run id; known limits as for the other optional routes.
     try:
-        from pravrudhi.application.chronology_config import load_chronology_config as _load_a3
+        _a3_cfg = None
+        if _flags.get("wf_a3_chronology") is True:
+            from pravrudhi.application.chronology_config import load_chronology_config as _load_a3
 
-        _a3_cfg = _load_a3(engine_root)
+            _a3_cfg = _load_a3(engine_root)
         if _a3_cfg is not None:
             from pravrudhi.application import chronology_matter as _a3
             from pravrudhi.application import matter_spans_config as _a3m
@@ -2741,9 +2778,11 @@ def build_partner_router(
     # nothing. Off (the default) adds nothing: no module import, no route, no limiter, no thread. Own limiters and own slots;
     # audit mode "intake" with an "agenda-" run id; known limits as for the other optional routes.
     try:
-        from pravrudhi.application.agenda_config import load_agenda_config as _load_a5
+        _a5_cfg = None
+        if _flags.get("wf_a5_ingredient_agenda") is True:
+            from pravrudhi.application.agenda_config import load_agenda_config as _load_a5
 
-        _a5_cfg = _load_a5(engine_root)
+            _a5_cfg = _load_a5(engine_root)
         if _a5_cfg is not None:
             from pravrudhi.application import agenda_matter as _a5
             from pravrudhi.application import matter_spans_config as _a5m
@@ -2752,10 +2791,12 @@ def build_partner_router(
         _a5_cfg = None
     if _a5_cfg is not None:
         try:  # the page names the chronology and the cheque checklist only when BOTH are on in this deployment
-            from pravrudhi.application.chronology_config import load_chronology_config as _a5_c
-            from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _a5_b
+            _a5_owners = False
+            if _flags.get("wf_a3_chronology") is True and _flags.get("wf_b3_s138_checklist") is True:
+                from pravrudhi.application.chronology_config import load_chronology_config as _a5_c
+                from pravrudhi.application.s138_checklist_config import load_s138_checklist_config as _a5_b
 
-            _a5_owners = _a5_c(engine_root) is not None and _a5_b(engine_root) is not None
+                _a5_owners = _a5_c(engine_root) is not None and _a5_b(engine_root) is not None
         except Exception:  # noqa: BLE001 - the line is optional; without it the page just does not name them
             _a5_owners = False
         _a5_state: dict[str, Any] = {}
