@@ -1,0 +1,24 @@
+{
+ "version": 1,
+ "note": "Closed cue lists for the matter tabular table (S2, slice 1). A lawyer confirms, strikes or adds entries (rows S2-A to S2-D); adding an entry is a data change, not code. Matching is case-insensitive unless a form is written with 'cs'.",
+ "acts": [
+  {"id": "IPC", "forms": ["IPC", "I.P.C.", "Indian Penal Code"]},
+  {"id": "BNS", "forms": ["BNS", "B.N.S.", "Bharatiya Nyaya Sanhita"]},
+  {"id": "CrPC", "forms": ["CrPC", "Cr.P.C.", "Cr. P. C.", "Code of Criminal Procedure"]},
+  {"id": "BNSS", "forms": ["BNSS", "B.N.S.S.", "Bharatiya Nagarik Suraksha Sanhita"]},
+  {"id": "Indian Evidence Act", "forms": ["Indian Evidence Act", "the Evidence Act", "Evidence Act"]},
+  {"id": "BSA", "forms": ["BSA", "B.S.A.", "Bharatiya Sakshya Adhiniyam"]},
+  {"id": "NI Act", "forms": ["NI Act", "N.I. Act", "Negotiable Instruments Act"]}
+ ],
+ "unlisted_acts": ["NDPS", "N.D.P.S.", "POCSO", "SC/ST", "Arms Act", "Prevention of Corruption Act", "PMLA", "UAPA", "Information Technology Act", "IT Act", "Motor Vehicles Act", "Customs Act", "Companies Act", "Income Tax Act", "Contract Act", "Juvenile Justice Act", "Dowry Prohibition Act", "Domestic Violence Act", "Protection of Children from Sexual Offences Act"],
+ "section_cues": ["sections", "section", "secs", "sec", "ss", "s", "u/s", "us"],
+ "bare_act_words": ["the Act", "the said Act", "said Act", "the Code", "the said Code", "the Sanhita"],
+ "high_courts": ["Allahabad", "Andhra Pradesh", "Bombay", "Calcutta", "Chhattisgarh", "Delhi", "Gauhati", "Gujarat", "Himachal Pradesh", "Jammu and Kashmir and Ladakh", "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Madras", "Manipur", "Meghalaya", "Orissa", "Odisha", "Patna", "Punjab and Haryana", "Rajasthan", "Sikkim", "Telangana", "Tripura", "Uttarakhand"],
+ "court_cues": ["Supreme Court of India", "Court of Sessions", "Court of Session", "Sessions Court"],
+ "magistrate_titles": ["Chief Judicial Magistrate", "Metropolitan Magistrate", "Judicial Magistrate"],
+ "station_cues": ["Police Station", "P.S.", "PS"],
+ "station_terminators": [",", "dated", "under"],
+ "station_stop_words": ["Inspector", "Sub-Inspector", "SHO", "Smt", "Shri", "Mr", "Mrs"],
+ "station_max_words": 6,
+ "non_english_cue_words": ["धारा", "कलम", "பிரிவு", "വകുപ്പ്"]
+}
