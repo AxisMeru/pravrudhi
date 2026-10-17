@@ -681,3 +681,17 @@ def test_a_look_alike_day_next_to_a_year_is_still_counted_as_unread() -> None:
 def test_common_abbreviations_do_not_split_a_sentence(abbr: str) -> None:
     text = f"He paid {abbr} 500 and was arrested on 3 April 2015."
     assert len(CD.sentences(text)) == 1, abbr
+
+
+def test_an_order_sheets_per_page_hearing_date_at_one_line_index_is_not_a_printed_line() -> None:
+    """Track B N1: the same line index on >= 3 pages with DIFFERENT dates is an order sheet's own dates, not a template line."""
+    rows = [("d", p, p * 400, f"Order sheet\nCase body {p}\nNext date of hearing: {13 + p}.07.2019\nsigned", p) for p in range(1, 5)]
+    sc = scan_document(rows, TODAY)
+    assert not [h for h in sc.hits if h.category == "printed"]
+    assert {h.value for h in sc.hits if h.value} == {date(2019, 7, 14), date(2019, 7, 15), date(2019, 7, 16), date(2019, 7, 17)}
+
+
+def test_a_header_date_repeated_verbatim_at_one_line_index_on_three_pages_is_still_printed() -> None:
+    rows = [("d", p, p * 400, f"Header\nDate: 13.04.2015\nbody {p}", p) for p in range(1, 4)]
+    sc = scan_document(rows, TODAY)
+    assert [h for h in sc.hits if h.category == "printed"]
