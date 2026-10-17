@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +32,7 @@ def strings(node: Any, skip_statute: bool = True) -> list[str]:
         out.append(node)
     elif isinstance(node, dict):
         for k, v in node.items():
-            if skip_statute and k == "statute_words":
+            if skip_statute and k in ("statute_words", "statute_words_raw"):
                 continue
             out.extend(strings(v, skip_statute))
     elif isinstance(node, list):
@@ -72,14 +73,14 @@ def test_a_changed_statute_text_or_a_quote_that_is_not_in_it_stops_the_agenda(mo
 def test_no_paper_is_mapped_to_an_ingredient() -> None:
     page = build_agenda([doc(1, "cheque.pdf")])
     for ing in page["ingredients"]:
-        assert set(ing) == {"id", "proviso", "section", "statute_words"}
+        assert set(ing) == {"id", "proviso", "section", "statute_words", "statute_words_raw"}
 
 
 def test_the_ingredients_carry_their_proviso_letters_in_the_sections_own_words() -> None:
     page = build_agenda([doc(1, "cheque.pdf")])
     by = {i["id"]: i for i in page["ingredients"]}
     assert (by["presentation"]["proviso"], by["notice"]["proviso"], by["non_payment"]["proviso"]) == ("(a)", "(b)", "(c)")
-    assert all(i["statute_words"] in HELD for i in page["ingredients"])
+    assert all(i["statute_words_raw"] in HELD for i in page["ingredients"])
 
 
 # ---- the fixed strings (R1's words, addenda 1 to 3) -------------------------------------------------------------------------------
@@ -103,7 +104,8 @@ def test_the_standing_source_status_and_not_assessed_lines_are_exact() -> None:
         "Anything not in the papers you added.",
     ]
     assert p["quotes_line"] == (
-        "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+        "Quotes are kept as printed in the India Code copy we hold, including any typing slips. "
+        "A note in square brackets beside a quote is that copy's own footnote on an amendment."
     )
     assert "where_to_look" not in p["headings"] and "Where to look" not in json.dumps(p)
     assert p["statute_names"]["heading"] == "Papers the statute names for this offence"
@@ -168,7 +170,7 @@ def test_a_declared_type_wins_and_the_row_shows_the_basis() -> None:
 def test_the_file_name_is_a_stated_fallback_only() -> None:
     p = build_agenda([doc(1, "Demand Notice 2019.pdf"), doc(2, "scan_0034.pdf")])
     rows = {r["id"]: r for r in p["statute_names"]["rows"]}
-    assert rows["notice_in_writing"]["status"] == "Added"
+    assert rows["notice_in_writing"]["status"] == "A file whose name suggests this paper was added; its content was not checked."
     assert rows["notice_in_writing"]["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
     named = {x["name"]: x for x in p["papers_read"]["papers"]}
     assert named["scan_0034.pdf"]["paper_type"] is None and named["scan_0034.pdf"]["paper_type_basis"] is None
@@ -207,9 +209,12 @@ def test_a_file_with_text_on_some_pages_is_read() -> None:
     assert build_agenda([doc(1, "a.pdf", 3, (2,))])["papers_read"]["n"] == 1
 
 
-def test_a_file_name_is_escaped_for_the_page() -> None:
-    p = build_agenda([doc(1, 'a<b>&"c".pdf')])
-    assert p["papers_read"]["papers"][0]["name"] == "a&lt;b&gt;&amp;&quot;c&quot;.pdf"
+def test_a_file_name_is_returned_raw_so_the_page_escapes_it_once() -> None:
+    """G6: the JSON carries the name as it is; escaping it here as well would show "&amp;" after the page escapes it again."""
+    p = build_agenda([doc(1, 'a<b>&"c".pdf'), doc(2, 'x<y>&"z".pdf', 2, (1, 2))])
+    assert p["papers_read"]["papers"][0]["name"] == 'a<b>&"c".pdf'
+    assert any('x<y>&"z".pdf' in r.get("line", "") for r in p["not_added"]["rows"])
+    assert "&amp;" not in json.dumps(p) and "&lt;" not in json.dumps(p)
 
 
 @pytest.mark.parametrize("declared", [{"f" * 32: "cheque"}, {"0" * 31 + "1": "not-a-type"}])
@@ -236,7 +241,7 @@ def test_the_lawyer_tier_is_hidden_while_unconfirmed_and_shown_with_its_basis_on
 def test_tier_one_holds_only_rows_whose_words_are_in_the_statute() -> None:
     for r in build_agenda([doc(1, "a.pdf")])["statute_names"]["rows"]:
         assert r["basis"] == "statute_text"
-        assert r["statute_words"] is None or r["statute_words"] in HELD
+        assert r["statute_words_raw"] is None or r["statute_words_raw"] in HELD
 
 
 def test_the_core_imports_no_client_library_and_not_the_store() -> None:
@@ -302,10 +307,100 @@ def test_a_file_name_that_fits_two_types_gets_no_type_and_never_fills_the_cheque
 def test_a_file_name_that_fits_exactly_one_type_still_gets_it_with_the_fallback_basis(name: str, row: str) -> None:
     p = build_agenda([doc(1, name)])
     got = {r["id"]: r for r in p["statute_names"]["rows"]}[row]
-    assert got["status"] == "Added" and got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
+    assert got["status"] == "A file whose name suggests this paper was added; its content was not checked."
+    assert got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
 
 
 def test_a_declared_type_still_wins_for_a_name_that_fits_two_types() -> None:
     d = doc(1, "Notice of cheque return.pdf")
     p = build_agenda([d], {d.doc_id: "cheque"})
     assert {r["id"]: r for r in p["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+# ---- Track B's G1, G2, G3, G5, G8 ------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name", ["Notice_of_Motion.pdf", "Income tax return.pdf", "Office memo.pdf", "Return_of_service.pdf", "Payment receipt.pdf", "cheque_return_memo.pdf"]
+)
+def test_loose_or_clashing_file_names_get_no_type(name: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] is None, name
+
+
+@pytest.mark.parametrize(
+    ("name", "ptype"),
+    [("Bank_Statement.pdf", "bank_statement"), ("bank-statement-2019.pdf", "bank_statement"), ("CHEQUE no 12.pdf", "cheque"), ("Speed_Post_receipt.pdf", "notice_proof")],
+)
+def test_the_name_is_split_into_words_so_separators_do_not_matter(name: str, ptype: str) -> None:
+    assert build_agenda([doc(1, name)])["papers_read"]["papers"][0]["paper_type"] == ptype
+
+
+def test_a_name_only_row_never_reads_as_plain_added_and_never_gives_the_none_line() -> None:
+    a, b, c = doc(1, "Cheque.pdf"), doc(2, "Demand notice.pdf"), doc(3, "return memo.pdf")
+    p = build_agenda([a, b, c])
+    assert {r["status"] for r in p["statute_names"]["rows"] if r["id"] != "complaint"} == {G.NAME_ONLY}
+    assert p["not_added"]["none_line"] is None  # G3: no declaration, only guesses
+    q = build_agenda([a, b, c], {a.doc_id: "cheque", b.doc_id: "demand_notice", c.doc_id: "bank_return_information"})
+    assert q["not_added"]["none_line"] is not None
+
+
+def test_a_paper_held_without_a_file_is_declared_held_and_is_not_outstanding() -> None:
+    a = doc(1, "x.pdf")
+    p = build_agenda([a], {a.doc_id: "other"}, held_without_file=["cheque", "demand_notice", "bank_return_information"])
+    rows = {r["id"]: r for r in p["statute_names"]["rows"]}
+    assert {rows[k]["status"] for k in ("cheque", "notice_in_writing", "bank_information")} == {"Declared by you; no file added"}
+    assert p["not_added"]["rows"] == [] and p["not_added"]["none_line"] is not None
+    only = build_agenda([a], held_without_file=["cheque"])
+    assert {r["id"]: r for r in only["statute_names"]["rows"]}["notice_in_writing"]["status"] == "Not added yet"
+
+
+@pytest.mark.parametrize("bad", [["not-a-type"], ["other"], ["cheque", "zzz"]])
+def test_a_held_type_that_is_not_in_the_list_is_refused(bad: list[str]) -> None:
+    with pytest.raises(ValueError):
+        build_agenda([doc(1, "x.pdf")], held_without_file=bad)
+
+
+def test_a_declared_type_beats_a_held_declaration_and_a_file_for_the_same_type_is_added() -> None:
+    d = doc(1, "x.pdf")
+    p = build_agenda([d], {d.doc_id: "cheque"}, held_without_file=["cheque"])
+    assert {r["id"]: r for r in p["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+def test_pages_with_no_text_are_stated_on_the_paper_and_a_zero_page_file_is_not_read() -> None:
+    p = build_agenda([doc(1, "a.pdf", 10, (3, 4, 5)), doc(2, "zero.pdf", 0)])
+    assert p["papers_read"]["papers"][0]["pages_note"] == "3 of 10 pages had no text: check them yourself."
+    assert p["papers_read"]["n"] == 1 and any("zero.pdf" in r.get("line", "") for r in p["not_added"]["rows"])
+    assert build_agenda([doc(1, "a.pdf", 2)])["papers_read"]["papers"][0]["pages_note"] is None
+
+
+@pytest.mark.parametrize("word", ["missing", "gap", "lacking", "deficient", "defect", "weak", "strong", "fatal"])
+def test_the_added_barred_words_are_caught_and_the_longer_phrase_wins(word: str) -> None:
+    assert G.barred_in(f"There is a {word} here.") == [word]
+    assert G.barred_in("a weak case") == ["weak case"] and G.barred_in("missing evidence") == ["missing evidence"]
+
+
+def test_the_bracketed_amendment_is_shown_as_the_amended_words_with_its_footnote_and_the_raw_text_is_kept() -> None:
+    """G4: "3 [within thirty days]" is shown as the words with the held copy's own footnote; every other quote is untouched."""
+    page = build_agenda([doc(1, "a.pdf")])
+    notice = next(i for i in page["ingredients"] if i["id"] == "notice")
+    assert "3 [within thirty days]" in notice["statute_words_raw"] and notice["statute_words_raw"] in HELD
+    assert "3 [" not in notice["statute_words"]
+    assert "within thirty days [footnote 3: Subs. by Act 55 of 2002 s.7, for 'within fifteen days', w.e.f. 6-2-2003]" in notice["statute_words"]
+    for i in page["ingredients"]:
+        if "[" not in i["statute_words_raw"]:
+            assert i["statute_words"] == i["statute_words_raw"]
+
+
+def test_show_statute_leaves_an_unknown_footnote_number_and_none_alone() -> None:
+    assert G.show_statute(None) is None
+    assert G.show_statute("a 9 [b] c") == "a 9 [b] c"
+    assert G.footnotes()["1"].startswith("Ins. by Act 66 of 1988")
+
+
+def test_every_shown_statute_string_is_the_raw_text_with_only_the_footnote_marker_changed() -> None:
+    page = build_agenda([doc(1, "a.pdf")])
+    for i in page["ingredients"]:
+        back = i["statute_words"]
+        for n, note in G.footnotes().items():
+            back = back.replace(f" [footnote {n}: {note}]", "")
+        assert back == re.sub(r"\d+ \[([^\]]*)\]", r"\1", i["statute_words_raw"]), i["id"]

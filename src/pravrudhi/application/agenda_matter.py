@@ -24,6 +24,8 @@ class AgendaRequest(BaseModel):
     offence: StrictStr = Field(default=G.OFFENCE_ID, max_length=64)
     #: the user's own word for what each added paper is: document id -> a type id from the page's list
     paper_types: dict[StrictStr, StrictStr] = Field(default_factory=dict, max_length=500)
+    #: paper types the user holds but has not added as a file (a scan with no text layer is not kept by A2): closed type ids
+    papers_held_without_file: list[StrictStr] = Field(default_factory=list, max_length=20)
 
 
 def open_route_lists() -> None:
@@ -46,7 +48,7 @@ def agenda_for_matter(
         raise MatterError("no_papers", G.NO_PAPERS, 409)
     records = [G.Doc(d["doc_id"], d["name"], int(d["n_pages"]), tuple(int(p) for p in d["pages_without_text"])) for d in docs]
     try:
-        page = G.build_agenda(records, dict(req.paper_types), req.offence, ownership)
+        page = G.build_agenda(records, dict(req.paper_types), req.offence, ownership, list(req.papers_held_without_file))
         return {"run_id": run_id, "matter_id": req.matter_id, **page}
     except G.AssetChanged as e:
         raise MatterError("agenda_asset_changed", "The agenda is not available.", 500) from e

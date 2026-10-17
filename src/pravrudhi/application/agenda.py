@@ -50,9 +50,12 @@ HEADINGS = {
 }
 TAGS = {"statute_text": "Named in the section", "lawyer_practice": "From a lawyer's list"}  # the source of each row, by its basis
 QUOTES_LINE = (
-    "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+    "Quotes are kept as printed in the India Code copy we hold, including any typing slips. "
+    "A note in square brackets beside a quote is that copy's own footnote on an amendment."
 )
 ADDED, NOT_ADDED = "Added", "Not added yet"
+NAME_ONLY = "A file whose name suggests this paper was added; its content was not checked."
+HELD_NO_FILE = "Declared by you; no file added"
 BASIS_DECLARED = "Paper type declared by you"
 BASIS_FILE_NAME = "Paper type taken from the file name"
 NONE_OUTSTANDING = (
@@ -76,12 +79,13 @@ def not_read_line(name: str) -> str:
 
 # ---- the words this page must never use (a test scans every emitted string for each) -----------------------------------------
 BARRED = (
+    "missing", "gap", "lacking", "deficient", "defect", "weak", "strong", "fatal",
     "weak case", "strong case", "will fail", "likely quashed", "no offence made out", "probability", "score", "missing evidence",
     "inconsistent", "inconsistency", "contradiction", "contradict", "complete", "completeness", "all papers", "every paper",
     "usually settles", "would settle", "settle", "evidence of", "proves", "proved", "shows that the prosecution",
     "likelihood", "chance of", "nothing missing",
 )  # fmt: skip
-_BARRED_RX = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(b) for b in BARRED) + r")(?![A-Za-z])", re.I)
+_BARRED_RX = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(b) for b in sorted(BARRED, key=len, reverse=True)) + r")(?![A-Za-z])", re.I)
 
 
 def barred_in(text: str) -> list[str]:
@@ -94,6 +98,31 @@ def barred_in(text: str) -> list[str]:
 
 class AssetChanged(Exception):
     """The held s.138 text or the agenda asset is not what this code was pinned to: nothing is served from it."""
+
+
+@lru_cache(maxsize=1)
+def footnotes() -> dict[str, str]:
+    """The held copy's own footnotes ("3 = Subs. by Act 55 of 2002 s.7 ..."), by number."""
+    st = json.loads(AGENDA_ASSET.read_text(encoding="utf-8"))["statute"]
+    held = json.loads((ASSETS / st["asset"]).read_text(encoding="utf-8"))
+    out: dict[str, str] = {}
+    for part in str(held["provenance"]["footnotes"]).split(";"):
+        m = re.match(r"\s*(\d+)\s*=\s*(.+?)\s*$", part)
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+_FOOTNOTED = re.compile(r"(\d+) \[([^\]]*)\]")
+
+
+def show_statute(quote: str | None) -> str | None:
+    """A quote as the page shows it: the held text's bracketed amendment ("3 [within thirty days]") is shown as the amended words
+    with its source footnote marked explicitly; every other word is untouched. The raw quote is kept beside it."""
+    if quote is None:
+        return None
+    notes = footnotes()
+    return _FOOTNOTED.sub(lambda m: f"{m.group(2)} [footnote {m.group(1)}: {notes[m.group(1)]}]" if m.group(1) in notes else m.group(0), quote)
 
 
 @lru_cache(maxsize=1)
@@ -122,30 +151,35 @@ class Doc:
 
     @property
     def read(self) -> bool:
-        """A paper is read when at least one of its pages has text; a file whose every page is blank was not read (scanned)."""
-        return self.n_pages == 0 or len(self.pages_without_text) < self.n_pages
+        """A paper is read when at least one of its pages has text; a file with no pages, or whose every page is blank, was not read."""
+        return self.n_pages > 0 and len(self.pages_without_text) < self.n_pages
 
 
 def _name_type(name: str, asset: dict[str, Any]) -> str | None:
-    """The type the FILE NAME suggests, only when exactly ONE type's words are in it: a name that fits two or more types
-    ("Notice of cheque return.pdf") is ambiguous and gets no type, so it can never fill a row for the wrong paper."""
-    low = name.lower()
-    hits = [
-        str(tid)
-        for tid, words in asset["paper_types_from_file_name"].items()
-        if any(re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", low) for w in words)
-    ]
-    return hits[0] if len(hits) == 1 else None
+    """The type the FILE NAME suggests: whole words and phrases (the name split on non-alphanumerics), and only when exactly ONE
+    type's words are in it. A name that fits two or more types ("Cheque_return_memo.pdf") is ambiguous and gets no type."""
+    tokens = re.findall(r"[a-z0-9]+", name.lower())
 
+    def has(phrase: str) -> bool:
+        w = phrase.split()
+        return any(tokens[i : i + len(w)] == w for i in range(len(tokens) - len(w) + 1))
 
-def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    hits = [str(tid) for tid, phrases in asset["paper_types_from_file_name"].items() if any(has(p) for p in phrases)]
+    if len(hits) != 1:
+        return None
+    others = {w for tid, words in asset["paper_types_hints"].items() if tid != hits[0] for w in words}
+    return None if others & set(tokens) else hits[0]
 
 
 def build_agenda(
-    docs: list[Doc], declared: dict[str, str] | None = None, offence: str = OFFENCE_ID, ownership: bool = False
+    docs: list[Doc],
+    declared: dict[str, str] | None = None,
+    offence: str = OFFENCE_ID,
+    ownership: bool = False,
+    held_without_file: list[str] | None = None,
 ) -> dict[str, Any]:
     """The page. `declared` maps doc_id -> paper type id (the user's word); any doc without one gets the file-name fallback.
+    `held_without_file`: paper types the user says they hold but have not added as a file (a scan has no text for A2 to keep).
     `ownership`: the line naming the chronology page and the cheque checklist is emitted only when both are ON in this deployment."""
     asset = load_asset()
     if offence != OFFENCE_ID:
@@ -153,13 +187,14 @@ def build_agenda(
     declared = declared or {}
     known = {t["id"] for t in asset["paper_types"]}
     by_id = {d.doc_id: d for d in docs}
-    if any(k not in by_id or v not in known for k, v in declared.items()):
+    held = list(dict.fromkeys(held_without_file or []))
+    if any(k not in by_id or v not in known for k, v in declared.items()) or any(h not in known or h == "other" for h in held):
         raise ValueError(BAD_TYPE)
     typed: list[dict[str, Any]] = []
     unread: list[str] = []
     for d in docs:
         if not d.read:
-            unread.append(not_read_line(_esc(d.name)))
+            unread.append(not_read_line(d.name))
             continue
         ptype: str | None
         if d.doc_id in declared:
@@ -169,9 +204,10 @@ def build_agenda(
         typed.append(
             {
                 "doc_id": d.doc_id,
-                "name": _esc(d.name),
+                "name": d.name,
                 "pages": d.n_pages,
                 "pages_without_text": len(d.pages_without_text),
+                "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text: check them yourself." if d.pages_without_text else None,
                 "paper_type": ptype if ptype in known else None,
                 "paper_type_basis": basis if ptype in known else None,
             }
@@ -189,22 +225,30 @@ def build_agenda(
             "proviso": entry.get("proviso"),
             "basis": entry["basis"],
             "section": entry.get("section"),
-            "statute_words": entry.get("quote"),
+            "statute_words": show_statute(entry.get("quote")),
+            "statute_words_raw": entry.get("quote"),
             "tag": TAGS[entry["basis"]],
         }
         if ptype is None:
             out["status"] = None
             return out
         hits = have.get(ptype, [])
-        out["status"] = ADDED if hits else NOT_ADDED
         out["papers"] = [{"doc_id": h["doc_id"], "name": h["name"], "paper_type_basis": h["paper_type_basis"]} for h in hits]
+        if any(h["paper_type_basis"] == BASIS_DECLARED for h in hits):
+            out["status"] = ADDED
+        elif hits:
+            out["status"] = NAME_ONLY  # only a file-name guess: never shown as plain "Added"
+        elif ptype in held:
+            out["status"] = HELD_NO_FILE
+        else:
+            out["status"] = NOT_ADDED
         return out
 
     tier1 = [row(e) for e in asset["tier_statute"]]
     confirmed = bool(asset["lawyer_confirmed"])
     tier2 = [row(e) for e in asset["tier_lawyer"]] if confirmed else None
     outstanding = [r for r in tier1 + (tier2 or []) if r["status"] == NOT_ADDED]
-    tier1_outstanding = [r for r in tier1 if r["status"] == NOT_ADDED]
+    tier1_outstanding = [r for r in tier1 if r["status"] in (NOT_ADDED, NAME_ONLY)]  # a name-only guess is not a declaration
     return {
         "statement": DATA_STATEMENT,
         "standing_line": STANDING_LINE,
@@ -214,7 +258,7 @@ def build_agenda(
         "offence": dict(asset["offence"]),
         "headings": {k: v for k, v in HEADINGS.items() if confirmed or k != "lawyer_listed"},  # a hidden tier leaves no trace
         "ingredients": [
-            {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": i["quote"]}
+            {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": show_statute(i["quote"]), "statute_words_raw": i["quote"]}
             for i in asset["ingredients"]
         ],
         "statute_names": {"heading": HEADINGS["statute_names"], "rows": tier1},
