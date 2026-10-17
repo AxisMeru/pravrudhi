@@ -27,6 +27,8 @@ H = {
     "NOT_ASSESSED": "75b4e03d29b348e4",
     "PAPERS_CAPTION": "cf937c947c6a7f94",
     "UNAVAILABLE": "e8992d03171239e4",
+    "SCREENING_AID": "726c9d239f783389",
+    "DATA_STATEMENT": "f41bfcccc2285193",
 }
 
 
@@ -53,6 +55,12 @@ def test_the_refusal_is_the_parity_wording_and_names_no_relief() -> None:
         "No agenda for this relief yet. For now this page covers quashing of an FIR or complaint under BNSS s.528 only. A lawyer reads the papers."
     )
     assert "{" not in G.REFUSAL
+
+
+def test_the_zero_papers_line_is_the_ruled_pair() -> None:
+    assert _h(G.papers_heading(0) + ". " + G.NO_PAPERS_CAPTION) == "7a65a3da11c1ef58"
+    assert G.build_page([])["papers"]["caption"] == G.NO_PAPERS_CAPTION
+    assert G.build_page([G.Doc("d" * 32, "a.pdf", 1, ())])["papers"]["caption"] == G.PAPERS_CAPTION
 
 
 def test_the_papers_heading_is_the_ruled_form() -> None:

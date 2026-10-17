@@ -201,6 +201,7 @@ def test_a_matter_with_no_papers_still_gets_the_page_with_zero_papers(tmp_path: 
     m = c.post(f"{A2}/matters", json={}).json()["matter_id"]
     r = c.post(PATH, json={"matter_id": m})
     assert r.status_code == 200 and r.json()["papers"]["heading"] == "Papers you added (0)"
+    assert r.json()["papers"]["caption"] == "No papers added yet." and "They are listed, not read." not in r.text
 
 
 def test_the_route_never_reads_a_passage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

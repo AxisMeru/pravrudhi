@@ -69,7 +69,8 @@ NOT_ASSESSED = (
 )
 PAPERS_CAPTION = "They are listed, not read."
 SCREENING_AID = "This is a screening aid, not legal advice. A lawyer decides."
-DATA_STATEMENT = "Built and tested on invented text only. No lawyer has used this on a live matter."
+DATA_STATEMENT = "Built and tested on invented text and public court orders only. No lawyer has used this on a live matter."
+NO_PAPERS_CAPTION = "No papers added yet."
 UNAVAILABLE = (
     "The agenda is not available: this service could not confirm that Amanullah v. State of Bihar is in its index, so the categories "
     "are not shown. A lawyer reads the papers."
@@ -234,7 +235,7 @@ def build_page(docs: list[Doc]) -> dict[str, Any]:
         "not_assessed": NOT_ASSESSED,
         "papers": {
             "heading": papers_heading(len(docs)),
-            "caption": PAPERS_CAPTION,
+            "caption": PAPERS_CAPTION if docs else NO_PAPERS_CAPTION,
             "documents": [{"doc_id": d.doc_id, "name": d.name} for d in docs],
         },
         "screening_aid": SCREENING_AID,
