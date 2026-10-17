@@ -316,3 +316,14 @@ def test_the_injected_today_decides_the_year_ceiling_not_the_real_clock() -> Non
     late = table(docs, ps, today=date(2035, 1, 1))["papers"][0]["columns"]["dates"]
     assert [c["text"] for c in early["cells"]] == [] and early["denominator"]["not_read"] == 1
     assert [c["text"] for c in late["cells"]] == ["5 May 2031"] and late["denominator"]["not_read"] == 0
+
+
+def test_the_paper_rows_keep_the_stored_order_never_sorted_by_name_or_by_count() -> None:
+    names = ["Zeta order.pdf", "Alpha FIR.pdf", "Middle notice.pdf"]
+    docs = [T.Doc(f"d{i}", n, 1, ()) for i, n in enumerate(names)]
+    ps = [
+        T.Passage(i + 1, f"d{i}", 1, 0, 40, "Section 420 IPC " * (3 - i)) for i in range(3)
+    ]  # the first paper has the most mentions
+    out = table(docs, ps)
+    assert [p["name"] for p in out["papers"]] == names
+    assert [p["name"] for p in table(list(reversed(docs)), list(reversed(ps)))["papers"]] == list(reversed(names))
