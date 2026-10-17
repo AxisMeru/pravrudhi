@@ -427,3 +427,19 @@ def test_dropped_paragraph_and_adverse_notes_outrank_model_notes():
     first = [("The Prosecution opposed the bail [F1].", ["F1"]), ("No authority is supplied [F2].", ["F2"])]
     r = run(c, Fake(answer(first, ["a", "b", "c", "d", "e"]), answer(first, ["a", "b", "c", "d", "e"])))
     assert r["notes_for_lawyer"][0].startswith("Fact F1 reads like") and r["notes_for_lawyer"][1].startswith("Paragraph 2")
+
+
+def test_a_note_predicting_this_applications_result_is_left_out_but_what_the_other_side_may_argue_is_kept():
+    f = Fake(
+        answer(
+            GOOD,
+            [
+                "The bail is likely to be granted on these facts.",
+                "An earlier conviction is likely to be raised against the Applicant.",
+            ],
+        )
+    )
+    r = run(complete=f)
+    allnotes = r["notes_for_lawyer"] + r["more_notes"]
+    assert not any("likely to be granted" in n for n in allnotes) and any("likely to be raised" in n for n in allnotes)
+    assert bd.NOTE_LEFT_OUT in allnotes and any(c["name"] == "notes_prediction" for c in r["checks"])

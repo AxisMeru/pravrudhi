@@ -40,9 +40,22 @@ SENSITIVE_REFUSAL = (
     "No draft is made for this kind of case (a case under the POCSO Act or involving a minor, a sexual offence, or one you marked "
     "sensitive). A lawyer drafts the application."
 )  # R1's a4_sensitive_refusal (9b9bc5a83311f2a0); the route may override it from its own config
+NOTE_LEFT_OUT = "A note from the draft was left out because it predicted the result of this application."
+#: R1: barred everywhere, notes included: predictions about THIS application's result (what the other side may argue is allowed in notes).
+PREDICTIONS = (
+    "likely to be granted",
+    "likely to be refused",
+    "will be granted",
+    "will be refused",
+    "ready to file",
+    "strong case",
+    "must be granted",
+    "should be granted",
+    "certain to",
+)
 MORE_NOTES_HEADING = "More notes"
 NOTES_SHOWN = 5  # the notes a lawyer sees first; the rest are folded under MORE_NOTES_HEADING
-ADVERSE_NOTE = "Fact {fid} reads like the court's, the prosecution's or the complainant's voice, or an adverse fact ({why}). It is drafted as given: check that it belongs in the applicant's grounds."
+ADVERSE_NOTE = "Fact {fid} reads like the court's, the prosecution's or the complainant's voice, or an adverse fact ({why}). It was used as ticked: check that it belongs in the applicant's grounds."
 INCOMPLETE_LINE = "INCOMPLETE: the model's answer was cut off at the length limit. No grounds were taken from it."
 TEMPLATE_ONLY_LINE = "The draft grounds could not be made, so this shows your facts and the notes only."  # R1's a4_template_only (59673ff74f88cd62)
 PRAYER = "PRAYER\nThe applicant prays that this Court may be pleased to consider the grounds above. [Lawyer to complete.]"
@@ -670,7 +683,17 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         )
         tiered += [(0, ADVERSE_NOTE.format(fid=f, why=why)) for f, why in flags]
     tiered += [(0, n) for n in dropped]
-    tiered += [(1 if any(k in n.lower() for k in NOTE_KEYS) else 2, n) for n in notes]
+    notes_ok = [n for n in notes if not any(_has_phrase(n.lower(), w) for w in PREDICTIONS)]
+    if len(notes_ok) != len(notes):
+        checks.append(
+            {
+                "name": "notes_prediction",
+                "passed": False,
+                "detail": f"{len(notes) - len(notes_ok)} note(s) left out: a prediction about this application's result",
+            }
+        )
+        tiered.append((0, NOTE_LEFT_OUT))
+    tiered += [(1 if any(k in n.lower() for k in NOTE_KEYS) else 2, n) for n in notes_ok]
     if adv:
         tiered.append((3, "Words in the grounds that are not in your facts (check each): " + ", ".join(adv) + "."))
     if int(getattr(case, "n_facts_excluded", 0)):
