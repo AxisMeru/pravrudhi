@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """prabhasa-nyaya in the product: retrieval is deterministic, citations are checked mechanically, abstention
 is an outcome, and nothing reaches the ledger."""
 
@@ -16,9 +17,9 @@ from pravrudhi.application.init import init_project
 
 def test_the_shipped_corpus_is_real_and_traceable() -> None:
     c = nyaya.load_corpus()
-    assert len(c.documents) >= 550  # 100 IPC sections (IL-TUR) + 450 Constitution articles (Wikisource, 2020 text)
-    ipc = next(s for s in c.sources if s.get("dataset") == "Exploration-Lab/IL-TUR")
-    assert ipc["sha256"]
+    assert len(c.documents) >= 550  # 95 IPC sections (the official Act text) + 450 Constitution articles (Wikisource, 2020 text)
+    ipc = next(s for s in c.sources if s.get("act") == "Indian Penal Code, 1860")
+    assert ipc["sha256"] and ipc["publisher"].startswith("Ministry of Home Affairs") and "IL-TUR" not in str(ipc)
     coi = next(s for s in c.sources if s.get("work") == "Constitution of India (2020)")
     assert coi["site"] == "en.wikisource.org" and all(p["revid"] and p["sha256"] for p in coi["pages"])
     assert c.by_id["IPC/Section 302"].title.lower().startswith("punishment for murder")
@@ -278,8 +279,9 @@ def test_the_routes_serve_the_product_and_need_the_local_token_to_ask(tmp_path: 
     fake = _fake({"*": "ANSWER: [BNS/Section 101].\nCITATIONS: BNS/Section 101\nCONFIDENCE: low"})
     c = TestClient(create_app(tmp_path, nyaya_ask_fn=fake), base_url="http://127.0.0.1:8008")
     hits = [h["id"] for h in c.get("/api/nyaya/corpus?q=murder").json()["hits"]]
-    # BNS 2023 ships beside the IPC: BNS s.101 (murder) is measured at rank 4 for "murder".
-    assert "BNS/Section 101" in hits[:5]
+    # BNS 2023 ships beside the IPC: BNS s.101 (murder) ranks within the first ten for "murder" (the IPC sections now carry their
+    # illustrations and exceptions in full, so IPC sections take more first places than before the rebuild from the Act text).
+    assert "BNS/Section 101" in hits[:10]
     assert c.get("/api/nyaya/corpus?q=punishment for murder under section 302").json()["hits"][0]["id"] == "IPC/Section 302"
     vendors = c.get("/api/nyaya/vendors").json()["vendors"]
     # #388: an API caller is offered only the allowlisted vendors (configs/tenant_vendors.yaml), never the cli
@@ -351,3 +353,49 @@ class TestHostShimVendorReachability:
         row = next(v for v in nyaya.available_vendors(tmp_path) if v["id"] == "nyaya-p2b-local")
         assert row["available"] is False
         assert row["why"] is not None and str(port) in row["why"]
+
+
+# ---- the IPC text caveat (R1's line 27c3a9e31e5fa784, 17 Oct): shown wherever IPC section text appears --------------------------------
+
+
+def test_the_ipc_caveat_is_r1s_exact_line_and_only_ipc_ids_carry_it() -> None:
+    import hashlib
+
+    assert nyaya.IPC_TEXT_CAVEAT == "Section text is from the 1860 Act; amendments after 1997 are not included. Check the current text."
+    assert hashlib.sha256(nyaya.IPC_TEXT_CAVEAT.encode()).hexdigest()[:16] == "27c3a9e31e5fa784"
+    assert nyaya.text_caveat("IPC/Section 302") == nyaya.IPC_TEXT_CAVEAT
+    for other in ("BNS/Section 103", "BNSS/Section 480", "BSA/Section 63", "COI/Article 21", ""):
+        assert nyaya.text_caveat(other) is None
+
+
+def test_corpus_hits_and_listed_sources_carry_the_caveat_for_the_ipc_only(tmp_path: Path) -> None:
+    from pravrudhi.api.nyaya import NyayaCorpusHit, NyayaSource
+
+    init_project(tmp_path)
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    hits = c.get("/api/nyaya/corpus?q=punishment for murder").json()["hits"]
+    assert hits and all(h["text_caveat"] == (nyaya.IPC_TEXT_CAVEAT if h["id"].startswith("IPC/") else None) for h in hits)
+    assert any(h["id"].startswith("IPC/") for h in hits) and any(not h["id"].startswith("IPC/") for h in hits)
+    s = NyayaSource(id="IPC/Section 302", act="Indian Penal Code, 1860", section="Section 302", title="Punishment for murder")
+    b = NyayaSource(id="BNS/Section 103", act="Bharatiya Nyaya Sanhita, 2023", section="Section 103", title="Punishment for murder")
+    assert s.text_caveat == nyaya.IPC_TEXT_CAVEAT and b.text_caveat is None
+    assert NyayaCorpusHit(id="IPC/Section 34", act="a", section="s", title="t", score=1.0, text="x", notice="n", source_url=None, source_fallback_url="u").text_caveat
+
+
+def test_the_caveat_is_sent_only_for_the_asset_built_from_the_official_text_never_for_the_older_il_tur_derived_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import shutil
+
+    assert nyaya._ipc_asset_is_official(str(nyaya.ASSET_DIR)) is True and nyaya.text_caveat("IPC/Section 302") == nyaya.IPC_TEXT_CAVEAT
+    old = tmp_path / "old_assets"
+    shutil.copytree(nyaya.ASSET_DIR, old)
+    d = json.loads((old / "ipc_sections.json").read_text(encoding="utf-8"))
+    d["source"] = {"dataset": "Exploration-Lab/IL-TUR", "file": "lsi/statutes-00000-of-00001.parquet", "sha256": "8e351cd2d07fe020c22e47f97fdd566e3ca3b8ce06049ab905960828bc0c5829"}
+    (old / "ipc_sections.json").write_text(json.dumps(d), encoding="utf-8")
+    monkeypatch.setattr(nyaya, "ASSET_DIR", old)
+    assert nyaya.text_caveat("IPC/Section 302") is None  # the IL-TUR-derived asset: no 1860 line
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    monkeypatch.setattr(nyaya, "ASSET_DIR", broken)
+    assert nyaya.text_caveat("IPC/Section 302") is None  # no asset, no claim
+    assert nyaya.text_caveat("BNS/Section 103") is None
