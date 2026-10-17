@@ -82,7 +82,7 @@ MAX_POSSIBLY_RELATED = 20
 # ---- cross-paper date check (Track B's quality pass, 17 Oct): PENDING R1 for every string in this block --------------------
 SAME_WORDS_HEADING = "Different dates next to the same word in different papers"
 SAME_WORDS_LINE = (
-    "These may be the same thing or different things: check each paper. We show every date and do not choose between them."
+    "These may be the same thing or different things: check each paper. We show the dates as written and do not choose between them."
 )
 ONE_DATE_HEADING = "Papers that give only one date"
 ONE_DATE_LINE = "This paper gives one date, so it is listed here so it is not missed."

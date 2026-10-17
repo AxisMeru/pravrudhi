@@ -57,8 +57,8 @@ COMPLAINT_REASON = (
 )
 #: One plain line saying WHY a pandemic-era date or period answers REFER (PENDING R1's wording; the window is `PANDEMIC` below).
 PANDEMIC_NOTE = (
-    "Some dates or periods here touch 15 March 2020 to 31 May 2022. This tool does not work out limitation for that stretch: "
-    "it answers REFER, and a lawyer decides how limitation applies."
+    "Some dates or periods here touch 15 March 2020 to 31 May 2022, the stretch this tool treats as a possible pandemic-era "
+    "exclusion. It does not work out limitation for that stretch: it answers REFER, and a lawyer decides how limitation applies."
 )
 NOTICE_MODES = ("registered_post", "speed_post", "courier", "email", "fax", "hand_delivery", "other")
 PANDEMIC = (date(2020, 3, 15), date(2022, 5, 31))
