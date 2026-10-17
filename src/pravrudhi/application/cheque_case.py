@@ -71,12 +71,12 @@ CUES: dict[str, tuple[str, ...]] = {
     ),
     "notice": (
         r"(?:demand|legal)\s+notice",
-        r"notice\s+(?:in\s+writing\s+)?(?:was\s+)?(?:sent|issued|given|dispatched|despatched)",
+        r"notice\s+(?:in\s+writing\s+)?(?:was\s+)?(?:also\s+|then\s+|again\s+)?(?:sent|issued|given|dispatched|despatched)",
         r"(?:sent|issued|gave|given)\s+(?:a\s+)?(?:demand\s+|legal\s+)?notice",
         r"notice\s+dated",
     ),
     "receipt": (
-        r"notice\s+(?:was\s+)?(?:received|served|delivered)",
+        r"notice\s+(?:was\s+)?(?:also\s+|then\s+)?(?:received|served|delivered)",
         r"(?:received|served\s+with)\s+the\s+notice",
         r"served\s+on",
         r"delivered\s+on",

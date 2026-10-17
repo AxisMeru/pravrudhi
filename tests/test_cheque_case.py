@@ -137,3 +137,9 @@ def test_the_nearest_step_words_before_the_date_win_when_two_steps_are_named():
     out = CC.date_candidates(chron(("p.pdf", "The return memo and the demand notice on 12 February 2013 were noted.")))
     c = [c for v in out["roles"].values() for c in v]
     assert len(c) == 1 and c[0]["role"] == "notice"
+
+
+def test_a_filler_word_between_notice_and_sent_does_not_hide_the_step():
+    out = CC.date_candidates(chron(("p.pdf", "The notice was also sent by courier on 03/04/2013.")))
+    c = [c for v in out["roles"].values() for c in v]
+    assert len(c) == 1 and c[0]["role"] == "notice" and c[0]["ambiguous"] is True
