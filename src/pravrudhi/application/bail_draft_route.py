@@ -88,6 +88,14 @@ class DayCeiling:
             self._spent += max(0.0, usd)
 
 
+_SHARED_CEILING = DayCeiling()
+
+
+def shared_ceiling() -> DayCeiling:
+    """The ONE in-process day ceiling every drafting slice counts its spend against (bail drafting, the synopsis and list of dates)."""
+    return _SHARED_CEILING
+
+
 def _drafter() -> Any:
     """The drafting module, imported on first use (a seam the tests replace)."""
     import importlib

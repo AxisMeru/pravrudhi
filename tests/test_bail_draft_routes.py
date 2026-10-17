@@ -69,6 +69,9 @@ class StubDrafter:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import bail_draft_route as R
+
+    monkeypatch.setattr(R, "_SHARED_CEILING", R.DayCeiling())  # the day ceiling is one in-process object: a fresh one for every test
     monkeypatch.setattr(identity, "PARTNER_KEY_ROUTES", identity.PARTNER_KEY_ROUTES)
     monkeypatch.setattr(identity, "PARTNER_KEY_PATHS", identity.PARTNER_KEY_PATHS)
     monkeypatch.setattr(roles, "USER_FACING", roles.USER_FACING)

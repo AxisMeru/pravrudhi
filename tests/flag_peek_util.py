@@ -17,6 +17,7 @@ ALL_FLAG_KEYS = (
     "wf_b2_quashing_agenda",
     "wf_b3_s138_checklist",
     "wf_a4_bail_drafting",
+    "wf_a8_synopsis_list_of_dates",
 )
 
 
