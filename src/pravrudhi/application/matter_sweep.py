@@ -25,6 +25,7 @@ from typing import Any
 
 from pravrudhi.application import draft_check as A1
 from pravrudhi.application.citations import parse_citations
+from pravrudhi.application.draft_check_config import DraftCheckConfig
 from pravrudhi.application.matter_sweep_config import SweepConfig
 
 ROUTE = "/api/v1/matter-citation-sweep"
@@ -307,7 +308,7 @@ def run_sweep(
                 ctx = _mask_context(masked[ps[i - 1].span_id][-CONTEXT:]) + " "
             text = ctx + masked[p.span_id]
             remaining = max(0.0, cfg.max_seconds - (clock() - started))
-            call_cfg = dataclasses.replace(A1.DraftCheckConfig(), max_citations=5_000, max_seconds=remaining)
+            call_cfg = dataclasses.replace(DraftCheckConfig(), max_citations=5_000, max_seconds=remaining)
             out = A1.check_draft(text, call_cfg, memo, clock=clock, run_id="sweep")["draft_check"]
             for r in out["citations"]:
                 if r["span"][0] < len(ctx):
