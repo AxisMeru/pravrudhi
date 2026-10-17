@@ -55,7 +55,7 @@ def agenda_for_matter(
         raise MatterError("agenda_unavailable", G.UNAVAILABLE, 503) from e
 
 
-def health(index_path: Path | None) -> dict[str, str]:
+def health(index_path: Path | None) -> dict[str, str | None]:
     """The pin as the health probe reads it: available, or unavailable with a FIXED reason code. No title, id or year is ever echoed."""
     reason = G.pin_status_cached(index_path)
-    return {"state": "available"} if reason is None else {"state": "unavailable", "reason": reason}
+    return {"state": "available", "reason": None} if reason is None else {"state": "unavailable", "reason": reason}

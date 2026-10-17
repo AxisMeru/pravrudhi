@@ -370,7 +370,7 @@ def test_the_health_route_reports_the_pin_with_a_fixed_code_and_echoes_nothing(
     _on(monkeypatch)
     c = _client(tmp_path)
     ok = c.get(HEALTH)
-    assert ok.status_code == 200 and ok.json() == {"state": "available"}
+    assert ok.status_code == 200 and ok.json() == {"state": "available", "reason": None}
     for mutate in ("missing", "title", "year", "year_none"):
         idx = tmp_path / f"{mutate}.sqlite3"
         kw: dict[str, Any] = {
@@ -384,7 +384,8 @@ def test_the_health_route_reports_the_pin_with_a_fixed_code_and_echoes_nothing(
         G._PIN_CACHE.clear()
         bad = c.get(HEALTH)
         assert bad.status_code == 200 and bad.json()["state"] == "unavailable" and set(bad.json()) == {"state", "reason"}
-        for leak in ("Amanullah", G.load_quotes().pin_case_id, "2016", "2015", "Another"):
+        assert bad.json()["reason"] in G.REASONS
+        for leak in ("Amanullah", G.load_quotes().pin_case_id, "2016", "2015", "Another", str(idx), idx.name):
             assert leak not in bad.text, (mutate, leak)
 
 
@@ -415,3 +416,44 @@ def test_every_reason_code_the_pin_can_return_is_in_the_closed_enum(tmp_path: Pa
     monkeypatch.setattr(G, "load_quotes", lambda: (_ for _ in ()).throw(ValueError("x")))
     seen.add(G.pin_status(tmp_path / "0.sqlite3"))
     assert seen <= set(G.REASONS) and seen == set(G.REASONS)
+
+
+def test_with_the_flag_off_the_new_paths_answer_exactly_the_bytes_of_any_unknown_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _flags(monkeypatch)
+    c = _client(tmp_path)
+    unknown_get = c.get("/api/v1/no-such-path-at-all")
+    unknown_post = c.post("/api/v1/no-such-path-at-all", json={"matter_id": "a" * 32})
+    health, post = c.get(HEALTH), c.post(PATH, json={"matter_id": "a" * 32})
+    assert unknown_get.status_code == unknown_post.status_code == health.status_code == post.status_code == 404
+    assert health.content == unknown_get.content and post.content == unknown_post.content
+
+
+def test_a_swapped_index_changes_the_feature_and_the_health_route_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m = _matter(c, "cheque.pdf")
+    idx = Path(__import__("os").environ["PRAVRUDHI_CITATION_INDEX"])
+    assert c.get(HEALTH).json()["state"] == "available" and c.post(PATH, json={"matter_id": m}).status_code == 200
+    _slim_index(tmp_path / "other.sqlite3", year=2015).replace(idx)  # the same path now holds a different file
+    assert c.get(HEALTH).json() == {"state": "unavailable", "reason": "case_changed"}
+    assert c.post(PATH, json={"matter_id": m}).status_code == 503
+
+
+def test_a_failed_pin_leaves_no_title_id_year_or_path_in_the_logs_or_the_error_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m = _matter(c, "cheque.pdf")
+    bad = _slim_index(tmp_path / "bad.sqlite3", year=2015)
+    monkeypatch.setenv("PRAVRUDHI_CITATION_INDEX", str(bad))
+    G._PIN_CACHE.clear()
+    with caplog.at_level("DEBUG"):
+        r1, r2 = c.get(HEALTH), c.post(PATH, json={"matter_id": m})
+    blob = caplog.text + r1.text + r2.text
+    for leak in ("Amanullah", G.load_quotes().pin_case_id, "2015", str(bad), bad.name):
+        assert leak not in blob.replace(G.UNAVAILABLE, ""), leak
