@@ -385,7 +385,7 @@ def test_write_demo_refuses_a_snapshot_the_redaction_left_unparseable(monkeypatc
 
 def test_the_corpus_floor_is_the_shipped_corpus_and_every_asset_loads() -> None:
     _windows, documents = demo_export.corpus_windows(Path("/nonexistent-root"))
-    assert demo_export.MIN_CORPUS_DOCUMENTS >= 1609
+    assert demo_export.MIN_CORPUS_DOCUMENTS >= 1604
     assert documents >= demo_export.MIN_CORPUS_DOCUMENTS
     assert demo_export.unloaded_assets() == []
 

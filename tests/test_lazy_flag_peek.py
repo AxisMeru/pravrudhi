@@ -21,9 +21,11 @@ from pravrudhi.application import bail_draft_config as bdc
 from pravrudhi.application import chronology_config as cc
 from pravrudhi.application import draft_check_config as dcc
 from pravrudhi.application import matter_spans_config as msc
+from pravrudhi.application import matter_sweep_config as swc
 from pravrudhi.application import quashing_config as qc
 from pravrudhi.application import s138_checklist_config as scc
 from pravrudhi.application import synopsis_dates_config as sdc
+from pravrudhi.application import tabular_config as tbc
 from tests.flag_peek_util import ALL_FLAG_KEYS
 from tests.test_api_partner import _agent, _proof_script
 
@@ -35,8 +37,10 @@ READER_MODULES = (
     "pravrudhi.application.chronology_config",
     "pravrudhi.application.agenda_config",
     "pravrudhi.application.quashing_config",
-    "pravrudhi.application.bail_draft_config",
+    "pravrudhi.application.matter_sweep_config",
     "pravrudhi.application.synopsis_dates_config",
+    "pravrudhi.application.bail_draft_config",
+    "pravrudhi.application.tabular_config",
 )
 SLICE_MODULES = (
     "pravrudhi.application.draft_check",
@@ -49,11 +53,17 @@ SLICE_MODULES = (
     "pravrudhi.application.quashing",
     "pravrudhi.application.quashing_matter",
     "pravrudhi.application.quashing_gate",
+    "pravrudhi.application.matter_sweep",
+    "pravrudhi.application.matter_sweep_matter",
+    "pravrudhi.application.synopsis_dates",
+    "pravrudhi.application.synopsis_dates_route",
     "pravrudhi.application.bail_draft_input",
     "pravrudhi.application.bail_draft_route",
     "pravrudhi.application.bail_draft",
-    "pravrudhi.application.synopsis_dates",
-    "pravrudhi.application.synopsis_dates_route",
+    "pravrudhi.application.tabular",
+    "pravrudhi.application.tabular_matter",
+    "pravrudhi.application.tabular_sections",
+    "pravrudhi.application.chronology_dates",
 )
 
 
@@ -81,7 +91,7 @@ def test_the_peek_is_one_mapping_read_and_never_raises(tmp_path: Path) -> None:
 
 
 def test_the_flag_keys_the_router_peeks_are_the_modules_own_flag_constants() -> None:
-    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, scc.FLAG, bdc.FLAG, sdc.FLAG}
+    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, swc.FLAG, tbc.FLAG, scc.FLAG, bdc.FLAG, sdc.FLAG}
 
 
 def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,9 +152,11 @@ def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path:
         ("wf_a3_chronology", cc, "load_chronology_config"),
         ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
         ("wf_b2_quashing_agenda", qc, "load_quashing_config"),
-        ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
-        ("wf_a4_bail_drafting", bdc, "load_bail_draft_config"),
+        ("wf_s1_matter_citation_sweep", swc, "load_sweep_config"),
         ("wf_a8_synopsis_list_of_dates", sdc, "load_synopsis_dates_config"),
+        ("wf_a4_bail_drafting", bdc, "load_bail_draft_config"),
+        ("wf_s2_tabular_fact_table", tbc, "load_tabular_config"),
+        ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
     ],
 )
 def test_a_flag_that_reads_true_calls_only_its_own_reader(
@@ -157,9 +169,11 @@ def test_a_flag_that_reads_true_calls_only_its_own_reader(
         (cc, "load_chronology_config"),
         (ac, "load_agenda_config"),
         (qc, "load_quashing_config"),
-        (scc, "load_s138_checklist_config"),
-        (bdc, "load_bail_draft_config"),
+        (swc, "load_sweep_config"),
         (sdc, "load_synopsis_dates_config"),
+        (bdc, "load_bail_draft_config"),
+        (tbc, "load_tabular_config"),
+        (scc, "load_s138_checklist_config"),
     ):
         monkeypatch.setattr(mod, name, lambda _root, _n=name: (calls.append(_n), None)[1])
     monkeypatch.setattr(partner, "_peek_flags", lambda _root: {key: True})
@@ -178,7 +192,9 @@ def test_a_flag_of_false_or_a_look_alike_calls_no_reader(tmp_path: Path, monkeyp
     for mod, name in ((dcc, "load_draft_check_config"), (msc, "load_matter_spans_config"), (cc, "load_chronology_config")):
         monkeypatch.setattr(mod, name, lambda _root, _n=name: (calls.append(_n), None)[1])
     monkeypatch.setattr(
-        partner, "_peek_flags", lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off"), strict=True))
+        partner,
+        "_peek_flags",
+        lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off", "n8", "n9"), strict=True)),
     )
     monkeypatch.setenv(msc.DIR_ENV, str(tmp_path / "no-such-store"))
     agent = _agent(tmp_path, _proof_script())
@@ -255,9 +271,10 @@ _REAL_YAML_FLAGS = (
     ("wf_a2_span_index", msc, "load_matter_spans_config"),
     ("wf_a3_chronology", cc, "load_chronology_config"),
     ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
+    ("wf_b2_quashing_agenda", qc, "load_quashing_config"),
+    ("wf_s1_matter_citation_sweep", swc, "load_sweep_config"),
+    ("wf_s2_tabular_fact_table", tbc, "load_tabular_config"),
     ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
-    ("wf_a4_bail_drafting", bdc, "load_bail_draft_config"),
-    ("wf_a8_synopsis_list_of_dates", sdc, "load_synopsis_dates_config"),
 )
 
 
