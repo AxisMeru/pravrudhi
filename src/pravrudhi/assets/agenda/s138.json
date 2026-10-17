@@ -1,0 +1,169 @@
+{
+ "version": 1,
+ "note": "Slice 1 of the A5 review agenda: cheque dishonour under NI Act s.138 only. Tier 1 holds ONLY the statute's own words (each quote is checked to be a substring of the pinned s.138 text). Tier 2 is lawyer practice and is hidden while lawyer_confirmed is false. No paper is mapped to an ingredient. The lawyer confirms the paper list, its bases and the wording before launch (prabhasa-nyaya#972).",
+ "offence": {
+  "id": "s138_ni_act",
+  "name": "Dishonour of a cheque (Negotiable Instruments Act, 1881, s.138)"
+ },
+ "statute": {
+  "asset": "s138/ni_act_s138_139.json",
+  "key": "s138_text",
+  "sha256": "e67eae9bbc65394590ee0bb00b987bcebc03132aa68059d71ca8f52f21b5c77a",
+  "section": "s.138"
+ },
+ "lawyer_confirmed": false,
+ "confirmed_by": null,
+ "confirmed_on": null,
+ "ingredients": [
+  {
+   "id": "cheque_for_a_liability",
+   "proviso": null,
+   "quote": "any cheque drawn by a person on an account maintained by him with a banker for payment of any amount of money to another person from out of that account for the discharge, in whole or in part, of any debt or other liability"
+  },
+  {
+   "id": "returned_unpaid",
+   "proviso": null,
+   "quote": "is returned by the bank unpaid, either because of the amount of money standing to the credit of that account is insufficient to honour the cheque or that it exceeds the amount arranged to be paid from that account by an agreement made with that bank"
+  },
+  {
+   "id": "presentation",
+   "proviso": "(a)",
+   "quote": "the cheque has been presented to the bank within a period of six months from the date on which it is drawn or within the period of its validity, whichever is earlier"
+  },
+  {
+   "id": "notice",
+   "proviso": "(b)",
+   "quote": "makes a demand for the payment of the said amount of money by giving a notice; in writing, to the drawer of the cheque, 3 [within thirty days] of the receipt of information by him from the bank regarding the return of the cheque as unpaid"
+  },
+  {
+   "id": "non_payment",
+   "proviso": "(c)",
+   "quote": "the drawer of such cheque fails to make the payment of the said amount of money to the payee or, as the case may be, to the holder in due course of the cheque, within fifteen days of the receipt of the said notice"
+  },
+  {
+   "id": "explanation",
+   "proviso": "Explanation",
+   "quote": "debt of other liability means a legally enforceable debt or other liability"
+  }
+ ],
+ "tier_statute": [
+  {
+   "id": "cheque",
+   "label": "The cheque",
+   "proviso": "(a)",
+   "paper_type": "cheque",
+   "basis": "statute_text",
+   "section": "s.138",
+   "quote": "the cheque has been presented to the bank"
+  },
+  {
+   "id": "notice_in_writing",
+   "label": "The notice in writing to the drawer",
+   "proviso": "(b)",
+   "paper_type": "demand_notice",
+   "basis": "statute_text",
+   "section": "s.138",
+   "quote": "by giving a notice; in writing, to the drawer of the cheque"
+  },
+  {
+   "id": "bank_information",
+   "label": "The bank's information of the return of the cheque",
+   "proviso": "(b)",
+   "paper_type": "bank_return_information",
+   "basis": "statute_text",
+   "section": "s.138",
+   "quote": "receipt of information by him from the bank regarding the return of the cheque as unpaid"
+  },
+  {
+   "id": "complaint",
+   "label": "The complaint: named in s.142, which we do not hold, so we cannot list what it names.",
+   "proviso": null,
+   "paper_type": null,
+   "basis": "statute_text",
+   "section": "s.142 (not held)",
+   "quote": null
+  }
+ ],
+ "tier_lawyer": [
+  {
+   "id": "notice_proof",
+   "label": "Proof that the notice was sent and delivered",
+   "paper_type": "notice_proof",
+   "basis": "lawyer_practice"
+  },
+  {
+   "id": "debt_paper",
+   "label": "A paper showing the debt or liability the cheque was given for",
+   "paper_type": "debt_paper",
+   "basis": "lawyer_practice"
+  },
+  {
+   "id": "bank_statement",
+   "label": "The bank statement of the drawer's account",
+   "paper_type": "bank_statement",
+   "basis": "lawyer_practice"
+  }
+ ],
+ "paper_types": [
+  {
+   "id": "cheque",
+   "label": "The cheque"
+  },
+  {
+   "id": "demand_notice",
+   "label": "The notice in writing to the drawer"
+  },
+  {
+   "id": "bank_return_information",
+   "label": "The bank's information of the return of the cheque"
+  },
+  {
+   "id": "notice_proof",
+   "label": "Proof that the notice was sent and delivered"
+  },
+  {
+   "id": "debt_paper",
+   "label": "A paper showing the debt or liability"
+  },
+  {
+   "id": "bank_statement",
+   "label": "The bank statement"
+  },
+  {
+   "id": "other",
+   "label": "Another kind of paper"
+  }
+ ],
+ "paper_types_from_file_name": {
+  "cheque": [
+   "cheque",
+   "chq"
+  ],
+  "demand_notice": [
+   "notice",
+   "demand"
+  ],
+  "bank_return_information": [
+   "return",
+   "memo",
+   "dishonour",
+   "dishonor"
+  ],
+  "notice_proof": [
+   "postal",
+   "receipt",
+   "ad card",
+   "tracking"
+  ],
+  "debt_paper": [
+   "invoice",
+   "ledger",
+   "agreement",
+   "loan"
+  ],
+  "bank_statement": [
+   "bank statement",
+   "passbook"
+  ]
+ }
+}
