@@ -217,6 +217,15 @@ def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
 #: link. The app's `STATUTE_NOTICE` carries the same words. The wording "the official version on India Code prevails"
 #: is the one the counsel pack (Q6) leaves open: it changes when counsel answers.
 STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
+
+#: Shown wherever IPC section text appears (R1's wording, 17 Oct 2026): the shipped IPC text is the 1860 Act as consolidated in
+#: the Ministry of Home Affairs PDF, which cites no amending Act after 1997. No claim about current law is made.
+IPC_TEXT_CAVEAT = "Section text is from the 1860 Act; amendments after 1997 are not included. Check the current text."
+
+
+def text_caveat(doc_id: str) -> str | None:
+    """The caveat that goes with a provision's text, or None. Only the IPC rows carry one."""
+    return IPC_TEXT_CAVEAT if doc_id.startswith("IPC/") else None
 _INDIA_CODE_HOSTS = frozenset({"indiacode.gov.in", "www.indiacode.gov.in", "indiacode.nic.in", "www.indiacode.nic.in"})
 
 

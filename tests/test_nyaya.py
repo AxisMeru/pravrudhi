@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """prabhasa-nyaya in the product: retrieval is deterministic, citations are checked mechanically, abstention
 is an outcome, and nothing reaches the ledger."""
 
@@ -352,3 +353,30 @@ class TestHostShimVendorReachability:
         row = next(v for v in nyaya.available_vendors(tmp_path) if v["id"] == "nyaya-p2b-local")
         assert row["available"] is False
         assert row["why"] is not None and str(port) in row["why"]
+
+
+# ---- the IPC text caveat (R1's line 27c3a9e31e5fa784, 17 Oct): shown wherever IPC section text appears --------------------------------
+
+
+def test_the_ipc_caveat_is_r1s_exact_line_and_only_ipc_ids_carry_it() -> None:
+    import hashlib
+
+    assert nyaya.IPC_TEXT_CAVEAT == "Section text is from the 1860 Act; amendments after 1997 are not included. Check the current text."
+    assert hashlib.sha256(nyaya.IPC_TEXT_CAVEAT.encode()).hexdigest()[:16] == "27c3a9e31e5fa784"
+    assert nyaya.text_caveat("IPC/Section 302") == nyaya.IPC_TEXT_CAVEAT
+    for other in ("BNS/Section 103", "BNSS/Section 480", "BSA/Section 63", "COI/Article 21", ""):
+        assert nyaya.text_caveat(other) is None
+
+
+def test_corpus_hits_and_listed_sources_carry_the_caveat_for_the_ipc_only(tmp_path: Path) -> None:
+    from pravrudhi.api.nyaya import NyayaCorpusHit, NyayaSource
+
+    init_project(tmp_path)
+    c = TestClient(create_app(tmp_path), base_url="http://127.0.0.1:8008")
+    hits = c.get("/api/nyaya/corpus?q=punishment for murder").json()["hits"]
+    assert hits and all(h["text_caveat"] == (nyaya.IPC_TEXT_CAVEAT if h["id"].startswith("IPC/") else None) for h in hits)
+    assert any(h["id"].startswith("IPC/") for h in hits) and any(not h["id"].startswith("IPC/") for h in hits)
+    s = NyayaSource(id="IPC/Section 302", act="Indian Penal Code, 1860", section="Section 302", title="Punishment for murder")
+    b = NyayaSource(id="BNS/Section 103", act="Bharatiya Nyaya Sanhita, 2023", section="Section 103", title="Punishment for murder")
+    assert s.text_caveat == nyaya.IPC_TEXT_CAVEAT and b.text_caveat is None
+    assert NyayaCorpusHit(id="IPC/Section 34", act="a", section="s", title="t", score=1.0, text="x", notice="n", source_url=None, source_fallback_url="u").text_caveat
