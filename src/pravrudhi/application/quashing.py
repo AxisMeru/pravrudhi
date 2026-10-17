@@ -28,6 +28,8 @@ ATTESTATION = ASSET_DIR / "attestation.json"
 ROUTE = "/api/v1/quashing-agenda"
 RELIEF_ID = "quash_fir_or_complaint"
 PIN_CACHE_S = 60.0
+#: the closed set of reason codes the pin (and the health route) can report; each names no id, title or year
+REASONS = ("asset_changed", "index_unavailable", "case_missing", "year_missing", "case_changed")
 ELLIPSIS = " ..."
 
 # ---- the fixed strings (R1's rulings; each is hash-pinned in tests/test_quashing_strings.py) ---------------------------------

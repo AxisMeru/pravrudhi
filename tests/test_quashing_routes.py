@@ -404,3 +404,14 @@ def test_the_health_route_is_absent_with_the_flag_off_and_in_neither_openapi_nor
 def test_an_anonymous_caller_cannot_read_the_health_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _on(monkeypatch)
     assert _client(tmp_path, user=None).get(HEALTH).status_code == 401
+
+
+def test_every_reason_code_the_pin_can_return_is_in_the_closed_enum(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = set()
+    for kw in ({"case_id": "0" * 24}, {"title": "Another vs Case"}, {"year": 2015}, {"year": None}, {"rows": 2}):
+        seen.add(G.pin_status(_slim_index(tmp_path / f"{len(seen)}.sqlite3", **kw)))
+    seen.add(G.pin_status(None))
+    seen.add(G.pin_status(tmp_path / "absent.sqlite3"))
+    monkeypatch.setattr(G, "load_quotes", lambda: (_ for _ in ()).throw(ValueError("x")))
+    seen.add(G.pin_status(tmp_path / "0.sqlite3"))
+    assert seen <= set(G.REASONS) and seen == set(G.REASONS)
