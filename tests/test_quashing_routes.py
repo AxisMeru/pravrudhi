@@ -457,3 +457,31 @@ def test_a_failed_pin_leaves_no_title_id_year_or_path_in_the_logs_or_the_error_t
     blob = caplog.text + r1.text + r2.text
     for leak in ("Amanullah", G.load_quotes().pin_case_id, "2015", str(bad), bad.name):
         assert leak not in blob.replace(G.UNAVAILABLE, ""), leak
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"matter_id": 5},
+        {"matter_id": "SECRETIDmarkerXYZ"},
+        {"matter_id": "a" * 32, "ZZ_extra_key_marker": 1},
+        {"matter_id": "a" * 32, "relief": "r" * 65},
+        {"matter_id": "a" * 32, "relief": 7},
+        {"matter_id": ["SECRET-list-marker"]},
+    ],
+)
+def test_every_malformed_body_gets_the_one_fixed_422_and_nothing_of_the_request_is_echoed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: dict[str, Any]
+) -> None:
+    _on(monkeypatch)
+    r = _client(tmp_path).post(PATH, json=body)
+    assert r.status_code == 422 and r.json() == {"error": "bad_request"}
+    for marker in ("SECRETID", "ZZ_extra", "SECRET-list", "relief", "matter_id", "input", "loc", "pydantic", "extra_forbidden"):
+        assert marker not in r.text
+
+
+def test_a_body_that_is_not_json_gets_the_same_fixed_422(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    r = _client(tmp_path).post(PATH, content=b"{not json SECRET-raw-marker", headers={"content-type": "application/json"})
+    assert r.status_code == 422 and r.json() == {"error": "bad_request"} and "SECRET-raw" not in r.text

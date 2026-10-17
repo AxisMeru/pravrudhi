@@ -2994,7 +2994,10 @@ def build_partner_router(
             return _s3.health(citation_index_path or (Path(env_path) if env_path else None))
 
         quashing_ep.__annotations__["req"] = _s3.QuashingRequest  # a local import is not visible to a string annotation
-        router.add_api_route("/quashing-agenda", quashing_ep, methods=["POST"], include_in_schema=False, response_model=None)
+        router.add_api_route(
+            "/quashing-agenda", quashing_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_s3.FixedValidationRoute,
+        )
         router.add_api_route(
             "/quashing-agenda/health", quashing_health_ep, methods=["GET"], include_in_schema=False, response_model=None
         )

@@ -11,12 +11,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from pravrudhi.application import quashing as G
 from pravrudhi.application.matter_spans import MatterError, MatterStore
 
 ROUTE = G.ROUTE
+#: the ONLY body of a malformed request: the framework's own 422 body echoes the offending input and the field path, so this route installs
+#: its own handler (a fixed body, no prose, nothing of the request in it)
+BAD_BODY = {"error": "bad_request"}
 HEALTH_ROUTE = G.ROUTE + "/health"
 STORE_OFF = G.STORE_OFF
 
@@ -59,3 +65,19 @@ def health(index_path: Path | None) -> dict[str, str | None]:
     """The pin as the health probe reads it: available, or unavailable with a FIXED reason code. No title, id or year is ever echoed."""
     reason = G.pin_status_cached(index_path)
     return {"state": "available", "reason": None} if reason is None else {"state": "unavailable", "reason": reason}
+
+
+class FixedValidationRoute(APIRoute):
+    """A route whose request-validation failures (size, type, extra keys, bad JSON, a bad matter id) answer ONE fixed 422 body and nothing
+    else: the framework default would echo the input and the field path back to the caller (an oracle for ids and labels)."""
+
+    def get_route_handler(self) -> Any:
+        original = super().get_route_handler()
+
+        async def handler(request: Any) -> Any:
+            try:
+                return await original(request)
+            except RequestValidationError:
+                return JSONResponse(status_code=422, content=BAD_BODY)
+
+        return handler
