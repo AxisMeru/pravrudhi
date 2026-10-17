@@ -65,6 +65,7 @@ NOT_READ_LINES = {
     "form_not_supported": ("{N} not read: a form we do not read. Check it yourself.", "{N} not read: forms we do not read. Check them yourself."),
     "non_english_passage": (NON_ENGLISH_LINE, NON_ENGLISH_LINE),
 }
+DATE_NOT_READ_LINE = "We did not read this date, so it is not placed. Check it yourself."  # A3's own ruled string, reused for a date the scanner could not read
 PAPER_TOO_LARGE = "Too large to read: {name}. This paper is not in the table; check it yourself."
 TOO_MANY_PAPERS = "This matter holds more than {cap} papers, so no table was made."
 TOO_MANY_CELLS = "This matter's papers give more than {cap} entries, so no table was made."
@@ -348,7 +349,7 @@ def _paper(d: Doc, ps: list[Passage], label: str | None, cfg: TabularConfig, tod
     date_read = [e for e in date_entries if e["category"] != "not_read"]
     date_not_read = [e for e in date_entries if e["category"] == "not_read"]
     cols = {
-        "dates": _column(date_read, date_not_read, len(date_entries), 0),
+        "dates": _column(date_read, date_not_read, len(date_entries), 0, dates=True),
         "sections": _column(sec_entries, sec_not_read, sec_recognised, claimed_by_date),
         "places": _column(place_entries, place_not_read, place_recognised, 0),
     }
@@ -386,7 +387,7 @@ def _entry(p: Passage, f: TS.Form) -> dict[str, Any]:
     return e
 
 
-def _column(read: list[dict[str, Any]], not_read: list[dict[str, Any]], recognised: int, claimed: int) -> dict[str, Any]:
+def _column(read: list[dict[str, Any]], not_read: list[dict[str, Any]], recognised: int, claimed: int, dates: bool = False) -> dict[str, Any]:
     """Distinct values IN FIRST-APPEARANCE ORDER (never sorted by count), each with its mentions; the denominator and the empty/not-read words."""
     ordered = sorted(read, key=lambda e: (e["doc_start"], e["span_id"]))
     distinct: dict[str, dict[str, Any]] = {}
@@ -408,6 +409,6 @@ def _column(read: list[dict[str, Any]], not_read: list[dict[str, Any]], recognis
         "not_read": not_read,
         "denominator": den,
         "empty": EMPTY_CELL if recognised == 0 else None,
-        "not_read_lines": [not_read_line(r, n) for r, n in reasons.items()],
+        "not_read_lines": ([DATE_NOT_READ_LINE] if (dates and not_read) else [] if dates else [not_read_line(r, n) for r, n in reasons.items()]),
     }
     return col

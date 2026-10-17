@@ -58,6 +58,10 @@ def test_the_headings_and_the_not_read_lines_have_the_ruled_hashes() -> None:
     assert "named" not in " ".join(T.HEADINGS.values()).lower()  # R1: "named" is gone from every heading
 
 
+def test_the_date_not_read_line_is_a3s_own_ruled_string() -> None:
+    assert _h(T.DATE_NOT_READ_LINE) == "e45f99a1a4bcb443"
+
+
 def test_the_empty_cell_is_one_string_in_code_and_never_none() -> None:
     assert T.EMPTY_CELL == "Not found in the papers you added." and "none" not in T.EMPTY_CELL.lower()
 
