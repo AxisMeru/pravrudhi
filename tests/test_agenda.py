@@ -104,7 +104,8 @@ def test_the_standing_source_status_and_not_assessed_lines_are_exact() -> None:
         "Anything not in the papers you added.",
     ]
     assert p["quotes_line"] == (
-        "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+        "Quotes are kept as printed in the India Code copy we hold, including any typing slips. "
+        "A note in square brackets beside a quote is that copy's own footnote on an amendment."
     )
     assert "where_to_look" not in p["headings"] and "Where to look" not in json.dumps(p)
     assert p["statute_names"]["heading"] == "Papers the statute names for this offence"
@@ -169,7 +170,7 @@ def test_a_declared_type_wins_and_the_row_shows_the_basis() -> None:
 def test_the_file_name_is_a_stated_fallback_only() -> None:
     p = build_agenda([doc(1, "Demand Notice 2019.pdf"), doc(2, "scan_0034.pdf")])
     rows = {r["id"]: r for r in p["statute_names"]["rows"]}
-    assert rows["notice_in_writing"]["status"] == "A file named like this was added (type taken from the file name)"
+    assert rows["notice_in_writing"]["status"] == "A file whose name suggests this paper was added; its content was not checked."
     assert rows["notice_in_writing"]["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
     named = {x["name"]: x for x in p["papers_read"]["papers"]}
     assert named["scan_0034.pdf"]["paper_type"] is None and named["scan_0034.pdf"]["paper_type_basis"] is None
@@ -306,7 +307,7 @@ def test_a_file_name_that_fits_two_types_gets_no_type_and_never_fills_the_cheque
 def test_a_file_name_that_fits_exactly_one_type_still_gets_it_with_the_fallback_basis(name: str, row: str) -> None:
     p = build_agenda([doc(1, name)])
     got = {r["id"]: r for r in p["statute_names"]["rows"]}[row]
-    assert got["status"] == "A file named like this was added (type taken from the file name)"
+    assert got["status"] == "A file whose name suggests this paper was added; its content was not checked."
     assert got["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
 
 
@@ -367,7 +368,7 @@ def test_a_declared_type_beats_a_held_declaration_and_a_file_for_the_same_type_i
 
 def test_pages_with_no_text_are_stated_on_the_paper_and_a_zero_page_file_is_not_read() -> None:
     p = build_agenda([doc(1, "a.pdf", 10, (3, 4, 5)), doc(2, "zero.pdf", 0)])
-    assert p["papers_read"]["papers"][0]["pages_note"] == "3 of 10 pages had no text"
+    assert p["papers_read"]["papers"][0]["pages_note"] == "3 of 10 pages had no text: check them yourself."
     assert p["papers_read"]["n"] == 1 and any("zero.pdf" in r.get("line", "") for r in p["not_added"]["rows"])
     assert build_agenda([doc(1, "a.pdf", 2)])["papers_read"]["papers"][0]["pages_note"] is None
 

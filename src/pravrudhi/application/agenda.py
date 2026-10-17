@@ -50,10 +50,11 @@ HEADINGS = {
 }
 TAGS = {"statute_text": "Named in the section", "lawyer_practice": "From a lawyer's list"}  # the source of each row, by its basis
 QUOTES_LINE = (
-    "Quotes are kept as printed in the India Code copy we hold, including its numbers, square brackets and any typing slips."
+    "Quotes are kept as printed in the India Code copy we hold, including any typing slips. "
+    "A note in square brackets beside a quote is that copy's own footnote on an amendment."
 )
 ADDED, NOT_ADDED = "Added", "Not added yet"
-NAME_ONLY = "A file named like this was added (type taken from the file name)"
+NAME_ONLY = "A file whose name suggests this paper was added; its content was not checked."
 HELD_NO_FILE = "Declared by you; no file added"
 BASIS_DECLARED = "Paper type declared by you"
 BASIS_FILE_NAME = "Paper type taken from the file name"
@@ -206,7 +207,7 @@ def build_agenda(
                 "name": d.name,
                 "pages": d.n_pages,
                 "pages_without_text": len(d.pages_without_text),
-                "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text" if d.pages_without_text else None,
+                "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text: check them yourself." if d.pages_without_text else None,
                 "paper_type": ptype if ptype in known else None,
                 "paper_type_basis": basis if ptype in known else None,
             }

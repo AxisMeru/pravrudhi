@@ -146,7 +146,7 @@ def test_a_signed_in_caller_gets_the_agenda_for_their_own_matter_and_a_declared_
     b = r.json()
     assert b["run_id"].startswith("agenda-") and b["matter_id"] == m
     rows = {x["id"]: x for x in b["statute_names"]["rows"]}
-    assert rows["cheque"]["status"] == "Added" and rows["notice_in_writing"]["status"].startswith("A file named like this")
+    assert rows["cheque"]["status"] == "Added" and rows["notice_in_writing"]["status"].startswith("A file whose name suggests this paper was added")
     assert rows["notice_in_writing"]["papers"][0]["paper_type_basis"] == "Paper type taken from the file name"
     assert b["papers_read"]["heading"] == "Papers read (2)" and b["lawyer_listed"] is None
 
