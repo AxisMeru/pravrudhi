@@ -380,3 +380,22 @@ def test_corpus_hits_and_listed_sources_carry_the_caveat_for_the_ipc_only(tmp_pa
     b = NyayaSource(id="BNS/Section 103", act="Bharatiya Nyaya Sanhita, 2023", section="Section 103", title="Punishment for murder")
     assert s.text_caveat == nyaya.IPC_TEXT_CAVEAT and b.text_caveat is None
     assert NyayaCorpusHit(id="IPC/Section 34", act="a", section="s", title="t", score=1.0, text="x", notice="n", source_url=None, source_fallback_url="u").text_caveat
+
+
+def test_the_caveat_is_sent_only_for_the_asset_built_from_the_official_text_never_for_the_older_il_tur_derived_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import shutil
+
+    assert nyaya._ipc_asset_is_official(str(nyaya.ASSET_DIR)) is True and nyaya.text_caveat("IPC/Section 302") == nyaya.IPC_TEXT_CAVEAT
+    old = tmp_path / "old_assets"
+    shutil.copytree(nyaya.ASSET_DIR, old)
+    d = json.loads((old / "ipc_sections.json").read_text(encoding="utf-8"))
+    d["source"] = {"dataset": "Exploration-Lab/IL-TUR", "file": "lsi/statutes-00000-of-00001.parquet", "sha256": "8e351cd2d07fe020c22e47f97fdd566e3ca3b8ce06049ab905960828bc0c5829"}
+    (old / "ipc_sections.json").write_text(json.dumps(d), encoding="utf-8")
+    monkeypatch.setattr(nyaya, "ASSET_DIR", old)
+    assert nyaya.text_caveat("IPC/Section 302") is None  # the IL-TUR-derived asset: no 1860 line
+    broken = tmp_path / "broken"
+    broken.mkdir()
+    monkeypatch.setattr(nyaya, "ASSET_DIR", broken)
+    assert nyaya.text_caveat("IPC/Section 302") is None  # no asset, no claim
+    assert nyaya.text_caveat("BNS/Section 103") is None
