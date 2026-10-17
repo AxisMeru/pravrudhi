@@ -29,7 +29,7 @@ ROUTE = "/api/v1/quashing-agenda"
 RELIEF_ID = "quash_fir_or_complaint"
 PIN_CACHE_S = 60.0
 #: the closed set of reason codes the pin (and the health route) can report; each names no id, title or year
-REASONS = ("asset_changed", "index_unavailable", "case_missing", "year_missing", "case_changed")
+REASONS = ("asset_changed", "index_unavailable", "case_missing", "case_duplicate", "year_missing", "case_changed")
 ELLIPSIS = " ..."
 
 # ---- the fixed strings (R1's rulings; each is hash-pinned in tests/test_quashing_strings.py) ---------------------------------
@@ -176,8 +176,10 @@ def pin_status(index_path: Path | None, timeout_s: float = 2.0) -> str | None:
         return "index_unavailable"
     finally:
         conn.close()
-    if len(rows) != 1:
+    if not rows:
         return "case_missing"
+    if len(rows) > 1:
+        return "case_duplicate"  # more than one row for the pinned case id: its own code, never folded into "missing"
     title, year = rows[0]
     if year is None:
         return "year_missing"
@@ -187,6 +189,7 @@ def pin_status(index_path: Path | None, timeout_s: float = 2.0) -> str | None:
 
 
 _PIN_CACHE: dict[tuple[str, int, int], tuple[float, str | None]] = {}
+PIN_CACHE_MAX = 16  # entries kept in all: a handful of index paths at most; the oldest are dropped first
 
 
 def _cache_key(index_path: Path | None) -> tuple[str, int, int]:
@@ -209,7 +212,11 @@ def pin_status_cached(index_path: Path | None, now: float | None = None, ttl_s: 
     if hit is not None and 0 <= t - hit[0] < ttl_s:
         return hit[1]
     result = pin_status(index_path)
+    for k in [k for k in _PIN_CACHE if k[0] == key[0] and k != key]:
+        del _PIN_CACHE[k]  # an index file that changed under the same path leaves no stale entry behind
     _PIN_CACHE[key] = (t, result)
+    while len(_PIN_CACHE) > PIN_CACHE_MAX:
+        del _PIN_CACHE[min(_PIN_CACHE, key=lambda k: _PIN_CACHE[k][0])]
     return result
 
 
