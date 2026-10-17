@@ -22,6 +22,7 @@ that passes them is not thereby free of unsupported content; no lawyer has read 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from typing import Any
 
 from pravrudhi.application.citations import Citation, parse_citations
 
+_log = logging.getLogger(__name__)
 VERSION = "bail-draft-1"
 BANNER = "Draft for lawyer review."
 GROUNDS_HEADING = "GROUNDS"
@@ -719,6 +721,18 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         )
     mentions = [m for f in case.facts for m in section_strings(f.text)]
     checker = _sensitive_checker() if mentions else None
+    if (
+        mentions and checker is None
+    ):  # fail-open by design (the table is another module's), but never silent: the lawyer's page and the log both say so
+        _log.warning("bail_draft: the sensitive-section table is not available; the section backstop is OFF for this draft")
+        checks.append(
+            {
+                "name": "sensitive_section_table_missing",
+                "passed": False,
+                "info": True,
+                "detail": "the sensitive-section table was not found; the section backstop did not run",
+            }
+        )
     if checker is not None and checker(
         mentions
     ):  # the table is Track C's; the Act is read from the words, none named = both lists

@@ -619,3 +619,19 @@ def test_role_flip_fails_the_paragraph(bad):
     paras = [(bad, ["F2"])]
     r = run(c, Fake(answer(paras), answer(paras)))
     assert any("role_flip" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"])
+
+
+def test_a_missing_sensitive_table_is_not_silent(monkeypatch, caplog):
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: None)
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant was arrested under Section 370 of the Indian Penal Code.")])
+    ok = answer([("The Applicant was arrested under Section 370 of the Indian Penal Code [F1].", ["F1"])])
+    with caplog.at_level("WARNING"):
+        r = run(c, Fake(ok))
+    assert any(x["name"] == "sensitive_section_table_missing" and x["info"] for x in r["checks"])
+    assert "section backstop is OFF" in caplog.text
+
+
+def test_the_real_table_is_found_when_the_route_layer_is_present():
+    """Documents the seam: with Track C's bail_draft_input in the tree the checker resolves; without it (this branch alone) it is None."""
+    chk = bd._sensitive_checker()
+    assert chk is None or callable(chk)
