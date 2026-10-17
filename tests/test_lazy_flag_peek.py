@@ -1,7 +1,9 @@
 # ruff: noqa: E501
 """#986: the router reads the optional slices' flags ONCE (`partner._peek_flags`) and imports a slice's config reader only for a flag
-that reads true, so a flag-off process imports exactly what the released tree imports. Real files and a fresh interpreter for the
-off arm; recording loaders for the per-flag arms."""
+that reads boolean true (YAML true/yes/on), or, for A2 only, when an existing A2 store folder exists (so stored data stays deletable
+with the flag off). A flag-off process with no store folder imports exactly what the released tree imports. Real files and a fresh
+interpreter for the off arm and for the store-folder arms; real YAML rows pin how each way of writing a flag is read; recording
+loaders for the per-flag arms."""
 
 from __future__ import annotations
 
@@ -261,3 +263,72 @@ def test_real_yaml_the_peek_and_the_loader_agree_for_every_way_of_writing_a_flag
     (tmp_path / "configs" / "partner_api.yaml").write_text(f"{key}: {written}\n", encoding="utf-8")
     assert (partner._peek_flags(tmp_path).get(key) is True) is on
     assert (getattr(module, fn)(tmp_path) is not None) is on
+
+
+def test_real_yaml_a_missing_key_is_off_in_the_peek_and_in_every_loader(tmp_path: Path) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "partner_api.yaml").write_text("some_other_key: true\n", encoding="utf-8")
+    for key, module, fn in _REAL_YAML_FLAGS:
+        assert partner._peek_flags(tmp_path).get(key) is None
+        assert getattr(module, fn)(tmp_path) is None
+
+
+# ---- the A2 store-folder arm in a FRESH interpreter (the ONE intended flag-off import) ------------------------------------------------
+
+
+_STORE_ARM_CODE = (
+    "import sys\n"
+    "sys.path.insert(0, {src!r})\n"
+    "from pathlib import Path\n"
+    "from pravrudhi.api.partner import PartnerApiConfig, build_partner_router\n"
+    "r = build_partner_router(Path({root!r}), agent_factory=lambda _r: None,"
+    " config=PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy_header=False))\n"
+    "mods = {mods!r}\n"
+    "print(','.join(m for m in mods if m in sys.modules))\n"
+    "print(any(getattr(x, 'path', '').endswith('/matter-spans/delete') for x in r.routes))\n"
+)
+_A2_MODULES = ("pravrudhi.application.matter_spans_config", "pravrudhi.application.matter_spans")
+_OTHER_MODULES = tuple(m for m in READER_MODULES + SLICE_MODULES if m not in _A2_MODULES)
+
+
+def _store_arm(root: Path, env: dict[str, str]) -> tuple[list[str], list[str], bool]:
+    import os
+
+    code = _STORE_ARM_CODE.format(src=str(REPO / "src"), root=str(root), mods=list(_A2_MODULES + _OTHER_MODULES))
+    clean = {k: v for k, v in os.environ.items() if k != msc.DIR_ENV}
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=REPO, check=True, env={**clean, **env}
+    ).stdout.splitlines()
+    loaded = [m for m in out[0].split(",") if m]
+    return [m for m in loaded if m in _A2_MODULES], [m for m in loaded if m not in _A2_MODULES], out[1] == "True"
+
+
+@pytest.mark.parametrize("flag", [None, "false"])
+@pytest.mark.parametrize("how", ["default", "yaml", "env"])
+def test_fresh_interpreter_an_existing_a2_store_folder_imports_only_a2_and_keeps_the_delete_route(
+    tmp_path: Path, how: str, flag: str | None
+) -> None:
+    root = tmp_path / "root"
+    (root / "configs").mkdir(parents=True)
+    store = root / "matter_spans" if how == "default" else tmp_path / "elsewhere"
+    store.mkdir()
+    yaml_lines = [] if flag is None else [f"wf_a2_span_index: {flag}"]
+    env: dict[str, str] = {}
+    if how == "yaml":
+        yaml_lines.append(f"matter_spans_dir: {store}")
+    if how == "env":
+        env[msc.DIR_ENV] = str(store)
+    (root / "configs" / "partner_api.yaml").write_text("\n".join(yaml_lines) + "\n", encoding="utf-8")
+    a2, others, delete_route = _store_arm(root, env)
+    assert sorted(a2) == sorted(_A2_MODULES) and others == [] and delete_route
+
+
+@pytest.mark.parametrize("flag", [None, "false"])
+def test_fresh_interpreter_with_no_store_folder_neither_a2_module_is_imported_and_there_is_no_delete_route(
+    tmp_path: Path, flag: str | None
+) -> None:
+    root = tmp_path / "root"
+    (root / "configs").mkdir(parents=True)
+    (root / "configs" / "partner_api.yaml").write_text("" if flag is None else f"wf_a2_span_index: {flag}\n", encoding="utf-8")
+    a2, others, delete_route = _store_arm(root, {})
+    assert a2 == [] and others == [] and not delete_route
