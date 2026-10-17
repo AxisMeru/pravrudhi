@@ -131,7 +131,7 @@ def test_row_refs_continue_after_the_ticked_facts_and_untick_removes_a_row():
     kept, _ = sd.select_rows(c, include_row_ids=ids[:1])
     assert len(kept) == 1 and total >= 3
     t = sd.table_rows(rows, 3)
-    assert t[0]["ref"] == "F3" and t[-1]["ref"] == f"F{2 + len(rows)}"
+    assert t[0]["ref"] == "F3" and t[-1]["ref"] == f"F{2 + len(t)}" and len(t) <= len(rows)
 
 
 def test_happy_path_one_call_the_model_line_sits_above_the_papers_sentence():
@@ -143,7 +143,7 @@ def test_happy_path_one_call_the_model_line_sits_above_the_papers_sentence():
     row = next(x for x in r["list_of_dates"]["rows"] if x["date_as_written"] == "18 July 2021")
     assert row["event_line"] == "The FIR was registered at the police station." and "18 July 2021" in row["event_quote"]
     assert r["synopsis"]["paragraphs"][0]["text"].startswith("The petitioner states that")
-    assert "F3" in f.calls[0][1] and "date as written '18 July 2021'" in f.calls[0][1]
+    assert "F3" in f.calls[0][1] and "dates as written '18 July 2021'" in f.calls[0][1]
 
 
 def test_an_event_line_with_a_date_or_number_not_in_the_papers_sentence_falls_back_to_the_sentence():
@@ -174,7 +174,7 @@ def test_an_event_line_that_adds_a_new_noun_or_says_more_than_the_sentence_fails
         "unsupported_sentence" in w
         for w in sd.check_event_line("The investigating officer prepared a detailed report on the incident.", q)
     )
-    assert any("event_line_length" in w for w in sd.check_event_line(" ".join(["word"] * 30), q))
+    assert any("event_line_length" in w for w in sd.check_event_line(" ".join(["word"] * 41), q))
 
 
 @pytest.mark.parametrize(
@@ -316,3 +316,29 @@ def test_no_rows_gives_the_none_line_and_the_module_calls_no_network_code():
     src = inspect.getsource(sd)
     for bad in ("anthropic", "urllib", "requests", "httpx", "socket", "subprocess"):
         assert bad not in src
+
+
+def test_two_dates_in_one_sentence_become_one_table_row_with_both_dates_as_written():
+    c = chron(
+        (
+            "p.pdf",
+            "The petitioner was arrested on 24.12.2004 and produced before the Magistrate on 25.12.2004. The FIR was registered on 18 July 2021.",
+        )
+    )
+    r, _ = go(complete=None, c=c)
+    rows = r["list_of_dates"]["rows"]
+    two = [x for x in rows if len(x["dates"]) == 2]
+    assert (
+        len(two) == 1
+        and two[0]["date_as_written"] == "24.12.2004 and 25.12.2004"
+        and len(two[0]["row_ids"]) == 2
+        and two[0]["event_quote"].count("arrested") == 1
+    )
+    assert all(len(x["dates"]) == 1 for x in rows if x is not two[0]) and len(rows) == 2
+
+
+def test_an_event_line_up_to_forty_words_passes_and_over_forty_fails():
+    q = "The petitioner was arrested on 24.12.2004 and produced before the Magistrate on 25.12.2004."
+    ok = "The petitioner was arrested and produced before the Magistrate " + "and the Magistrate " * 3
+    assert len(ok.split()) <= 40 and not any("event_line_length" in w for w in sd.check_event_line(ok, q))
+    assert any("event_line_length" in w for w in sd.check_event_line(" ".join(["arrested"] * 41), q))
