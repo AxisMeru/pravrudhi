@@ -3228,4 +3228,103 @@ def build_partner_router(
         )
         _s2.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- A4 bail drafting: registered ONLY when partner_api.yaml sets wf_a4_bail_drafting to true. It stores nothing and reads no
+    # stored paper: the lawyer's declared facts, dates and tick arrive in the request; the deterministic referrals and the statute
+    # framing run first, then at most the configured completer is called (none configured = the template only). Off (the default)
+    # adds nothing: no module import, no route, no limiter, no thread, no read. Own limiters and slots; audit mode "intake" with a
+    # "bail-" run id, nothing of the request in any row.
+    try:
+        _a4_cfg = None
+        if _flags.get("wf_a4_bail_drafting") is True:
+            from pravrudhi.application.bail_draft_config import load_bail_draft_config as _load_a4
+
+            _a4_cfg = _load_a4(engine_root)
+        if _a4_cfg is not None:
+            from pravrudhi.application import bail_draft_route as _a4
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("bail drafting unavailable; it stays off", exc_info=True)
+        _a4_cfg = None
+    if _a4_cfg is not None:
+        _a4_state: dict[str, Any] = {}
+        _a4_lock = threading.Lock()
+
+        def _a4_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter, Any]:
+            with _a4_lock:
+                if not _a4_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _a4_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a4_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a4_state["slots"] = ConcurrencyLimiter(_a4_cfg.max_concurrent)
+                    _a4_state["ceiling"] = _a4.DayCeiling()
+                return _a4_state["ip"], _a4_state["key"], _a4_state["slots"], _a4_state["ceiling"]
+
+        def _a4_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, Any] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Drafting is offered only to signed-in users"})
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots, ceiling = _a4_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, ceiling
+
+        def bail_draft_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a4_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, ceiling = admitted
+            run = {"run_id": f"bail-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _a4.draft_for_request(req, _a4_cfg, run["run_id"], ceiling)
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        bail_draft_ep.__annotations__["req"] = _a4.BailDraftRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/bail-draft", bail_draft_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_a4.FixedValidationRoute,
+        )
+        _a4.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     return router
