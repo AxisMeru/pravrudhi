@@ -165,7 +165,7 @@ def test_a_flag_of_false_or_a_look_alike_calls_no_reader(tmp_path: Path, monkeyp
     for mod, name in ((dcc, "load_draft_check_config"), (msc, "load_matter_spans_config"), (cc, "load_chronology_config")):
         monkeypatch.setattr(mod, name, lambda _root, _n=name: (calls.append(_n), None)[1])
     monkeypatch.setattr(
-        partner, "_peek_flags", lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes"), strict=True))
+        partner, "_peek_flags", lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on"), strict=True))
     )
     monkeypatch.setenv(msc.DIR_ENV, str(tmp_path / "no-such-store"))
     agent = _agent(tmp_path, _proof_script())

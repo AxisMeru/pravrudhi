@@ -409,8 +409,8 @@ def test_an_anonymous_caller_cannot_read_the_health_route(tmp_path: Path, monkey
 
 def test_every_reason_code_the_pin_can_return_is_in_the_closed_enum(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen = set()
-    for kw in ({"case_id": "0" * 24}, {"title": "Another vs Case"}, {"year": 2015}, {"year": None}, {"rows": 2}):
-        seen.add(G.pin_status(_slim_index(tmp_path / f"{len(seen)}.sqlite3", **kw)))
+    for n, kw in enumerate(({"case_id": "0" * 24}, {"title": "Another vs Case"}, {"year": 2015}, {"year": None}, {"rows": 2})):
+        seen.add(G.pin_status(_slim_index(tmp_path / f"{n}.sqlite3", **kw)))
     seen.add(G.pin_status(None))
     seen.add(G.pin_status(tmp_path / "absent.sqlite3"))
     monkeypatch.setattr(G, "load_quotes", lambda: (_ for _ in ()).throw(ValueError("x")))
@@ -528,7 +528,7 @@ def test_an_existing_routes_validation_422_is_byte_identical_with_and_without_s3
         (tmp_path / ("on" if s3_on else "off")).mkdir(exist_ok=True)
         bodies[s3_on] = [
             c.post(f"{A2}/documents", json={"matter_id": "SECRET-A2-marker"}).content,
-            c.post(f"{A2}/matters", json={"bogus_key": 1, "x": [1]}).content,
+            c.post(f"{A2}/documents", json={"matter_id": 5, "text": ["x"], "bogus_key": 1}).content,
             c.post(f"{A2}/query", json={}).content,
         ]
     assert bodies[False] == bodies[True]
