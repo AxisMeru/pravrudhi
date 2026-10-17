@@ -5,7 +5,7 @@ messages.
 
 ## 0.6.20 (2026-10-17)
 
-PATCH release on 0.6.19. Five new workflows are added and ship **disabled**: the whole-draft citation check (A1), the matter span index (A2), the chronology (A3), the s.138 cheque checklist (B3) and the s.138 review agenda (A5). All new workflows ship disabled. With them off, responses and the API are unchanged from 0.6.19 (golden set, OpenAPI and 12,056-probe replay identical); start-up reads five extra config files (+0.005 s median). **Rebuild the image.**
+PATCH release on 0.6.19. Five new workflows are added and ship **disabled**: the whole-draft citation check (A1), the matter span index (A2), the chronology (A3), the s.138 cheque checklist (B3) and the s.138 review agenda (A5). With them off, responses and the API are unchanged from 0.6.19 (golden set, OpenAPI and a replay of recorded probes identical). **Rebuild the image.**
 
 ### Added (none of this is reachable until its flag is turned on)
 
@@ -13,7 +13,7 @@ PATCH release on 0.6.19. Five new workflows are added and ship **disabled**: the
 
 ### Known limits
 
-- Start-up reads the engine configuration file up to five more times (one small reader per workflow, at router build, with the flags off); the measured median start-up is 0.252 s against 0.247 s for 0.6.19.
+- With the flags off, the engine reads its configuration file up to five more times at start-up (one small reader per workflow, at router build); the measured median start-up is 0.252 s against 0.247 s for 0.6.19.
 
 ## 0.6.19 (2026-10-16)
 
