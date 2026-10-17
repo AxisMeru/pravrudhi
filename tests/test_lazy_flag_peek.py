@@ -223,3 +223,41 @@ def test_the_ownership_line_readers_are_called_only_when_both_slices_are_on(
     )
     # A3 own block + the ownership line (A3 answers None, so B3 is not asked a second time): a3, a3, then B3's own block once
     assert sorted(calls) == ["a3", "a3", "b3"]
+
+
+# ---- real YAML (not a patched peek): what the peek and every loader do with each way of writing a flag -----------------------------------
+
+
+_REAL_YAML_FLAGS = (
+    ("wf_a1_draft_citation_check", dcc, "load_draft_check_config"),
+    ("wf_a2_span_index", msc, "load_matter_spans_config"),
+    ("wf_a3_chronology", cc, "load_chronology_config"),
+    ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
+    ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
+)
+
+
+@pytest.mark.parametrize(
+    ("written", "on"),
+    [
+        ("true", True),
+        ("True", True),
+        ("yes", True),  # unquoted yes/on are YAML booleans: pinned as the CURRENT behaviour of the peek AND of every loader
+        ("on", True),
+        ("false", False),
+        ("no", False),
+        ('"true"', False),  # a quoted string is a string, not a boolean
+        ('"yes"', False),
+        ("1", False),
+        ("null", False),
+        ("[true]", False),
+    ],
+)
+@pytest.mark.parametrize(("key", "module", "fn"), _REAL_YAML_FLAGS)
+def test_real_yaml_the_peek_and_the_loader_agree_for_every_way_of_writing_a_flag(
+    tmp_path: Path, key: str, module: Any, fn: str, written: str, on: bool
+) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "partner_api.yaml").write_text(f"{key}: {written}\n", encoding="utf-8")
+    assert (partner._peek_flags(tmp_path).get(key) is True) is on
+    assert (getattr(module, fn)(tmp_path) is not None) is on
