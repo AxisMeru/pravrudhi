@@ -335,3 +335,62 @@ def test_a_key_gets_a_draft_a_missing_key_does_not_and_every_status_leaves_a_bai
     assert len(mine) == 3 and {r["status_code"] for r in mine} == {200, 400} and all(r["mode"] == "intake" for r in mine)
     for r in mine:
         assert re.fullmatch(r"bail-[0-9a-f]{10}", r["run_id"]) and "marker" not in repr(r) and "2024" not in repr(r) and "antecedents" not in repr(r)
+
+
+# ---- end to end against Track A's real drafting module (a fake completer stands in for the model) -----------------------------------
+
+
+def _real(monkeypatch: pytest.MonkeyPatch, answer: str, model: str = "pinned-model-1") -> list[Any]:
+    from pravrudhi.application import bail_draft as REAL
+    from pravrudhi.application import bail_draft_route as R
+
+    cfg = BailDraftConfig(base_url="https://llm.example.test/v1", model=model, api_key_env="A4_TEST_KEY", usd_per_mtok_in=2.0, usd_per_mtok_out=10.0)
+    monkeypatch.setattr(bdc, "load_bail_draft_config", lambda _root: cfg)
+    peek_all_true(monkeypatch)
+    calls: list[Any] = []
+
+    def fake_make(_cfg: Any, drafter: Any, env: Any = None) -> Any:
+        def complete(system: str, user: str, max_tokens: int) -> Any:
+            calls.append((system, user, max_tokens))
+            return REAL.Completion(answer, 1000, 200, model, "end_turn")
+
+        return complete
+
+    monkeypatch.setattr(R, "make_completer", fake_make)
+    return calls
+
+
+GOOD = '{"grounds": [{"text": "The applicant states that he has no antecedents [F1].", "facts": ["F1"]}], "notes_for_lawyer": ["Check the custody period."]}'
+
+
+def test_end_to_end_a_drafted_answer_carries_the_framing_line_the_grounds_and_the_counted_cost(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _real(monkeypatch, GOOD)
+    r = _client(tmp_path).post(PATH, json=BODY)
+    b = r.json()
+    assert r.status_code == 200 and b["state"] == "drafted", r.text
+    d = b["draft"]
+    assert d["grounds"][0]["facts"] == ["F1"] and "no antecedents" in d["grounds"][0]["text"] and d["notes_for_lawyer"]
+    assert "Under Section 480 of the Bharatiya Nagarik Suraksha Sanhita, 2023 (BNSS)." in d["text"] and "BAIL APPLICATION" in d["text"]
+    assert d["calls"] == 1 and d["tokens_in"] == 1000 and d["tokens_out"] == 200 and d["cost_usd"] == round(1000 * 2 / 1e6 + 200 * 10 / 1e6, 6)
+    assert len(calls) == 1 and calls[0][2] >= 2500 and "informant-marker-zq" not in calls[0][1] and "no antecedents" in calls[0][1]
+    assert "informant-marker-zq" not in r.text and d["facts_excluded"] == 1
+
+
+def test_end_to_end_an_answer_that_fails_the_checks_twice_is_the_template_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bad = '{"grounds": [{"text": "The applicant is entitled to bail [F1].", "facts": ["F1"]}], "notes_for_lawyer": []}'
+    calls = _real(monkeypatch, bad)
+    b = _client(tmp_path).post(PATH, json=BODY).json()
+    assert b["state"] == "template_only" and len(calls) == 2 and b["draft"]["regenerated"] is True and b["draft"]["grounds"] == []
+    assert "no antecedents" in b["draft"]["text"]  # the lawyer's own fact is still in the template
+
+
+def test_end_to_end_a_completer_that_answers_another_model_is_a_500_not_a_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import bail_draft as REAL
+    from pravrudhi.application import bail_draft_route as R
+
+    cfg = BailDraftConfig(base_url="https://llm.example.test/v1", model="pinned-model-1", api_key_env="A4_TEST_KEY", usd_per_mtok_in=2.0, usd_per_mtok_out=10.0)
+    monkeypatch.setattr(bdc, "load_bail_draft_config", lambda _root: cfg)
+    peek_all_true(monkeypatch)
+    monkeypatch.setattr(R, "make_completer", lambda _c, _d, env=None: (lambda s, u, m: REAL.Completion(GOOD, 1, 1, "some-other-model", "end_turn")))
+    r = _client(tmp_path).post(PATH, json=BODY)
+    assert r.status_code == 500 and "marker-zq" not in r.text

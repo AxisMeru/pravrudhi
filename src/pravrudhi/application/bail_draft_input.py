@@ -89,7 +89,7 @@ class BailCase:
     """The validated, applicant-side-only case the drafting module sees. Facts keep the lawyer's own order and are numbered F1.. over the
     applicant-side facts only; `facts_set_aside` counts the ticked-other facts that never entered the pack."""
 
-    kind: str
+    kind: str  # "regular" | "anticipatory": the drafting module's vocabulary (the request says "bail" | "anticipatory_bail")
     forum: str | None
     dates: dict[str, str]
     applicant: str | None
@@ -109,8 +109,8 @@ class BailCase:
         return {k: v for k, v in (("applicant", self.applicant), ("state", self.state)) if v}
 
     @property
-    def drafting_kind(self) -> str:  # "regular" | "anticipatory", the drafting module's vocabulary
-        return "regular" if self.kind == "bail" else "anticipatory"
+    def drafting_kind(self) -> str:  # kept as the name the first tests used
+        return self.kind
 
 
 @dataclass(frozen=True)
@@ -171,7 +171,7 @@ def parse_case(req: BailDraftRequest, max_facts: int, matter_id: str = "") -> Ba
     facts = tuple(Fact(f"F{i}", f.text.strip(), tuple(dict.fromkeys(f.grounds))) for i, f in enumerate(own, 1))
     dates = {k: v for k, v in (("offence_date", req.offence_date), ("fir_date", req.fir_date), ("arrest_date", req.arrest_date), ("application_date", req.application_date)) if v}
     return BailCase(
-        req.kind,
+        "regular" if req.kind == "bail" else "anticipatory",
         req.forum if req.kind == "bail" else None,
         dates,
         (req.applicant or "").strip() or None,
@@ -191,7 +191,7 @@ def frame(case: BailCase, table: dict[str, Any] | None = None) -> FramingResult:
     cutoff = date.fromisoformat(t["cutoff_date"])
     deciding = {k: case.dates[k] for k in t["deciding_dates"] if k in case.dates}
     eras = {("pre" if date.fromisoformat(v) < cutoff else "post") for v in deciding.values()}
-    key = f"bail:{case.forum}" if case.kind == "bail" else "anticipatory_bail"
+    key = f"bail:{case.forum}" if case.kind == "regular" else "anticipatory_bail"
     sections = t["sections"][key]
 
     def option(era: str) -> FramingOption:
@@ -205,5 +205,5 @@ def frame(case: BailCase, table: dict[str, Any] | None = None) -> FramingResult:
         deciding,
         t["cutoff_date"],
         bool(t.get("confirmed_by_lawyer")),
-        t["titles"][case.kind],
+        t["titles"]["bail" if case.kind == "regular" else "anticipatory_bail"],
     )
