@@ -485,3 +485,71 @@ def test_a_body_that_is_not_json_gets_the_same_fixed_422(tmp_path: Path, monkeyp
     _on(monkeypatch)
     r = _client(tmp_path).post(PATH, content=b"{not json SECRET-raw-marker", headers={"content-type": "application/json"})
     assert r.status_code == 422 and r.json() == {"error": "bad_request"} and "SECRET-raw" not in r.text
+
+
+def test_six_or_more_different_validation_failures_answer_the_same_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    attempts: list[Any] = [
+        c.post(PATH, json={}),
+        c.post(PATH, json={"matter_id": 5}),
+        c.post(PATH, json={"matter_id": "x"}),
+        c.post(PATH, json={"matter_id": "a" * 32, "z": 1}),
+        c.post(PATH, json={"matter_id": "a" * 32, "relief": "r" * 65}),
+        c.post(PATH, json={"matter_id": "a" * 32, "relief": 7}),
+        c.post(PATH, content=b"{not json", headers={"content-type": "application/json"}),
+        c.post(PATH, content=b"", headers={"content-type": "application/json"}),
+        c.post(PATH, content=b'{"matter_id": "' + b"a" * 32 + b'"}', headers={"content-type": "text/plain"}),
+    ]
+    assert len(attempts) >= 6 and {r.status_code for r in attempts} == {422}
+    assert len({r.content for r in attempts}) == 1 and attempts[0].json() == {"error": "bad_request"}
+
+
+def test_a_body_over_the_size_limit_answers_the_fixed_body_or_the_existing_size_limit_behaviour(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _on(monkeypatch)
+    r = _client(tmp_path).post(
+        PATH, content=b'{"matter_id": "' + b"a" * 3_000_000 + b'"}', headers={"content-type": "application/json"}
+    )
+    assert r.status_code in (413, 422)
+    if r.status_code == 422:
+        assert r.json() == {"error": "bad_request"}
+
+
+def test_an_existing_routes_validation_422_is_byte_identical_with_and_without_s3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NAMED: the override applies to the S3 route only; A2's own validation body is the framework's, unchanged by S3 being on."""
+    bodies: dict[bool, list[bytes]] = {}
+    for s3_on in (False, True):
+        _flags(monkeypatch, QuashingConfig() if s3_on else None, MatterSpansConfig())
+        c = _client(tmp_path / ("on" if s3_on else "off"))
+        (tmp_path / ("on" if s3_on else "off")).mkdir(exist_ok=True)
+        bodies[s3_on] = [
+            c.post(f"{A2}/documents", json={"matter_id": "SECRET-A2-marker"}).content,
+            c.post(f"{A2}/matters", json={"bogus_key": 1, "x": [1]}).content,
+            c.post(f"{A2}/query", json={}).content,
+        ]
+    assert bodies[False] == bodies[True]
+    assert any(b"input" in b or b"detail" in b for b in bodies[True])  # the existing 422 body is the framework default, unchanged
+
+
+def test_the_override_is_applied_to_no_other_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application.quashing_matter import FixedValidationRoute
+
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    from fastapi.routing import APIRoute
+
+    def routes(rs: Any) -> Any:
+        for r in rs:
+            if isinstance(r, APIRoute):
+                yield r
+            else:
+                sub = getattr(r, "original_router", None)
+                if sub is not None:
+                    yield from routes(sub.routes)
+
+    fixed = {r.path for r in routes(c.app.routes) if isinstance(r, FixedValidationRoute)}  # type: ignore[attr-defined]
+    assert fixed == {PATH}
