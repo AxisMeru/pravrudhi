@@ -1,0 +1,53 @@
+{
+ "attribution": {
+  "case_title": "Amanullah Anr vs State Of Bihar Ors",
+  "court": "Supreme Court of India",
+  "para": "102 and 103 of State of Haryana v. Bhajan Lal, as quoted",
+  "source_note": "The Court's words in paras 102 and 103 of State of Haryana v. Bhajan Lal, as quoted in the judgment of the Supreme Court in Amanullah v. State of Bihar (2016); copied in at build time from our full-text index of that judgment; no reporter or publisher text.",
+  "year": 2016
+ },
+ "caution": {
+  "quote_raw": "103. We also give a note of caution to the effect that the power of quashing a criminal proceeding\nshould be exercised very sparingly and with circumspection and that too in the rarest of rare cases;\nthat the court will not be justified in embarking upon an enquiry as to the reliability or genuineness\nor otherwise of the allegations made in the FIR or the complaint"
+ },
+ "items": [
+  {
+   "n": 1,
+   "quote_raw": "(1) Where the allegations made in the first information report or the complaint, even\nif they are taken at their face value and accepted in their entirety do not prima facie\nconstitute any offence or make out a case against the accused."
+  },
+  {
+   "n": 2,
+   "quote_raw": "(2) Where the allegations in the first information report and other materials, if any,\naccompanying the FIR do not disclose a cognizable offence, justifying an\ninvestigation by police officers under Section 156(1) of the Code except under an\norder of a Magistrate within the purview of Section 155(2) of the Code."
+  },
+  {
+   "n": 3,
+   "quote_raw": "(3) Where the uncontroverted allegations made in the FIR or complaint and the\nevidence collected in support of the same do not disclose the commission of any\noffence and make out a case against the accused."
+  },
+  {
+   "n": 4,
+   "quote_raw": "(4) Where, the allegations in the\nFIR do not constitute a cognizable offence but constitute only a non-cognizable\noffence, no investigation is permitted by a police officer without an order of a\nMagistrate as contemplated under Section 155(2) of the Code."
+  },
+  {
+   "n": 5,
+   "quote_raw": "(5) Where the allegations made in the FIR or complaint are so absurd and inherently\nimprobable on the basis of which no prudent person can ever reach a just conclusion\nthat there is sufficient ground for proceeding against the accused."
+  },
+  {
+   "n": 6,
+   "quote_raw": "(6) Where there is an express legal bar engrafted in any of the provisions of the Code\nor the concerned Act (under which a criminal proceeding is instituted) to the\ninstitution and continuance of the proceedings and/or where there is a specific\nprovision in the Code or the concerned Act, providing efficacious redress for the\ngrievance of the aggrieved party."
+  },
+  {
+   "n": 7,
+   "quote_raw": "(7) Where a criminal proceeding is manifestly\nattended with mala fide and/or where the proceeding is maliciously instituted with\nan ulterior motive for wreaking vengeance on the accused and with a view to spite\nhim due to private and personal grudge."
+  }
+ ],
+ "pin": {
+  "case_id": "5ecd439db292f46d0bbad761",
+  "court": "Supreme Court",
+  "title": "Amanullah Anr vs State Of Bihar Ors",
+  "year": 2016
+ },
+ "repairs": [],
+ "schema": 1,
+ "stem": {
+  "quote_raw": "In the backdrop of the interpretation of the various relevant provisions of the\nCode under Chapter XIV and of the principles of law enunciated by this Court in a\nseries of decisions relating to the exercise of the extraordinary power under Article\n226 or the inherent powers under Section 482 of the Code which we have extracted\nand reproduced above, we give the following categories of cases by way of illustration\nwherein such power could be exercised either to prevent abuse of the process of any\ncourt or otherwise to secure the ends of justice, though it may not be possible to lay\ndown any precise, clearly defined and sufficiently channelised and inflexible\nguidelines or rigid formulae and to give an exhaustive list of myriad kinds of cases\nwherein such power should be exercised."
+ }
+}
