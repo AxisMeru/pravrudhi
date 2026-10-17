@@ -236,10 +236,10 @@ def build_agenda(
         out["papers"] = [{"doc_id": h["doc_id"], "name": h["name"], "paper_type_basis": h["paper_type_basis"]} for h in hits]
         if any(h["paper_type_basis"] == BASIS_DECLARED for h in hits):
             out["status"] = ADDED
+        elif ptype in held:
+            out["status"] = HELD_NO_FILE  # the user's explicit declaration beats a file-name guess
         elif hits:
             out["status"] = NAME_ONLY  # only a file-name guess: never shown as plain "Added"
-        elif ptype in held:
-            out["status"] = HELD_NO_FILE
         else:
             out["status"] = NOT_ADDED
         return out
@@ -270,7 +270,7 @@ def build_agenda(
         "lawyer_confirmed": confirmed,
         "papers_read": {"heading": papers_read_heading(len(typed)), "n": len(typed), "papers": typed},
         "not_added": {
-            "heading": HEADINGS["not_added"],
+            "heading": HEADINGS["not_added"] if outstanding or unread else None,  # no heading over an empty list
             "rows": [{"id": r["id"], "label": r["label"], "basis": r["basis"]} for r in outstanding] + [{"line": u} for u in unread],
             "none_line": NONE_OUTSTANDING if not tier1_outstanding and not unread else None,
         },
