@@ -36,12 +36,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also write the case_citations table: the supplementary-volume citation each judgment prints in its own header",
     )
+    ap.add_argument(
+        "--merge-map",
+        type=Path,
+        default=None,
+        help="the merge map (scripts/build_merge_map_508.py): keep one row per judgment of the duplicates it names (#508)",
+    )
     ap.add_argument("--provenance", type=Path, default=None, help="the provenance record; its sha256 goes into the meta table")
     a = ap.parse_args(argv)
+    merge_map = json.loads(a.merge_map.read_text(encoding="utf-8")) if a.merge_map else None
     prov = hashlib.sha256(a.provenance.read_bytes()).hexdigest() if a.provenance else ""
     try:
         res = build_slim_index(
-            a.src, a.out, sources=a.sources.split(",") if a.sources else None, provenance_sha256=prov, own_supp=a.own_supp
+            a.src, a.out, sources=a.sources.split(",") if a.sources else None, provenance_sha256=prov, own_supp=a.own_supp,
+            merge_map=merge_map,
         )
     except SlimBuildError as e:
         print(f"refused: {e}", file=sys.stderr)
