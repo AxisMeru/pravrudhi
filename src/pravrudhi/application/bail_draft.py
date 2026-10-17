@@ -115,8 +115,20 @@ REASON_WORDS = {
     "conclusory": "it used outcome or strength wording that is not in your facts", "forbidden_words": "it used outcome or strength wording",
     "blanket_opener": "it opened with 'It is submitted' although only the first paragraph may", "new_noun": "it named something that is in none of your facts",
     "number_not_in_facts": "it used a number, date or amount that is not written like that in your facts", "authority_not_supplied": "it cited an authority you did not supply",
-    "unsupported_sentence": "it had a sentence that none of your facts supports", "repeated_subject": "it repeated the subject ('The Applicant states that the Applicant')",
+    "unsupported_sentence": "it had a sentence that none of your facts supports", "role_flip": "it named the applicant as another party", "repeated_subject": "it repeated the subject ('The Applicant states that the Applicant')",
 }  # fmt: skip
+#: Section mentions in a fact ("Sections 370, 370-A and 34 of the Indian Penal Code"): the list after the word Section(s), then up to 80 characters naming the Act.
+SECTION_MENTION_RE = re.compile(
+    r"\b(?:sections?|secs?\.?|ss?\.)\s*(?P<nums>\d{1,3}(?:-?[A-Z]{1,2}(?![a-z]))?(?:\s*(?:,|/|&|and|or|to)\s*\d{1,3}(?:-?[A-Z]{1,2}(?![a-z]))?)*)(?P<tail>[^.;\n]{0,80})",
+    re.I,
+)
+SECTION_NUM_RE = re.compile(r"\d{1,3}(?:-?[A-Z]{1,2}(?![a-z]))?")
+SENSITIVE_ACT_WORDS = re.compile(
+    r"(?<![a-z])(ipc|indian penal code|bns|bharatiya nyaya sanhita|pocso|protection of children from sexual offences)(?![a-z])",
+    re.I,
+)
+OTHER_ACT = re.compile(r"\b(?:[A-Z][A-Za-z]*\s+){0,6}(?:Act|Code|Sanhita|Rules|Regulation)\b")
+SENSITIVE_SECTION_NOTE = "a ticked fact names a section on the sensitive list"
 MORE_NOTES_HEADING = "More notes"
 NOTES_SHOWN = 5  # the notes a lawyer sees first; the rest are folded under MORE_NOTES_HEADING
 ADVERSE_NOTE = "Fact {fid} reads like the court's, the prosecution's or the complainant's voice, or an adverse fact ({why}). It was used as ticked: check that it belongs in the applicant's grounds."
@@ -386,6 +398,30 @@ def parse_answer(text: str) -> tuple[list[dict[str, Any]], list[str]] | None:
     return grounds, [n.strip() for n in notes if n.strip()]
 
 
+def section_strings(text: str) -> list[str]:
+    """One string per section number a fact mentions, with the words after the list that name the Act ("Section 370 of the Indian Penal Code").
+    A mention whose tail names another Act (NDPS, Excise, Negotiable Instruments...) and none of IPC/BNS/POCSO is skipped; one that names no Act is kept (the table reads it against both lists)."""
+    out: list[str] = []
+    for m in SECTION_MENTION_RE.finditer(text):
+        tail = re.sub(
+            r"^(?:\s*\([0-9A-Za-z]+\))+", "", m.group("tail")
+        )  # sub-clauses such as (2)(n) are not part of the Act words
+        if not SENSITIVE_ACT_WORDS.search(tail) and OTHER_ACT.search(tail):
+            continue
+        out += [f"Section {n} {tail.strip()}".strip() for n in SECTION_NUM_RE.findall(m.group("nums"))]
+    return out
+
+
+def _sensitive_checker() -> Callable[[list[str]], bool] | None:
+    """The sensitive-section table lives with the route's input layer (Track C, bail_draft_input.sensitive_section). Imported lazily: absent => no section backstop."""
+    import importlib
+
+    try:
+        return importlib.import_module("pravrudhi.application.bail_draft_input").sensitive_section  # type: ignore[no-any-return]
+    except (ImportError, AttributeError):
+        return None
+
+
 def _norm(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
 
@@ -454,6 +490,11 @@ def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
         why.append(f"forbidden_words: {', '.join(forb[:3])}")
     if index > 0 and re.match(r"\s*it is submitted\b", low):
         why.append("blanket_opener: only the first paragraph may open with 'It is submitted'")
+    if re.search(
+        r"\bthe applicant (is|was|being) (also )?(the )?(complainant|victim|informant)\b|\bthe (complainant|victim|informant) (is|was) (also )?the applicant\b",
+        low,
+    ):
+        why.append("role_flip: the applicant is named as another party")
     if re.search(r"\b(the applicant|he|she) (states|submits) that the applicant\b", low):
         why.append("repeated_subject: 'The Applicant states that the Applicant'")
     cited_text = " ".join(facts[c].text for c in cited if c in facts)
@@ -676,6 +717,13 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
             incomplete=False,
             refused=SENSITIVE_REFUSAL,
         )
+    mentions = [m for f in case.facts for m in section_strings(f.text)]
+    checker = _sensitive_checker() if mentions else None
+    if checker is not None and checker(
+        mentions
+    ):  # the table is Track C's; the Act is read from the words, none named = both lists
+        checks.append({"name": "sensitive_section_backstop", "passed": False, "detail": SENSITIVE_SECTION_NOTE})
+        return _result(case, framing, run_id, state="refused", grounds=[], notes=[], fill_ins=[], checks=checks, calls=0, tin=0, tout=0, cost=0.0, regenerated=False, incomplete=False, refused=SENSITIVE_REFUSAL)  # fmt: skip
     if complete is None or not case.facts:
         why = "no model call was available" if complete is None else "no applicant-side fact was given"
         checks.append({"name": "template_only", "passed": True, "detail": why})

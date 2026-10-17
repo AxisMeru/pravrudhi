@@ -548,3 +548,74 @@ def test_the_word_prosecution_inside_the_lawyers_own_ground_is_not_flagged_as_ad
     c2 = Case(facts=[NS(fact_id="F1", text="The prosecution has opposed the bail.")])
     r2 = run(c2, Fake(answer([("The prosecution has opposed the bail [F1].", ["F1"])])))
     assert any(x["name"] == "adverse_voice" for x in r2["checks"])
+
+
+# ---- sensitive-section backstop on the ticked facts (Track C's table, read lazily) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            "arrested for offences under Sections 370, 370-A and 34 of the Indian Penal Code.",
+            [
+                "Section 370 of the Indian Penal Code",
+                "Section 370-A of the Indian Penal Code",
+                "Section 34 of the Indian Penal Code",
+            ],
+        ),
+        ("charged under Section 376(2)(n) of the IPC.", ["Section 376 of the IPC"]),
+        ("offences under Sections 8/20 of the NDPS Act.", []),
+        ("under Section 138 of the Negotiable Instruments Act, 1881.", []),
+        ("under Section 34(2) of the Chhattisgarh Excise Act.", []),
+        ("under Section 439 and the facts given.", ["Section 439 and the facts given"]),
+        ("an offence under Section 4 of the POCSO Act.", ["Section 4 of the POCSO Act"]),
+        ("no section is mentioned here at all.", []),
+    ],
+)
+def test_section_strings_read_the_act_from_the_words_and_skip_other_acts(text, want):
+    assert bd.section_strings(text) == want
+
+
+def _stub_table(sections):
+    return any(("370" in x or "375" in x or "pocso" in x.lower()) for x in sections)
+
+
+def test_a_sensitive_section_named_in_a_ticked_fact_refuses_before_any_call(monkeypatch):
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: _stub_table)
+    c = Case(
+        facts=[
+            NS(
+                fact_id="F1",
+                text="The Applicant was arrested for offences under Sections 370, 370-A and 34 of the Indian Penal Code.",
+            )
+        ]
+    )
+    f = Fake(answer(GOOD))
+    r = run(c, f)
+    assert (r["state"], r["refused"], r["calls"]) == ("refused", bd.SENSITIVE_REFUSAL, 0) and f.calls == []
+    assert any(x["name"] == "sensitive_section_backstop" for x in r["checks"])
+
+
+def test_a_non_sensitive_section_or_another_act_is_drafted(monkeypatch):
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: _stub_table)
+    c = Case(
+        facts=[NS(fact_id="F1", text="The Applicant is charged under Sections 8/20 of the NDPS Act and Section 420 of the IPC.")]
+    )
+    ok = answer([("The Applicant is charged under Sections 8/20 of the NDPS Act and Section 420 of the IPC [F1].", ["F1"])])
+    assert run(c, Fake(ok))["state"] == "drafted"
+
+
+def test_without_the_table_the_section_backstop_is_a_no_op(monkeypatch):
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: None)
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant was arrested under Section 370 of the Indian Penal Code.")])
+    ok = answer([("The Applicant was arrested under Section 370 of the Indian Penal Code [F1].", ["F1"])])
+    assert run(c, Fake(ok))["state"] == "drafted"
+
+
+@pytest.mark.parametrize("bad", ["The Applicant is the complainant in this case [F2].", "The complainant is the Applicant [F2]."])
+def test_role_flip_fails_the_paragraph(bad):
+    c = Case(facts=[NS(fact_id="F2", text="The Applicant and the complainant are neighbours.")])
+    paras = [(bad, ["F2"])]
+    r = run(c, Fake(answer(paras), answer(paras)))
+    assert any("role_flip" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"])
