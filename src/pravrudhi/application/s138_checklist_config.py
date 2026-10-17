@@ -26,8 +26,11 @@ _logger = logging.getLogger(__name__)
 class S138ChecklistConfig:
     max_concurrent: int = 4  # requests in flight (its own slots: it never takes an existing route's)
     max_dates_per_role: int = 20  # candidate dates listed for one role (a longer list is refused, never cut)
-    #: the earliest year a date may have: 1989 (the cheque-dishonour provisions date from 1988, Track B's low); an earlier year
-    #: is a typing error and REFER. The Act itself is of 1881: a lawyer may lower it
+    #: the earliest year a date may have. 1989 is the year s.138 was inserted into the Act: the held India Code item
+    #: corpus-raw/india_code/ni_act_1881_api/s138_item.json (sha256
+    #: e831f10cf167b4d3c866737d3f6d792595cf8b3fbcec94bbbaff423cc7345d61),
+    #: section_footnote 1: "Ins. by Act 66 of 1988, s, 4 (w.e.f. 1-4-1989)"; also in the asset's provenance.footnotes. An earlier
+    #: year is a typing error (Track B's low: a 1915 typo for 2015) and REFER. A config value: a lawyer may lower it
     min_year: int = 1989
 
 
