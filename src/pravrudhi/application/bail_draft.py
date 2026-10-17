@@ -53,12 +53,76 @@ PREDICTIONS = (
     "should be granted",
     "certain to",
 )
+#: R1 reviews this CLOSED list: phrases removed from a sentence before the support test (they carry no fact of their own).
+BOILERPLATE = (
+    "the applicable bail provision",
+    "the applicant states that",
+    "the applicant submits that",
+    "it is submitted that",
+    "the applicant",
+)
+SUPPORT_MIN = 0.5  # a sentence is supported when at least this share of its content words are in the facts it cites
+STOP_WORDS = frozenset(
+    [
+        "this",
+        "that",
+        "with",
+        "from",
+        "have",
+        "been",
+        "were",
+        "will",
+        "would",
+        "could",
+        "should",
+        "their",
+        "there",
+        "which",
+        "about",
+        "after",
+        "before",
+        "under",
+        "upon",
+        "into",
+        "than",
+        "then",
+        "they",
+        "them",
+        "also",
+        "only",
+        "such",
+        "some",
+        "each",
+        "other",
+        "these",
+        "those",
+        "being",
+        "while",
+        "where",
+        "when",
+        "whom",
+        "whose",
+    ]
+)
+#: A model note that says the bail provision is not identified contradicts the heading, which the engine writes with the Act and section.
+NOTE_PROVISION_RE = re.compile(
+    r"(?i)provision\b.*\b(not|insert|identify|confirm|state|specify|add)\b|\b(not|insert|identify|confirm|state|specify|add)\b.*\bbail provision"
+)
+#: Plain words for each failure code, used in the note that says which ground was not used.
+REASON_WORDS = {
+    "empty": "it had no text", "fact_ref_unknown": "it cited a fact number that does not exist", "no_fact": "it cited no fact",
+    "d1_token_invented": "it used a placeholder that none of your facts contains", "d2_meta": "it talked about what was or was not given instead of stating a fact",
+    "conclusory": "it used outcome or strength wording that is not in your facts", "forbidden_words": "it used outcome or strength wording",
+    "blanket_opener": "it opened with 'It is submitted' although only the first paragraph may", "new_noun": "it named something that is in none of your facts",
+    "number_not_in_facts": "it used a number, date or amount that is not written like that in your facts", "authority_not_supplied": "it cited an authority you did not supply",
+    "unsupported_sentence": "it had a sentence that none of your facts supports", "repeated_subject": "it repeated the subject ('The Applicant states that the Applicant')",
+}  # fmt: skip
 MORE_NOTES_HEADING = "More notes"
 NOTES_SHOWN = 5  # the notes a lawyer sees first; the rest are folded under MORE_NOTES_HEADING
 ADVERSE_NOTE = "Fact {fid} reads like the court's, the prosecution's or the complainant's voice, or an adverse fact ({why}). It was used as ticked: check that it belongs in the applicant's grounds."
 INCOMPLETE_LINE = "INCOMPLETE: the model's answer was cut off at the length limit. No grounds were taken from it."
 TEMPLATE_ONLY_LINE = "The draft grounds could not be made, so this shows your facts and the notes only."  # R1's a4_template_only (59673ff74f88cd62)
-PRAYER = "PRAYER\nThe applicant prays that this Court may be pleased to consider the grounds above. [Lawyer to complete.]"
+PRAYER = "PRAYER\nTo be completed by counsel. This draft gives grounds only; no relief is drafted."
 
 SYSTEM = (
     "You write the GROUNDS of a draft bail application for a lawyer to rewrite. Answer with ONE JSON object and nothing else: "
@@ -74,6 +138,9 @@ SYSTEM = (
     "Write in the applicant's voice as plain statements of what the applicant states; do not open every paragraph with 'It is "
     "submitted'. Do not predict the outcome and do not write 'entitled', 'fit case' or 'should be granted'. "
     "In the paragraphs write nothing about what is missing or not given; put every gap or question for the lawyer in notes_for_lawyer. "
+    "Do not repeat the subject: write 'The Applicant states that he has been in custody', never 'The Applicant states that the Applicant ...'. "
+    "Every sentence restates a fact: add no sentence that introduces, links or summarises the facts (for example that the applicant has approached this Court). "
+    "The system writes the heading with the Act and section and the prayer: write no note about which Act or bail provision applies. "
     "No headings, no titles, no placeholders of your own."
 )
 
@@ -319,6 +386,39 @@ def parse_answer(text: str) -> tuple[list[dict[str, Any]], list[str]] | None:
     return grounds, [n.strip() for n in notes if n.strip()]
 
 
+def _norm(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def _copied_from_facts(low: str, phrase: str, facts_norm: str) -> bool:
+    """True when every occurrence of `phrase` in the paragraph sits in a stretch of words (3 before, 3 after) that is written the same in the facts."""
+    words = low.split()
+    first = phrase.split()[0]
+    hits = [i for i, w in enumerate(words) if re.sub(r"[^a-z0-9']", "", w) == first]
+    if not hits:
+        return False
+    span = len(phrase.split())
+    return all(_norm(" ".join(words[max(0, i - 3) : i + span + 3])) in facts_norm for i in hits)
+
+
+def _sentences(text: str) -> list[str]:
+    return [x for x in re.split(r"(?<=[.!?])\s+(?=[A-Z\[])", FACT_MARK.sub(" ", text).strip()) if x.strip()]
+
+
+def _unsupported_sentences(text: str, facts_text: str) -> list[str]:
+    """Sentences whose content words are mostly not in the facts they cite: the model's own linking or introducing sentences."""
+    fw = _words(facts_text)
+    bad: list[str] = []
+    for sent in _sentences(text):
+        low = BRACKET.sub(" ", sent.lower())
+        for b in sorted(BOILERPLATE, key=len, reverse=True):
+            low = low.replace(b, " ")
+        toks = [t for t in WORD.findall(low) if len(t) >= 4 and t not in STOP_WORDS]
+        if toks and sum(1 for t in toks if t in fw) / len(toks) < SUPPORT_MIN:
+            bad.append(sent.strip())
+    return bad
+
+
 def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
     """Mechanical reasons a grounds paragraph fails (empty list = passes). Each reason is a stable code plus a short detail."""
     text, low = para["text"], para["text"].lower()
@@ -343,14 +443,23 @@ def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
     meta = [p for p in META_PHRASES if _has_phrase(low, p)]
     if meta:
         why.append(f"d2_meta: the body talks about what was or was not given ({', '.join(meta[:3])}); gaps belong in the notes")
-    concl = [p for p in CONCLUSORY if _has_phrase(low, p)]
+    facts_norm = _norm(corpus_all)
+    concl = [
+        p for p in CONCLUSORY if _has_phrase(low, p) and not _copied_from_facts(low, p, facts_norm)
+    ]  # the lawyer's own words are not the model's claim
     if concl:
         why.append(f"conclusory: {', '.join(concl[:3])}")
-    forb = [p for p in FORBIDDEN if p in low]
+    forb = [p for p in FORBIDDEN if p in low and not _copied_from_facts(low, p, facts_norm)]
     if forb:
         why.append(f"forbidden_words: {', '.join(forb[:3])}")
     if index > 0 and re.match(r"\s*it is submitted\b", low):
         why.append("blanket_opener: only the first paragraph may open with 'It is submitted'")
+    if re.search(r"\b(the applicant|he|she) (states|submits) that the applicant\b", low):
+        why.append("repeated_subject: 'The Applicant states that the Applicant'")
+    cited_text = " ".join(facts[c].text for c in cited if c in facts)
+    unsupported = _unsupported_sentences(text, cited_text or corpus_all)
+    if unsupported:
+        why.append(f"unsupported_sentence: {unsupported[0][:80]!r} is supported by none of the facts it cites")
     # new-noun check against the facts (all of them: a noun in any fact is the lawyer's own)
     facts_words = _words(corpus_all)
     invented = [
@@ -360,11 +469,14 @@ def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
         why.append(f"new_noun: {', '.join(invented[:4])} is in no fact")
     # every number, date and amount must be in the facts AS WRITTEN (a reformatted date or a computed figure is a blurred fact)
     bare = BRACKET.sub(" ", FACT_MARK.sub(" ", text))
-    facts_nocomma = corpus_all.replace(",", "")
+    num_corpus = (
+        corpus_all + " " + " ".join(case.authorities)
+    )  # the lawyer's supplied authorities are as much his own words as the facts
+    facts_nocomma = num_corpus.replace(",", "")
     loose = [
         t
         for t in dict.fromkeys(x.rstrip(".,/-") for x in NUMBER_RE.findall(bare))
-        if t not in corpus_all and t.replace(",", "") not in facts_nocomma
+        if t not in num_corpus and t.replace(",", "") not in facts_nocomma
     ]
     if loose:
         why.append(f"number_not_in_facts: {', '.join(loose[:5])} is not written like that in any fact")
@@ -374,6 +486,18 @@ def check_paragraph(case: Any, para: dict[str, Any], index: int) -> list[str]:
     if unresolved:
         why.append(f"authority_not_supplied: {', '.join(dict.fromkeys(unresolved))}")
     return why
+
+
+def _dropped_note(case: Any, para: dict[str, Any], index: int, reasons: list[str]) -> str:
+    """Says WHICH ground was lost, in the lawyer's words (the facts it rested on), and why in plain words."""
+    by_id = {f.fact_id: f.text for f in case.facts}
+    ids = [c for c in dict.fromkeys([*para["facts"], *FACT_MARK.findall(para["text"])]) if c in by_id]
+    label = (
+        "; ".join(f"{c}: " + by_id[c].strip()[:70] + ("..." if len(by_id[c].strip()) > 70 else "") for c in ids[:2])
+        or "no fact cited"
+    )
+    plain = "; ".join(dict.fromkeys(REASON_WORDS.get(r.split(":")[0], r.split(":")[0]) for r in reasons))
+    return f"A ground was not used (paragraph {index + 1}, from {label}): {plain}. Add it yourself if you want it."
 
 
 def _fill_ins(case: Any, kept: list[dict[str, Any]]) -> list[str]:
@@ -650,10 +774,7 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         if not failed:
             dropped = []
             break
-        dropped = [
-            f"Paragraph {i + 1} (facts {', '.join(grounds[i]['facts']) or 'none'}) was not used: {'; '.join(r)}."
-            for i, r in failed
-        ]
+        dropped = [_dropped_note(case, grounds[i], i, r) for i, r in failed]
         if attempt == 0 and min(2, cfg.max_calls_per_matter) > 1:
             user = pack + _feedback(failed)
             regenerated = True
@@ -684,6 +805,19 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
         tiered += [(0, ADVERSE_NOTE.format(fid=f, why=why)) for f, why in flags]
     tiered += [(0, n) for n in dropped]
     notes_ok = [n for n in notes if not any(_has_phrase(n.lower(), w) for w in PREDICTIONS)]
+    n_before = len(notes_ok)
+    notes_ok = [
+        n for n in notes_ok if not NOTE_PROVISION_RE.search(n)
+    ]  # the heading already names the Act and section: such a note contradicts it
+    if len(notes_ok) != n_before:
+        checks.append(
+            {
+                "name": "notes_provision_contradiction",
+                "passed": True,
+                "info": True,
+                "detail": f"{n_before - len(notes_ok)} note(s) about the bail provision left out: the heading names it",
+            }
+        )
     if len(notes_ok) != len(notes):
         checks.append(
             {

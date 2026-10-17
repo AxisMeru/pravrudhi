@@ -208,8 +208,10 @@ def test_still_failing_after_the_regeneration_is_dropped_to_the_notes_never_edit
     first = [GOOD[0], ("No authority is supplied [F2].", ["F2"])]
     r = run(complete=Fake(answer(first), answer(first)))
     assert r["state"] == "drafted" and r["calls"] == 2 and len(r["grounds"]) == 1
-    assert any("Paragraph 2" in n and "d2_meta" in n for n in r["notes_for_lawyer"])
-    assert "No authority is supplied" not in r["text"] or "was not used" in r["text"]
+    assert any(
+        "A ground was not used (paragraph 2" in n and "talked about what was or was not given" in n for n in r["notes_for_lawyer"]
+    )
+    assert "No authority is supplied" not in r["grounds"][0]["text"]
     assert all(p["text"] == GOOD[0][0] for p in r["grounds"])  # the kept paragraph is the model's exact words
 
 
@@ -277,7 +279,7 @@ def test_uncited_fact_exclusions_and_advisory_words_are_in_the_notes():
                 [
                     GOOD[0],
                     (
-                        "The applicant states that the investigation is complete and incarceration continues unnecessarily [F3].",
+                        "The applicant states that the investigation was concluded [F3].",
                         ["F3"],
                     ),
                 ]
@@ -289,7 +291,7 @@ def test_uncited_fact_exclusions_and_advisory_words_are_in_the_notes():
         "Fact F2 was given but the grounds do not cite it." in notes
         and "2 fact(s) were not marked as the applicant's side" in notes
     )
-    assert "unnecessarily" in notes  # advisory: a long word in no fact; it does not fail the paragraph
+    assert "concluded" in notes  # advisory: a long word in no fact; it does not fail the paragraph
 
 
 def test_template_only_never_calls_and_costs_nothing():
@@ -377,7 +379,7 @@ def test_number_check_reject_regenerate_once_then_drop_to_notes():
     first = [GOOD[0], ("The Applicant was arrested on 04.05.2023 [F1].", ["F1"])]
     r = run(complete=Fake(answer(first), answer(first)))
     assert r["calls"] == 2 and len(r["grounds"]) == 1
-    assert any("Paragraph 2" in n and "number_not_in_facts" in n for n in r["notes_for_lawyer"] + r["more_notes"])
+    assert any("paragraph 2" in n and "number, date or amount" in n for n in r["notes_for_lawyer"] + r["more_notes"])
 
 
 def test_adverse_looking_facts_are_named_in_a_note_and_an_info_check_never_excluded():
@@ -426,7 +428,9 @@ def test_dropped_paragraph_and_adverse_notes_outrank_model_notes():
     )
     first = [("The Prosecution opposed the bail [F1].", ["F1"]), ("No authority is supplied [F2].", ["F2"])]
     r = run(c, Fake(answer(first, ["a", "b", "c", "d", "e"]), answer(first, ["a", "b", "c", "d", "e"])))
-    assert r["notes_for_lawyer"][0].startswith("Fact F1 reads like") and r["notes_for_lawyer"][1].startswith("Paragraph 2")
+    assert r["notes_for_lawyer"][0].startswith("Fact F1 reads like") and r["notes_for_lawyer"][1].startswith(
+        "A ground was not used (paragraph 2"
+    )
 
 
 def test_a_note_predicting_this_applications_result_is_left_out_but_what_the_other_side_may_argue_is_kept():
@@ -443,3 +447,83 @@ def test_a_note_predicting_this_applications_result_is_left_out_but_what_the_oth
     allnotes = r["notes_for_lawyer"] + r["more_notes"]
     assert not any("likely to be granted" in n for n in allnotes) and any("likely to be raised" in n for n in allnotes)
     assert bd.NOTE_LEFT_OUT in allnotes and any(c["name"] == "notes_prediction" for c in r["checks"])
+
+
+def test_numbers_of_a_supplied_authority_do_not_fail_the_number_check():
+    c = Case(authorities=["(2014) 8 SCC 273"])
+    ok = answer([("The Applicant relies on (2014) 8 SCC 273 on custody since 4 May 2023 [F2].", ["F2"]), GOOD[0]])
+    r = run(c, Fake(ok))
+    assert r["state"] == "drafted" and r["checks"][0]["passed"] is True
+
+
+def test_a_phrase_copied_from_the_lawyers_own_fact_is_not_an_outcome_claim():
+    c = Case(facts=[NS(fact_id="F1", text="The trial is likely to take some time and the Applicant is in custody.")])
+    ok = answer([("The Applicant states that the trial is likely to take some time [F1].", ["F1"])])
+    r = run(c, Fake(ok))
+    assert r["state"] == "drafted" and r["checks"][0]["passed"] is True
+    bad = answer([("The Applicant states that the bail is likely to be granted [F1].", ["F1"])])
+    r2 = run(c, Fake(bad, bad))
+    assert any("conclusory" in x for fl in r2["checks"][0]["failed"] for x in fl["reasons"])
+
+
+def test_a_dropped_ground_is_named_in_the_lawyers_words_with_a_plain_reason():
+    c = Case(
+        facts=[
+            NS(fact_id="F1", text="The trial is likely to take some time."),
+            NS(fact_id="F2", text="The Applicant is in custody."),
+        ]
+    )
+    first = [
+        ("The Applicant states that the bail is likely to be granted [F1].", ["F1"]),
+        ("The Applicant is in custody [F2].", ["F2"]),
+    ]
+    r = run(c, Fake(answer(first), answer(first)))
+    note = next(n for n in r["notes_for_lawyer"] + r["more_notes"] if n.startswith("A ground was not used"))
+    assert (
+        "F1: The trial is likely to take some time." in note
+        and "outcome or strength wording" in note
+        and "conclusory" not in note
+    )
+
+
+def test_an_invented_linking_sentence_fails_the_paragraph_but_a_restating_one_passes():
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant has been in custody since 03.08.2023 in FIR [FIR number].")])
+    bad = answer(
+        [
+            (
+                "The Applicant has been in custody since 03.08.2023 [F1]. He has now approached this Court for relief under the applicable bail provision.",
+                ["F1"],
+            )
+        ]
+    )
+    r = run(c, Fake(bad, bad))
+    assert any("unsupported_sentence" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"])
+    ok = answer([("The Applicant has been in custody since 03.08.2023 in FIR [FIR number] [F1].", ["F1"])])
+    assert run(c, Fake(ok))["state"] == "drafted"
+
+
+def test_the_closed_boilerplate_phrases_do_not_count_as_unsupported():
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant has been in custody since 03.08.2023.")])
+    ok = answer(
+        [("The Applicant states that he has been in custody since 03.08.2023 under the applicable bail provision [F1].", ["F1"])]
+    )
+    assert run(c, Fake(ok))["state"] == "drafted"
+
+
+def test_a_note_saying_the_bail_provision_is_not_identified_is_left_out_because_the_heading_names_it():
+    f = Fake(answer(GOOD, ["The applicable bail provision is not identified; please insert it.", "Confirm the FIR date."]))
+    r = run(complete=f)
+    allnotes = r["notes_for_lawyer"] + r["more_notes"]
+    assert not any("bail provision" in n for n in allnotes) and "Confirm the FIR date." in allnotes
+    assert any(c["name"] == "notes_provision_contradiction" for c in r["checks"])
+
+
+def test_repeated_subject_fails_the_paragraph():
+    paras = [GOOD[0], ("The Applicant states that the Applicant has been in custody since 4 May 2023 [F2].", ["F2"])]
+    r = run(complete=Fake(answer(paras), answer(paras)))
+    assert any("repeated_subject" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"])
+
+
+def test_the_prayer_is_labelled_to_be_completed_by_counsel():
+    r = run(complete=Fake(answer(GOOD)))
+    assert "To be completed by counsel" in next(x["text"] for x in r["sections"] if x["id"] == "prayer")
