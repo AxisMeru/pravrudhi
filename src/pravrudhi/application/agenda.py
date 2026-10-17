@@ -73,6 +73,17 @@ def papers_read_heading(n: int) -> str:
     return f"Papers read ({n})"
 
 
+def pages_note(blank: int, total: int) -> str | None:
+    """R1's three notes (never "0 of M"): one page only, one of several, several of several."""
+    if blank <= 0:
+        return None
+    if blank == 1 and total == 1:
+        return "1 page had no text: check it yourself."
+    if blank == 1:
+        return f"1 of {total} pages had no text: check it yourself."
+    return f"{blank} of {total} pages had no text: check them yourself."
+
+
 def not_read_line(name: str) -> str:
     return f"Not added yet: a file named '{name}' was added but not read (scanned pages), so check it yourself."
 
@@ -207,7 +218,7 @@ def build_agenda(
                 "name": d.name,
                 "pages": d.n_pages,
                 "pages_without_text": len(d.pages_without_text),
-                "pages_note": f"{len(d.pages_without_text)} of {d.n_pages} pages had no text: check them yourself." if d.pages_without_text else None,
+                "pages_note": pages_note(len(d.pages_without_text), d.n_pages),
                 "paper_type": ptype if ptype in known else None,
                 "paper_type_basis": basis if ptype in known else None,
             }

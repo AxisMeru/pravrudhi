@@ -440,3 +440,27 @@ def test_a_declared_held_paper_beats_a_name_only_file_of_the_same_type_and_the_n
     assert {r["id"]: r for r in only["statute_names"]["rows"]}["notice_in_writing"]["status"] == "Not added yet"
     declared = build_agenda([a], {a.doc_id: "cheque"}, held_without_file=["cheque"])
     assert {r["id"]: r for r in declared["statute_names"]["rows"]}["cheque"]["status"] == "Added"
+
+
+@pytest.mark.parametrize(
+    ("blank", "total", "note"),
+    [
+        (0, 10, None),
+        (1, 1, "1 page had no text: check it yourself."),
+        (1, 10, "1 of 10 pages had no text: check it yourself."),
+        (3, 10, "3 of 10 pages had no text: check them yourself."),
+        (2, 2, "2 of 2 pages had no text: check them yourself."),
+    ],
+)
+def test_the_blank_page_note_is_singular_for_one_page_and_never_says_zero(blank: int, total: int, note: str | None) -> None:
+    assert G.pages_note(blank, total) == note
+    pages = tuple(range(1, blank + 1))
+    d = Doc("a" * 32, "x.pdf", total, pages)
+    got = build_agenda([d])["papers_read"]["papers"] if d.read else []
+    if d.read:
+        assert got[0]["pages_note"] == note
+
+
+def test_a_one_page_file_with_that_page_blank_is_not_read_so_its_note_is_the_unread_line_instead() -> None:
+    p = build_agenda([doc(1, "one.pdf", 1, (1,))])
+    assert p["papers_read"]["n"] == 0 and any("one.pdf" in r.get("line", "") for r in p["not_added"]["rows"])
