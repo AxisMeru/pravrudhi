@@ -106,3 +106,57 @@ def test_a_malformed_request_is_a_validation_failure(patch: dict[str, Any]) -> N
 
 def test_the_closed_ground_ids_match_the_literal_in_the_request_model() -> None:
     assert set(I.GROUND_IDS) == set(I.FactIn.model_json_schema()["properties"]["grounds"]["items"]["enum"])
+
+
+# ---- trafficking, sexual offences and offences against a child: refer by the sections the lawyer lists (Interim lead, 17 Oct) -------------------
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [
+        ["IPC 370"], ["Section 370A IPC"], ["u/s 372 IPC"], ["376 IPC"], ["Section 376(2)(n) IPC"], ["IPC 376DA"], ["s. 354D of the Indian Penal Code"],
+        ["BNS 143"], ["u/s 144 BNS"], ["BNS 143(2)"], ["BNS 63"], ["bharatiya nyaya sanhita 70"], ["BNS 95"], ["BNS 96"], ["POCSO Act s.4"],
+        ["Sections 3 and 4 of the POCSO Act"], ["302 IPC", "370 IPC"], ["376"], ["63"], ["143"],
+    ],
+)
+def test_a_listed_section_on_the_sensitive_list_refers_the_matter(sections: list[str]) -> None:
+    assert I.sensitive_section(sections) is True
+    out = I.parse_case(req(charged_sections=sections), 40)
+    assert out == I.Referral("sensitive_section", I.REFER_SENSITIVE_SECTION)
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [[], ["302 IPC"], ["IPC 420"], ["BNS 318"], ["BNS 103"], ["34 IPC"], ["IPC 363"], ["BNS 363"], ["Section 138 NI Act"], ["420"], ["IPC 37"], ["BNS 6"], ["IPC 3760"]],
+)
+def test_other_sections_do_not_refer(sections: list[str]) -> None:
+    assert I.sensitive_section(sections) is False
+    assert isinstance(I.parse_case(req(charged_sections=sections), 40), I.BailCase)
+
+
+def test_the_act_named_decides_which_list_a_number_is_checked_against() -> None:
+    assert I.sensitive_section(["BNS 370"]) is False and I.sensitive_section(["IPC 370"]) is True  # 370 is trafficking in the IPC only
+    assert I.sensitive_section(["IPC 143"]) is False and I.sensitive_section(["BNS 143"]) is True  # 143 is trafficking in the BNS only
+    assert I.sensitive_section(["370"]) is True and I.sensitive_section(["143"]) is True  # no Act named: either list refers
+
+
+def test_the_trafficking_tag_refers_like_the_other_sensitive_tags_and_comes_first() -> None:
+    assert "trafficking" in I.SENSITIVE_TAGS
+    assert I.parse_case(req(tags=["trafficking"], charged_sections=["IPC 302"]), 40) == I.Referral("sensitive_matter", I.REFER_SENSITIVE)
+
+
+def test_the_sensitive_table_is_a_lawyers_file_every_bns_entry_is_a_held_section_and_the_table_is_read_per_call() -> None:
+    import json
+
+    t = I.load_sensitive()
+    assert t["confirmed_by_lawyer"] is False and t["acts"]["IPC"] and t["acts"]["BNS"]
+    held = {d["section"].split()[-1] for d in json.loads((I.ASSET.parent.parent / "nyaya" / "bns_sections.json").read_text(encoding="utf-8"))["documents"]}
+    assert set(t["acts"]["BNS"]) <= held
+    t2 = {**t, "acts": {**t["acts"], "IPC": t["acts"]["IPC"] + ["302"]}}
+    assert I.sensitive_section(["IPC 302"], t2) is True and I.sensitive_section(["IPC 302"], t) is False
+
+
+def test_the_request_bounds_the_charged_sections() -> None:
+    for bad in (["x" * 61], [" "], ["IPC 1"] * 31):
+        with pytest.raises(ValidationError):
+            req(charged_sections=bad)

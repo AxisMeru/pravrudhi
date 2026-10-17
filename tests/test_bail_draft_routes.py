@@ -394,3 +394,15 @@ def test_end_to_end_a_completer_that_answers_another_model_is_a_500_not_a_draft(
     monkeypatch.setattr(R, "make_completer", lambda _c, _d, env=None: (lambda s, u, m: REAL.Completion(GOOD, 1, 1, "some-other-model", "end_turn")))
     r = _client(tmp_path).post(PATH, json=BODY)
     assert r.status_code == 500 and "marker-zq" not in r.text
+
+
+def test_a_listed_trafficking_or_sexual_offence_section_refers_with_the_fixed_text_and_no_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import bail_draft_input as I
+
+    stub = _flags(monkeypatch, BailDraftConfig())
+    r = _client(tmp_path).post(PATH, json={**BODY, "charged_sections": ["Section 370 IPC"]})
+    b = r.json()
+    assert r.status_code == 200 and b["state"] == "referred" and b["draft"] is None and stub.calls == []
+    assert b["referral"] == {"code": "sensitive_section", "text": I.REFER_SENSITIVE_SECTION} and "370" not in r.text and "marker-zq" not in r.text
+    ok = _client(tmp_path).post(PATH, json={**BODY, "charged_sections": ["Section 420 IPC"]}).json()
+    assert ok["state"] == "template_only" and len(stub.calls) == 1  # an ordinary section is drafted as before

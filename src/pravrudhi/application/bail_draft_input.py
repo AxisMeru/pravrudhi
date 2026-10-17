@@ -12,6 +12,7 @@ The strings below are PENDING R1's wording (customer-visible, flag off): they ar
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -20,16 +21,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, field_validator
 
 ASSET = Path(__file__).resolve().parent.parent / "assets" / "bail_draft" / "framing.json"
+SENSITIVE_ASSET = Path(__file__).resolve().parent.parent / "assets" / "bail_draft" / "sensitive.json"
 ROUTE = "/api/v1/bail-draft"
 RUN_PREFIX = "bail-"
 
 GROUND_IDS = ("accusation_nature", "custody_period", "antecedents", "flight", "tampering", "co_accused")
 #: matter tags the lawyer may declare; ANY of them refers the matter (liberty at stake, sensitive offences are out of scope for a first draft)
-SENSITIVE_TAGS = ("pocso", "minor_involved", "sexual_offence", "marked_sensitive")
+SENSITIVE_TAGS = ("pocso", "minor_involved", "sexual_offence", "marked_sensitive", "trafficking")
 
 # ---- strings: PENDING R1 (flag off; none is shown to a user until R1 rules it) -----------------------------------------------------------
 PREVIEW_LABEL = "Preview: a first draft of the grounds for a lawyer to rewrite; not legal advice."
 REFER_SENSITIVE = "This matter is marked sensitive, so no draft was made. Refer it to a lawyer."
+REFER_SENSITIVE_SECTION = (
+    "A section you listed is one this draft tool does not handle (trafficking, sexual offences or an offence against a child), "
+    "so no draft was made. Refer it to a lawyer."
+)
 REFER_NO_FACTS = "No fact was ticked as the applicant's side, so no draft was made."
 REFER_NO_FORUM = "A bail request needs the forum (trial court, or sessions court or High Court), so no draft was made."
 REFER_STRADDLE = "The dates fall on both sides of 1 July 2024, so no draft was made. Both framings are shown below; a lawyer decides which Act governs."
@@ -60,13 +66,22 @@ class BailDraftRequest(BaseModel):
     court: StrictStr | None = Field(default=None, max_length=200)
     facts: list[FactIn] = Field(min_length=1, max_length=200)
     authorities: list[StrictStr] = Field(default_factory=list, max_length=20)
-    tags: list[Literal["pocso", "minor_involved", "sexual_offence", "marked_sensitive"]] = Field(default_factory=list, max_length=10)
+    tags: list[Literal["pocso", "minor_involved", "sexual_offence", "marked_sensitive", "trafficking"]] = Field(default_factory=list, max_length=10)
+    #: the sections the matter is charged under, as the lawyer writes them ("IPC 370", "Section 376(2) IPC", "BNS 143"); only used to REFER
+    charged_sections: list[StrictStr] = Field(default_factory=list, max_length=30)
 
     @field_validator("offence_date", "fir_date", "arrest_date", "application_date")
     @classmethod
     def _iso_date(cls, v: str | None) -> str | None:
         if v is not None:
             date.fromisoformat(v)  # a ValueError is a validation failure: the route answers its one fixed body
+        return v
+
+    @field_validator("charged_sections")
+    @classmethod
+    def _section_length(cls, v: list[str]) -> list[str]:
+        if any(not a.strip() or len(a) > 60 for a in v):
+            raise ValueError("section length")
         return v
 
     @field_validator("authorities")
@@ -158,10 +173,44 @@ def load_framing(path: Path | None = None) -> dict[str, Any]:
     return data
 
 
+_SECTION_NO = re.compile(r"(?<![0-9A-Za-z])(\d{1,3}(?:AB|DA|DB|[A-E])?)(?![0-9])", re.I)
+
+
+def load_sensitive(path: Path | None = None) -> dict[str, Any]:
+    """The sensitive-section table, read on every call (a lawyer's edit applies at once)."""
+    data = json.loads((path or SENSITIVE_ASSET).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("sensitive table is not an object")
+    return data
+
+
+def sensitive_section(sections: list[str], table: dict[str, Any] | None = None) -> bool:
+    """True when any section the lawyer wrote is on the sensitive list. The Act is read from the words ("IPC", "BNS", "POCSO" and their long
+    names); a section with no Act named is checked against BOTH lists (the cautious reading). Sub-clauses are ignored: 376(2)(n) is 376."""
+    t = table or load_sensitive()
+    acts = {a: {x.upper() for x in lst} for a, lst in t["acts"].items()}
+    aliases = {a: tuple(w.casefold() for w in ws) for a, ws in t["aliases"].items()}
+    for raw in sections:
+        low = raw.casefold()
+        named = {a for a, ws in aliases.items() if any(re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low) for w in ws)}
+        if "POCSO" in named:
+            return True
+        m = _SECTION_NO.search(raw)
+        if m is None:
+            continue
+        number = m.group(1).upper()
+        pool = [acts[a] for a in (named & acts.keys())] or list(acts.values())
+        if any(number in s for s in pool):
+            return True
+    return False
+
+
 def parse_case(req: BailDraftRequest, max_facts: int, matter_id: str = "") -> BailCase | Referral:
     """Rules only. Order: sensitive tag, bail forum, applicant-side facts (the cap on facts is the config's, applied to ticked facts)."""
     if any(t in SENSITIVE_TAGS for t in req.tags):
         return Referral("sensitive_matter", REFER_SENSITIVE)
+    if req.charged_sections and sensitive_section(req.charged_sections):
+        return Referral("sensitive_section", REFER_SENSITIVE_SECTION)
     if req.kind == "bail" and req.forum is None:
         return Referral("forum_required", REFER_NO_FORUM)
     own = [f for f in req.facts if f.side == "applicant"]
