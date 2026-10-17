@@ -35,7 +35,7 @@ class BailDraftConfig:
     max_calls_per_matter: int = 2  # model calls for one draft: the first and ONE regeneration after a failed mechanical check
     max_input_tokens_per_call: int = 6000  # an over-size pack is refused before any call (a deliberately high ESTIMATE, labelled as one)
     usd_per_matter: float = 0.60  # worst case of every allowed call; over it, no call is made
-    usd_per_day: float = 4.0  # counted spend for this process in one UTC day; over it the draft is the template only
+    usd_per_day: float = 2.0  # counted spend for this process in one UTC day (in memory: a restart resets it); over it the draft is the template only
     max_facts: int = 40
     timeout_s: float = 120.0
     base_url: str | None = None
