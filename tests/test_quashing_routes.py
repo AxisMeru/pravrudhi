@@ -30,6 +30,7 @@ CFG = PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy
 REPO = Path(__file__).resolve().parent.parent
 MODULE = "pravrudhi.application.quashing_matter"
 PATH = "/api/v1/quashing-agenda"
+HEALTH = PATH + "/health"
 A2 = "/api/v1/matter-spans"
 PAPER = "An invented paragraph about a cheque and a notice. Nothing else is stated here."
 
@@ -313,11 +314,93 @@ def test_when_the_pin_fails_the_feature_answers_the_fixed_unavailable_text_and_s
         assert leak not in r.text.replace(G.UNAVAILABLE, "")
 
 
-def test_the_pin_is_reread_after_its_window_so_a_restored_index_is_seen(tmp_path: Path) -> None:
-    idx = _slim_index(tmp_path / "x.sqlite3", year=2015)
+def test_the_pin_is_read_once_inside_its_window_and_again_after_it_for_an_unchanged_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    idx = _slim_index(tmp_path / "x.sqlite3")
     G._PIN_CACHE.clear()
-    assert G.pin_status_cached(idx, now=0.0, ttl_s=60.0) == "case_changed"
-    idx.unlink()
-    _slim_index(idx)
-    assert G.pin_status_cached(idx, now=30.0, ttl_s=60.0) == "case_changed"  # cached inside the window
-    assert G.pin_status_cached(idx, now=61.0, ttl_s=60.0) is None  # re-read after it
+    calls: list[int] = []
+    answers = iter([None, "case_missing", None])
+    monkeypatch.setattr(G, "pin_status", lambda _p, timeout_s=2.0: (calls.append(1), next(answers))[1])
+    assert G.pin_status_cached(idx, now=0.0, ttl_s=60.0) is None
+    assert G.pin_status_cached(idx, now=59.9, ttl_s=60.0) is None and len(calls) == 1  # inside the window: not read again
+    assert (
+        G.pin_status_cached(idx, now=60.0, ttl_s=60.0) == "case_missing" and len(calls) == 2
+    )  # at the window: read again, the PASS is gone
+    assert G.pin_status_cached(idx, now=119.9, ttl_s=60.0) == "case_missing" and len(calls) == 2
+    assert (
+        G.pin_status_cached(idx, now=120.0, ttl_s=60.0) is None and len(calls) == 3
+    )  # the failure was not sticky past the window
+
+
+def test_a_swapped_index_file_is_seen_at_once_without_waiting_for_the_window(tmp_path: Path) -> None:
+    idx = _slim_index(tmp_path / "x.sqlite3")
+    G._PIN_CACHE.clear()
+    assert G.pin_status_cached(idx, now=0.0, ttl_s=60.0) is None
+    bad = _slim_index(tmp_path / "y.sqlite3", year=2015)
+    bad.replace(idx)  # a different file under the same path (new mtime/size)
+    assert G.pin_status_cached(idx, now=1.0, ttl_s=60.0) == "case_changed"  # one second later, far inside the window
+
+
+def test_a_pass_is_not_served_after_the_window_and_a_failure_is_not_sticky(tmp_path: Path) -> None:
+    idx = _slim_index(tmp_path / "x.sqlite3")
+    G._PIN_CACHE.clear()
+    assert G.pin_status_cached(idx, now=0.0, ttl_s=60.0) is None
+    with sqlite3.connect(idx) as c:
+        c.execute("UPDATE cases SET year = 1999")
+    assert G.pin_status_cached(idx, now=59.0, ttl_s=60.0) in (None, "case_changed")  # a rewrite may or may not change the key
+    assert G.pin_status_cached(idx, now=120.0, ttl_s=60.0) == "case_changed"  # the PASS never outlives the window
+    with sqlite3.connect(idx) as c:
+        c.execute("UPDATE cases SET year = 2016")
+    assert G.pin_status_cached(idx, now=200.0, ttl_s=60.0) is None  # the failure never outlives it either
+
+
+def test_a_clock_that_goes_backwards_is_not_served_from_the_cache(tmp_path: Path) -> None:
+    idx = _slim_index(tmp_path / "x.sqlite3")
+    G._PIN_CACHE.clear()
+    assert G.pin_status_cached(idx, now=100.0, ttl_s=60.0) is None
+    with sqlite3.connect(idx) as c:
+        c.execute("UPDATE cases SET year = 1999")
+    assert G.pin_status_cached(idx, now=10.0, ttl_s=60.0) == "case_changed"
+
+
+def test_the_health_route_reports_the_pin_with_a_fixed_code_and_echoes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    ok = c.get(HEALTH)
+    assert ok.status_code == 200 and ok.json() == {"state": "available"}
+    for mutate in ("missing", "title", "year", "year_none"):
+        idx = tmp_path / f"{mutate}.sqlite3"
+        kw: dict[str, Any] = {
+            "missing": {"case_id": "0" * 24},
+            "title": {"title": "Another vs Case"},
+            "year": {"year": 2015},
+            "year_none": {"year": None},
+        }[mutate]
+        _slim_index(idx, **kw)
+        monkeypatch.setenv("PRAVRUDHI_CITATION_INDEX", str(idx))
+        G._PIN_CACHE.clear()
+        bad = c.get(HEALTH)
+        assert bad.status_code == 200 and bad.json()["state"] == "unavailable" and set(bad.json()) == {"state", "reason"}
+        for leak in ("Amanullah", G.load_quotes().pin_case_id, "2016", "2015", "Another"):
+            assert leak not in bad.text, (mutate, leak)
+
+
+def test_the_health_route_is_absent_with_the_flag_off_and_in_neither_openapi_nor_the_released_lists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _flags(monkeypatch)
+    before = (identity.PARTNER_KEY_ROUTES, identity.PARTNER_KEY_PATHS, roles.USER_FACING)
+    c = _client(tmp_path)
+    assert HEALTH not in _paths(c) and c.get(HEALTH).status_code == 404
+    assert before == (identity.PARTNER_KEY_ROUTES, identity.PARTNER_KEY_PATHS, roles.USER_FACING)
+    _on(monkeypatch)
+    c2 = _client(tmp_path)
+    assert HEALTH in _paths(c2) and HEALTH not in c2.get("/openapi.json").text and ("GET", HEALTH) in identity.PARTNER_KEY_ROUTES
+
+
+def test_an_anonymous_caller_cannot_read_the_health_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _on(monkeypatch)
+    assert _client(tmp_path, user=None).get(HEALTH).status_code == 401

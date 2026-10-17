@@ -17,6 +17,7 @@ from pravrudhi.application import quashing as G
 from pravrudhi.application.matter_spans import MatterError, MatterStore
 
 ROUTE = G.ROUTE
+HEALTH_ROUTE = G.ROUTE + "/health"
 STORE_OFF = G.STORE_OFF
 
 
@@ -30,9 +31,9 @@ def open_route_lists() -> None:
     """Name the route in the two classification lists that must name it while it exists (as the other optional routes do)."""
     from pravrudhi.api import identity, roles
 
-    identity.PARTNER_KEY_ROUTES = identity.PARTNER_KEY_ROUTES | {("POST", ROUTE)}
-    identity.PARTNER_KEY_PATHS = identity.PARTNER_KEY_PATHS | {ROUTE}
-    roles.USER_FACING = roles.USER_FACING | {ROUTE}
+    identity.PARTNER_KEY_ROUTES = identity.PARTNER_KEY_ROUTES | {("POST", ROUTE), ("GET", HEALTH_ROUTE)}
+    identity.PARTNER_KEY_PATHS = identity.PARTNER_KEY_PATHS | {ROUTE, HEALTH_ROUTE}
+    roles.USER_FACING = roles.USER_FACING | {ROUTE, HEALTH_ROUTE}
 
 
 def agenda_for_matter(
@@ -52,3 +53,9 @@ def agenda_for_matter(
         return {"run_id": run_id, "matter_id": req.matter_id, **G.build_page(docs)}
     except G.AssetChanged as e:
         raise MatterError("agenda_unavailable", G.UNAVAILABLE, 503) from e
+
+
+def health(index_path: Path | None) -> dict[str, str]:
+    """The pin as the health probe reads it: available, or unavailable with a FIXED reason code. No title, id or year is ever echoed."""
+    reason = G.pin_status_cached(index_path)
+    return {"state": "available"} if reason is None else {"state": "unavailable", "reason": reason}

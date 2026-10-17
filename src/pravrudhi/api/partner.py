@@ -2985,8 +2985,19 @@ def build_partner_router(
             _intake_audit(metered, "intake", 200, run)
             return out
 
+        def quashing_health_ep(request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _s3_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+            return _s3.health(citation_index_path or (Path(env_path) if env_path else None))
+
         quashing_ep.__annotations__["req"] = _s3.QuashingRequest  # a local import is not visible to a string annotation
         router.add_api_route("/quashing-agenda", quashing_ep, methods=["POST"], include_in_schema=False, response_model=None)
+        router.add_api_route(
+            "/quashing-agenda/health", quashing_health_ep, methods=["GET"], include_in_schema=False, response_model=None
+        )
         _s3.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
     return router

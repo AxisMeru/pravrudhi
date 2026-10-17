@@ -184,16 +184,27 @@ def pin_status(index_path: Path | None, timeout_s: float = 2.0) -> str | None:
     return None
 
 
-_PIN_CACHE: dict[str, tuple[float, str | None]] = {}
+_PIN_CACHE: dict[tuple[str, int, int], tuple[float, str | None]] = {}
+
+
+def _cache_key(index_path: Path | None) -> tuple[str, int, int]:
+    """Index path + the file's mtime and size: a swap of the file changes the key, so the old answer is never served for the new file."""
+    if index_path is None:
+        return ("", 0, 0)
+    try:
+        st = Path(index_path).stat()
+        return (str(index_path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (str(index_path), 0, 0)
 
 
 def pin_status_cached(index_path: Path | None, now: float | None = None, ttl_s: float = PIN_CACHE_S) -> str | None:
-    """`pin_status` with a short per-path cache (a bounded read on every request would be wasteful; a failure is cached for the same
-    window, so a restored index is seen within `ttl_s` seconds). The pin is re-read at least every `ttl_s` seconds."""
-    key = str(index_path)
+    """`pin_status` with a short cache so a bounded read is not repeated on every request. The key is the index path + the file's mtime and
+    size (a swap invalidates it at once); an entry older than `ttl_s` is re-read, so neither a PASS nor an UNAVAILABLE outlives the window."""
+    key = _cache_key(index_path)
     t = time.monotonic() if now is None else now
     hit = _PIN_CACHE.get(key)
-    if hit is not None and t - hit[0] < ttl_s:
+    if hit is not None and 0 <= t - hit[0] < ttl_s:
         return hit[1]
     result = pin_status(index_path)
     _PIN_CACHE[key] = (t, result)

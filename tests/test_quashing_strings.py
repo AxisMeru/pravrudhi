@@ -122,3 +122,11 @@ def test_the_quotes_line_contains_no_word_page() -> None:
     import re
 
     assert re.search(r"\bpage\b", G.QUOTES_LINE, re.I) is None
+
+
+def test_a_paper_with_pages_that_have_no_text_is_listed_by_its_raw_name_and_claimed_as_nothing() -> None:
+    nasty = 'scan "A&B" <1>.pdf'
+    page = G.build_page([G.Doc("a" * 32, nasty, 4, (2, 3)), G.Doc("b" * 32, "typed.pdf", 1, ())])
+    assert [d["name"] for d in page["papers"]["documents"]] == [nasty, "typed.pdf"]
+    assert page["papers"]["heading"] == "Papers you added (2)" and page["papers"]["caption"] == "They are listed, not read."
+    assert "pages_without_text" not in json.dumps(page) and "2, 3" not in json.dumps(page)
