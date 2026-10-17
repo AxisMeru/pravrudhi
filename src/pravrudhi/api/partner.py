@@ -3003,4 +3003,120 @@ def build_partner_router(
         )
         _s3.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- S1 matter citation sweep: registered ONLY when partner_api.yaml sets wf_s1_matter_citation_sweep to true. It reads A2's
+    # passages (tenant-checked) and runs A1's citation check over them, so it needs A2 ON (wf_a2_span_index true, not just a store
+    # folder) and a configured citation index; A1's own flag is NOT required (only A1's module is imported, lazily). Off (the
+    # default) adds nothing: no module import, no route, no limiter, no thread, no read. Own limiters and slots; audit mode
+    # "intake" with a "sweep-" run id.
+    try:
+        _s1_cfg = None
+        if _flags.get("wf_s1_matter_citation_sweep") is True:
+            from pravrudhi.application.matter_sweep_config import load_sweep_config as _load_s1
+
+            _s1_cfg = _load_s1(engine_root)
+        if _s1_cfg is not None:
+            from pravrudhi.application import matter_spans_config as _s1m
+            from pravrudhi.application import matter_sweep_matter as _s1
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("matter citation sweep unavailable; it stays off", exc_info=True)
+        _s1_cfg = None
+    if _s1_cfg is not None:
+        _s1_state: dict[str, Any] = {}
+        _s1_lock = threading.Lock()
+
+        def _s1_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _s1_lock:
+                if not _s1_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _s1_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _s1_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _s1_state["slots"] = ConcurrencyLimiter(_s1_cfg.max_concurrent)
+                return _s1_state["ip"], _s1_state["key"], _s1_state["slots"]
+
+        def _s1_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _s1_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def sweep_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _s1_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            cfg, slots, tenant = admitted
+            run = {"run_id": f"sweep-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                a2_cfg = _s1m.load_matter_spans_config(engine_root)  # "A2 on" = its flag in the config, never the store folder
+                if a2_cfg is None:
+                    _intake_audit(metered, "intake", 409, run)
+                    return JSONResponse(status_code=409, content={"detail": _s1.STORE_OFF, "error": "store_off"})
+                from pravrudhi.application.matter_spans import MatterStore as _Store
+
+                env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+                path = citation_index_path or (Path(env_path) if env_path else None)
+                look: Callable[[str], tuple[str, bool]] | None = None
+                if path is not None and Path(path).is_file():
+                    index_path = Path(path)
+
+                    def _s1_look(citation_text: str) -> tuple[str, bool]:
+                        result, _cov, compared = _lookup(
+                            index_path, VerifyCitationRequest(citation=citation_text), cfg.verify_timeout_s
+                        )
+                        return result.result, compared
+
+                    look = _s1_look
+                out = _s1.sweep_for_matter(_Store(_s1m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], _s1_cfg, look)
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"detail": str(e), "error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        sweep_ep.__annotations__["req"] = _s1.SweepRequest  # a local import is not visible to a string annotation
+        router.add_api_route("/matter-citation-sweep", sweep_ep, methods=["POST"], include_in_schema=False, response_model=None)
+        _s1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     return router
