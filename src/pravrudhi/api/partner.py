@@ -2547,13 +2547,16 @@ def build_partner_router(
         _a2_cfg = None
         _a2_on = False
         _a2_delete = False
-        if _flags.get("wf_a2_span_index") is True or _peek_matter_store_dir(engine_root, _flags).is_dir():
+        _a2_objects_named = bool(
+            os.environ.get("PRAVRUDHI_MATTER_OBJECT_ENDPOINT") and os.environ.get("PRAVRUDHI_MATTER_OBJECT_BUCKET")
+        )
+        if _flags.get("wf_a2_span_index") is True or _peek_matter_store_dir(engine_root, _flags).is_dir() or _a2_objects_named:
             from pravrudhi.application import matter_spans_config as _a2c
 
             _a2_cfg = _a2c.load_matter_spans_config(engine_root)
             _a2_dir = _a2c.store_dir(engine_root)
             _a2_on = _a2_cfg is not None
-            _a2_delete = _a2_on or _a2_dir.is_dir()
+            _a2_delete = _a2_on or _a2_dir.is_dir() or _a2_objects_named
         if _a2_delete:
             from pravrudhi.application import matter_spans as _a2
     except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
@@ -2561,7 +2564,10 @@ def build_partner_router(
         _a2_on = _a2_delete = False
     if _a2_delete:
         _a2_cfg_eff = _a2_cfg or _a2c.MatterSpansConfig()
-        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff)
+        from pravrudhi.application import matter_objectstore as _a2o
+
+        _a2_obj = _a2o.object_store_settings()  # object store named: matters live there, `_a2_dir` is a cache
+        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff) if _a2_obj is None else _a2o.make_store(_a2_dir, _a2_cfg_eff, _a2_obj)
         _a2_state: dict[str, Any] = {}
         _a2_lock = threading.Lock()
 
