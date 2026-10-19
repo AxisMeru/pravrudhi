@@ -3,6 +3,26 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.22 (2026-10-19)
+
+PATCH release on 0.6.21. One workflow is switched on, four new workflows and an object-store option for the matter store are added and ship **disabled**, and several earlier workflows get fixes.
+
+### Changed
+
+- **The s.138 cheque checklist is on in the shipped configuration** (flag `wf_b3_s138_checklist` is `true`). `POST /api/v1/s138-checklist` answers for a signed-in or key-holding caller, makes no model call, and records one audit row per call that holds no typed dates or facts. Setting the key to `false` (or removing it) and restarting the engine returns the route to a 404.
+- Fixes to workflows that are still off: section lists and word-edge quotes in the matter span index search, same-word dates in the chronology, pointer quotes in the ingredient agenda, a request rate limit on the matter slices, and a pandemic note in the s.138 checklist.
+- **IPC section text now comes from the published Act text** (95 sections; five are not held, and amendments after 1997 are not in it), and a response that quotes IPC text carries a caveat line saying so. The earlier source is no longer used in shipped text.
+
+### Added (none of this is reachable until its flag is turned on)
+
+- **Bail drafting (A4, flag `wf_a4_bail_drafting`)** and **synopsis and list of dates (A8, flag `wf_a8_synopsis_list_of_dates`)**. Both draw on one list of sections that are never drafted automatically (it includes IPC 377, 363, 364A; BNS 137, 140; IT Act 67A, 67B; the ITPA by name) and refuse, and record a failing check, if that list is missing or cannot be read.
+- **Cheque-case check (A6, flag `wf_a6_cheque_case_check`)** and **matter hearing pack (A7, flag `wf_a7_matter_hearing_pack`)**. A6, A7 and A8 need the matter span index (A2) and answer 409 while it is off.
+- **Object-store option for the matter store (A2).** Used only when the A2 flag is on and the object-store endpoint and bucket are set; without credentials the store answers 503 and never falls back to disk.
+
+### Notes
+
+- The matter span index stays off. Mounting a network volume on the production endpoint is a separate step with its own test.
+
 ## 0.6.21 (2026-10-17)
 
 PATCH release on 0.6.20. A sixth new workflow, the quashing-categories agenda, is added and ships **disabled**; two earlier workflows get small fixes, and the engine reads its flag settings in a way that keeps the released start-up path unchanged when workflows are off. With every workflow off, responses and the API are unchanged from 0.6.20 (golden set, OpenAPI and a replay of recorded probes identical). **Rebuild the image.**
