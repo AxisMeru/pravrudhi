@@ -34,7 +34,7 @@ PATH = "/api/v1/bail-draft"
 MODULES = ("pravrudhi.application.bail_draft_route", "pravrudhi.application.bail_draft_input")
 OTHER_SIDE = "The informant-marker-zq says the applicant was at the shop."
 BODY: dict[str, Any] = {
-    "consent": True, "kind": "bail", "forum": "trial_court", "offence_date": "2024-08-01", "fir_date": "2024-08-02",
+    "consent": True, "sensitive_declaration": "none", "kind": "bail", "forum": "trial_court", "offence_date": "2024-08-01", "fir_date": "2024-08-02",
     "applicant": "Applicant-marker-zq", "facts": [
         {"text": "The applicant has no antecedents.", "side": "applicant", "grounds": ["antecedents"]},
         {"text": OTHER_SIDE, "side": "other"},

@@ -361,3 +361,13 @@ def test_an_event_line_up_to_forty_words_passes_and_over_forty_fails():
     ok = "The petitioner was arrested and produced before the Magistrate " + "and the Magistrate " * 3
     assert len(ok.split()) <= 40 and not any("event_line_length" in w for w in sd.check_event_line(ok, q))
     assert any("event_line_length" in w for w in sd.check_event_line(" ".join(["arrested"] * 41), q))
+
+
+def test_the_shared_fact_wording_backstop_also_refuses_the_synopsis_for_sensitive_wordings_and_lets_the_near_misses_through():
+    from tests.test_bail_draft import _MUST_NOT, _MUST_REFER
+
+    for t in _MUST_REFER:
+        assert sd.bd.SENSITIVE_RE.search(f"The applicant states: {t}.") is not None, t
+    for t in _MUST_NOT:
+        assert sd.bd.SENSITIVE_RE.search(f"The applicant states: {t}.") is None, t
+    assert sd.bd.SENSITIVE_RE.search("The applicant has a minor child at home.") is None  # an ordinary child is not a victim
