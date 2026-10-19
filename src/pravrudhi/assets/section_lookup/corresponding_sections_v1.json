@@ -19537,8 +19537,8 @@
    "sha256_16": "685eaaf2be1f081e"
   },
   "b1_bns_source": {
-   "text": "BNS and BNSS text is from the official Act PDFs of the National Crime Records Bureau (Ministry of Home Affairs), marked \"For reference only\".",
-   "sha256_16": "a6706ec68cd237e6"
+   "text": "BNS and BNSS text is from India Code (Legislative Department, Ministry of Law and Justice).",
+   "sha256_16": "b1abd5288f60d06e"
   }
  },
  "text_policy": "mapping rows hold refs and the verbatim old-cell title only; section bodies live in separate assets joined by id; nothing from the secondary table is customer text"

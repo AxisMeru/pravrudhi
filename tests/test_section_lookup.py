@@ -259,3 +259,11 @@ def test_a_changed_asset_answers_the_fixed_503(tmp_path: Path, monkeypatch: pyte
     r = c.post(PATH, json={"code": "IPC", "section": "302"})
     L.load_assets.cache_clear()
     assert r.status_code == 503 and r.json() == {"detail": L.UNAVAILABLE, "error": "lookup_unavailable"}
+
+
+def test_the_bns_source_line_is_the_one_r1_signed() -> None:
+    v = L.load_assets()["strings"]["b1_bns_source"]
+    assert v == "BNS and BNSS text is from India Code (Legislative Department, Ministry of Law and Justice)."
+    import hashlib
+
+    assert hashlib.sha256(v.encode()).hexdigest()[:16] == "b1abd5288f60d06e"

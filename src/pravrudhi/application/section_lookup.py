@@ -28,7 +28,7 @@ UNAVAILABLE = "The section look-up is not available just now."
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "section_lookup"
 NYAYA_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: sha256 of the two shipped files: a changed file fails closed (503) until the pin and the tests are updated on purpose
-PIN_MAPPING = "f95cff701e014c0f8144a1e34d265fc313eaf537e7e839e2c3c0b537038bd38a"
+PIN_MAPPING = "aa1b5be41b4aaa6d3aa8f1e550aa76151b0840e47b5383a03e2a48c49e987f0a"
 PIN_IPC_BODIES = "86a46ccba17bc16cf6c2abc2353122c8b90c489a855bca10fba2c28a5345c7db"
 KINDS = frozenset({"one_to_one", "merged", "split", "deleted", "new_subsection", "needs_review_blank_cell"})
 CODES = ("IPC", "CrPC")
