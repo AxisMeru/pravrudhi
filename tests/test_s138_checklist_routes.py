@@ -339,6 +339,8 @@ def test_a_key_only_caller_reaches_the_route_and_leaves_one_audit_row_without_th
     items = [d for v in BODY.values() for d in (v if isinstance(v, list) else [v]) if isinstance(d, dict)]
     typed = {str(d[k]) for d in items for k in ("value", "confirmed_as")}
     assert typed and not any(t in str(rows) for t in typed)
+    fixed = {"ts", "key_id", "mode", "status_code", "run_id", "contract_ids", "outcomes"}
+    assert set(rows[0]) == fixed  # only the fixed audit fields: no field can hold a re-formatted date
 
 
 def test_a_refused_request_leaves_an_audit_row_with_the_checklist_run_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
