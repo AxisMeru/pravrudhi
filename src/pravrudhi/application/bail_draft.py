@@ -424,6 +424,31 @@ def _sensitive_checker() -> Callable[[list[str]], bool] | None:
         return None
 
 
+def sensitive_section_check(mentions: list[str], who: str) -> dict[str, Any] | None:
+    """Fail closed. None = go on; otherwise the FAILING check the caller records before it refuses with SENSITIVE_REFUSAL.
+    A section was named: no table to read, or a table that raises, is a refusal exactly like a hit (a lawyer drafts those)."""
+    if not mentions:
+        return None
+    checker = _sensitive_checker()
+    if checker is None:
+        _log.error("%s: the sensitive-section table is not available; a draft that names a section is referred to a lawyer", who)
+        return {
+            "name": "sensitive_section_table_missing",
+            "passed": False,
+            "detail": "the sensitive-section table could not be read, so a draft that names a section is referred to a lawyer",
+        }
+    try:
+        hit = bool(checker(mentions))
+    except Exception:  # noqa: BLE001 - any failure of the check is a refusal, never a pass
+        _log.exception("%s: the sensitive-section check failed; the draft is referred to a lawyer", who)
+        return {
+            "name": "sensitive_section_check_error",
+            "passed": False,
+            "detail": "the sensitive-section check failed, so the draft is referred to a lawyer",
+        }
+    return {"name": "sensitive_section_backstop", "passed": False, "detail": SENSITIVE_SECTION_NOTE} if hit else None
+
+
 def _norm(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
 
@@ -720,24 +745,28 @@ def draft(case: Any, framing: Any, complete: Completer | None, cfg: Any, run_id:
             refused=SENSITIVE_REFUSAL,
         )
     mentions = [m for f in case.facts for m in section_strings(f.text)]
-    checker = _sensitive_checker() if mentions else None
-    if (
-        mentions and checker is None
-    ):  # fail-open by design (the table is another module's), but never silent: the lawyer's page and the log both say so
-        _log.warning("bail_draft: the sensitive-section table is not available; the section backstop is OFF for this draft")
-        checks.append(
-            {
-                "name": "sensitive_section_table_missing",
-                "passed": False,
-                "info": True,
-                "detail": "the sensitive-section table was not found; the section backstop did not run",
-            }
+    sec = sensitive_section_check(
+        mentions, "bail_draft"
+    )  # the table is Track C's; the Act is read from the words, none named = both lists
+    if sec is not None:
+        checks.append(sec)
+        return _result(
+            case,
+            framing,
+            run_id,
+            state="refused",
+            grounds=[],
+            notes=[],
+            fill_ins=[],
+            checks=checks,
+            calls=0,
+            tin=0,
+            tout=0,
+            cost=0.0,
+            regenerated=False,
+            incomplete=False,
+            refused=SENSITIVE_REFUSAL,
         )
-    if checker is not None and checker(
-        mentions
-    ):  # the table is Track C's; the Act is read from the words, none named = both lists
-        checks.append({"name": "sensitive_section_backstop", "passed": False, "detail": SENSITIVE_SECTION_NOTE})
-        return _result(case, framing, run_id, state="refused", grounds=[], notes=[], fill_ins=[], checks=checks, calls=0, tin=0, tout=0, cost=0.0, regenerated=False, incomplete=False, refused=SENSITIVE_REFUSAL)  # fmt: skip
     if complete is None or not case.facts:
         why = "no model call was available" if complete is None else "no applicant-side fact was given"
         checks.append({"name": "template_only", "passed": True, "detail": why})

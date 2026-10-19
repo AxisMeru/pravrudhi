@@ -256,6 +256,25 @@ def test_a_section_on_the_table_in_a_paper_refuses_when_the_table_is_present(mon
     assert r["state"] == "refused" and any(c["name"] == "sensitive_section_backstop" for c in r["checks"])
 
 
+def test_a_missing_or_raising_section_table_refuses_the_synopsis_too(monkeypatch):
+    paper = ("n.pdf", "He was charged under Section 420 of the Indian Penal Code on 5 May 2020.")
+    monkeypatch.setattr(sd.bd, "_sensitive_checker", lambda: None)
+    f = Fake("{}")
+    r, _ = go(Case(), chron(paper), complete=f)
+    assert (
+        r["state"] == "refused"
+        and f.calls == []
+        and any(c["name"] == "sensitive_section_table_missing" and c["passed"] is False for c in r["checks"])
+    )
+
+    def boom(_ms):
+        raise RuntimeError("unreadable")
+
+    monkeypatch.setattr(sd.bd, "_sensitive_checker", lambda: boom)
+    r2, _ = go(Case(), chron(paper), complete=f)
+    assert r2["state"] == "refused" and f.calls == [] and any(c["name"] == "sensitive_section_check_error" for c in r2["checks"])
+
+
 def test_wrong_model_is_loud_over_cap_is_refused_and_max_tokens_gives_the_table_only():
     case = Case()
     ans, _ = good_answer(case)

@@ -235,21 +235,9 @@ def draft(
         )
         return _result(case, run_id, "refused", [], [], [], [], [], checks, 0, 0, 0, 0.0, refused=bd.SENSITIVE_REFUSAL)
     mentions = [m for x in texts for m in bd.section_strings(x)]
-    chk = bd._sensitive_checker() if mentions else None
-    if mentions and chk is None:
-        bd._log.warning(
-            "synopsis_dates: the sensitive-section table is not available; the section backstop is OFF for this draft"
-        )
-        checks.append(
-            {
-                "name": "sensitive_section_table_missing",
-                "passed": False,
-                "info": True,
-                "detail": "the sensitive-section table was not found; the section backstop did not run",
-            }
-        )
-    if chk is not None and chk(mentions):
-        checks.append({"name": "sensitive_section_backstop", "passed": False, "detail": bd.SENSITIVE_SECTION_NOTE})
+    sec = bd.sensitive_section_check(mentions, "synopsis_dates")
+    if sec is not None:
+        checks.append(sec)
         return _result(case, run_id, "refused", [], [], [], [], [], checks, 0, 0, 0, 0.0, refused=bd.SENSITIVE_REFUSAL)
     base_notes = (
         [f"{int(getattr(case, 'n_facts_excluded', 0))} fact(s) were not marked as the client's side and were not used."]
