@@ -58,6 +58,11 @@ def _off(monkeypatch: pytest.MonkeyPatch) -> None:
     """The flag-OFF arm: the shipped config now carries B3 ON (19 Oct 2026), so the OFF tests turn it off explicitly."""
     monkeypatch.setattr(scc, "load_s138_checklist_config", lambda _root: None)
     monkeypatch.setattr(partner, "_peek_flags", lambda _root: dict.fromkeys(ALL_FLAG_KEYS, False))
+    # an earlier test in the same process may have built an app on the shipped (B3 ON) config, which adds the route to the
+    # process-wide gate and role lists; the OFF tests start from the released lists (restored after the test)
+    monkeypatch.setattr(identity, "PARTNER_KEY_ROUTES", identity.PARTNER_KEY_ROUTES - {("POST", PATH)})
+    monkeypatch.setattr(identity, "PARTNER_KEY_PATHS", identity.PARTNER_KEY_PATHS - {PATH})
+    monkeypatch.setattr(roles, "USER_FACING", roles.USER_FACING - {PATH})
 
 
 def _client(tmp_path: Path, *, user: Any = USER, cfg: PartnerApiConfig = CFG) -> TestClient:
