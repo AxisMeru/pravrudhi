@@ -158,6 +158,28 @@ def _cue_regex(cue: str) -> re.Pattern[str]:
     return re.compile(r"(?<!\w)" + r"\s+".join(re.escape(w) for w in cue.casefold().split()) + r"(?!\w)")
 
 
+def _on_word_edges(text: str, a: int, b: int, cue_start: int, cue_end: int) -> tuple[int, int]:
+    """A quote never starts or ends inside a word ("egotiable", "881" for 1881): a start that falls inside a word moves forward to the
+    next word, an end moves back to the previous word end, in both cases only while the cue stays inside the quote."""
+    if a > 0 and text[a - 1].isalnum() and text[a].isalnum():
+        j = a
+        while j < cue_start and text[j].isalnum():
+            j += 1
+        while j < cue_start and not text[j].isalnum():
+            j += 1
+        if j <= cue_start:
+            a = j
+    if b < len(text) and text[b - 1].isalnum() and text[b].isalnum():
+        k = b
+        while k > cue_end and text[k - 1].isalnum():
+            k -= 1
+        while k > cue_end and not text[k - 1].isalnum():
+            k -= 1
+        if k >= cue_end:
+            b = k
+    return a, b
+
+
 def find_pointers(asset: dict[str, Any], passages: list[Passage]) -> dict[str, list[dict[str, Any]]]:
     """For each ingredient, up to MAX_POINTERS passages (in paper order) that contain one of its cue words or phrases. A pointer is a
     place to start reading: the passage text itself (cut to POINTER_QUOTE around the cue), its paper, page and offsets, and the cue."""
@@ -173,6 +195,7 @@ def find_pointers(asset: dict[str, Any], passages: list[Passage]) -> dict[str, l
             cue, m = hit
             a = max(0, min(m.start() - POINTER_QUOTE // 2, len(p.text) - POINTER_QUOTE))
             b = min(len(p.text), a + POINTER_QUOTE)
+            a, b = _on_word_edges(p.text, a, b, m.start(), m.end())
             found.append(
                 {
                     "doc_id": p.doc_id, "name": p.name, "page": p.page, "start": p.start + a, "end": p.start + b,
