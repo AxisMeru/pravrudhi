@@ -736,3 +736,86 @@ def test_the_group_stage_does_the_same_work_per_row_at_n_and_2n_in_one_document(
 
     a, b = calls(200), calls(400)
     assert a <= 2 * 201 and b <= 2 * 401 and b <= 2.2 * a
+
+
+# ---- cross-paper dates next to the same word, and papers that give one date (Track B's quality pass, 17 Oct) ---------------------------------
+
+
+NOTICE_A = ("notice_copy.pdf", "The legal notice dated 12.04.2021 was sent by registered post to the drawer. The return date was 20.03.2021.")
+NOTICE_B = ("reply.pdf", "In reply to the notice dated 12.04.2021 the drawer denied liability. The return date was 21.03.2021.")
+NOTICE_C = ("complaint.pdf", "The accused was served with the notice dated 15.04.2021 and did not pay.")
+
+
+def test_different_dates_next_to_the_same_word_in_different_papers_are_listed_for_the_lawyer_to_check() -> None:
+    out = build(NOTICE_A, NOTICE_B, NOTICE_C)
+    by_word = {e["word"]: e for e in out["same_words_different_dates"]}
+    assert set(by_word) == {"notice", "return"}
+    notice = by_word["notice"]
+    assert [d["date_as_written"] for d in notice["dates"]] == ["12.04.2021", "15.04.2021"]
+    assert [d["day_or_month_first_to_check"] for d in notice["dates"]] == [False, False] and notice["dates"][1]["normalised"] == "2021-04-15"
+    assert {r["document_name"] for d in notice["dates"] for r in d["rows"]} == {"notice_copy.pdf", "reply.pdf", "complaint.pdf"}
+    assert [d["date_as_written"] for d in by_word["return"]["dates"]] == ["20.03.2021", "21.03.2021"]
+    assert notice["line"] == C.SAME_WORDS_LINE and out["same_words_heading"] == C.SAME_WORDS_HEADING and out["same_words_different_dates_more"] == 0
+    assert all(r["quote"] for d in notice["dates"] for r in d["rows"])
+
+
+def test_no_entry_when_every_paper_gives_the_same_dates_or_only_one_paper_has_the_word() -> None:
+    assert build(NOTICE_A, ("b.pdf", "The notice dated 12.04.2021 was received. The return date was 20.03.2021."))["same_words_different_dates"] == []
+    assert build(("only.pdf", "The notice dated 12.04.2021 and the notice dated 15.04.2021 were both sent."))["same_words_different_dates"] == []
+
+
+def test_generic_or_short_words_and_non_exact_dates_do_not_make_an_entry() -> None:
+    out = build(("a.pdf", "The order dated 12.04.2021 was passed."), ("b.pdf", "The order dated 15.04.2021 was passed."))
+    assert out["same_words_different_dates"] == []  # "order" is on the generic list
+    out2 = build(("a.pdf", "The notice dated about 12.04.2021 was sent."), ("b.pdf", "The notice listed on 15.04.2021 was sent."))
+    assert out2["same_words_different_dates"] == []  # approximate and scheduled dates are not compared
+
+
+def test_a_paper_with_one_date_is_listed_apart_and_a_paper_with_two_is_not() -> None:
+    out = build(("lone.pdf", "The legal notice dated 12.04.2021 was sent."), ("two.pdf", "He was arrested on 13 June 2024 and produced on 14 June 2024."))
+    assert [p["name"] for p in out["papers_with_one_date"]] == ["lone.pdf"]
+    p = out["papers_with_one_date"][0]
+    assert p["line"] == C.ONE_DATE_LINE and p["date_as_written"] == "12.04.2021" and p["category"] == "ambiguous"
+    assert out["papers_with_one_date_heading"] == C.ONE_DATE_HEADING
+
+
+def test_the_new_lines_say_nothing_of_which_date_is_right() -> None:
+    for s in (C.SAME_WORDS_HEADING, C.SAME_WORDS_LINE, C.ONE_DATE_HEADING, C.ONE_DATE_LINE):
+        low = s.lower()
+        assert not any(w in low for w in ("conflict", "wrong", "correct", "false", "fake", "contradict", "error", "mistake"))
+
+
+def test_a_lone_day_or_month_first_date_still_counts_against_another_papers_date() -> None:
+    out = build(("a.pdf", "Legal notice dated 12.04.2021."), ("b.pdf", "The notice dated 15.04.2021 was served."))
+    e = out["same_words_different_dates"]
+    assert [x["word"] for x in e] == ["notice"]
+    assert [(d["date_as_written"], d["day_or_month_first_to_check"], d["normalised"]) for d in e[0]["dates"]] == [("12.04.2021", True, None), ("15.04.2021", False, "2021-04-15")]
+
+
+# ---- the same event in different words (Track B's rerun on #534, 19 Oct): the key is the event named in the sentence ----------------------------
+
+
+CONFLICT_A = ("notice_copy.pdf", "A legal notice dated 12.04.2021 was issued to the drawer. The cheque was returned unpaid by the bank on 20.03.2021.")
+CONFLICT_B = ("complaint.pdf", "A legal notice was sent on 15.04.2021. The bank returned the cheque on 21.03.2021.")
+
+
+def test_dates_for_the_same_event_written_in_different_words_in_two_papers_are_listed_for_the_lawyer_to_check() -> None:
+    out = build(CONFLICT_A, CONFLICT_B)
+    by_word = {e["word"]: e for e in out["same_words_different_dates"]}
+    assert set(by_word) == {"notice", "return"}
+    assert [d["date_as_written"] for d in by_word["notice"]["dates"]] == ["12.04.2021", "15.04.2021"]
+    assert [d["date_as_written"] for d in by_word["return"]["dates"]] == ["20.03.2021", "21.03.2021"]
+    assert {r["document_name"] for d in by_word["return"]["dates"] for r in d["rows"]} == {"notice_copy.pdf", "complaint.pdf"}
+
+
+def test_the_event_is_read_from_its_own_sentence_after_the_previous_date_and_not_from_an_earlier_one() -> None:
+    # the second date of a sentence is not keyed on the first date's event; an earlier sentence's event does not reach the next sentence
+    a = ("a.pdf", "The notice dated 12.04.2021 was received on 20.04.2021. The hearing was on 05.05.2021.")
+    b = ("b.pdf", "The notice dated 12.04.2021 was received on 21.04.2021. The hearing was on 06.06.2021.")
+    words = {e["word"] for e in build(a, b)["same_words_different_dates"]}
+    assert words == {"received"}  # the second date is not keyed on the notice (an event of an earlier date); the old last-word rule applies
+    c = ("c.pdf", "The notice dated 12.04.2021 was served. The cheque was presented on 01.03.2021.")
+    d = ("d.pdf", "The notice dated 12.04.2021 was served. The cheque was presented on 02.03.2021.")
+    words = {e["word"] for e in build(c, d)["same_words_different_dates"]}
+    assert words == {"presented"}  # the notice date agrees; only the presentation date differs
+    assert build(("e.pdf", "The notice dated 12.04.2021 was sent."), ("f.pdf", "The notice dated 12.04.2021 was sent."))["same_words_different_dates"] == []

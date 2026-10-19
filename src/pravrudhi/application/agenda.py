@@ -67,6 +67,14 @@ REFUSAL = (
 )
 NO_PAPERS = "There are no papers to read. Add papers first."
 BAD_TYPE = "A paper type you declared names a paper that is not in this matter, or a type we do not list."
+# ---- passage pointers (Track B's quality pass, 17 Oct): PENDING R1 for every string in this block --------------------------------
+POINTER_HEADING = "Where the papers use words from this ingredient"
+POINTER_LINE = (
+    "These passages contain words that belong to this ingredient. They are places to start reading, not a finding that the papers show it."
+)
+NO_POINTER_LINE = "No passage with these words was found in the papers you added. That does not mean the papers lack it."
+MAX_POINTERS = 5
+POINTER_QUOTE = 300
 
 
 def papers_read_heading(n: int) -> str:
@@ -136,6 +144,70 @@ def show_statute(quote: str | None) -> str | None:
     return _FOOTNOTED.sub(lambda m: f"{m.group(2)} [footnote {m.group(1)}: {notes[m.group(1)]}]" if m.group(1) in notes else m.group(0), quote)
 
 
+@dataclass(frozen=True)
+class Passage:
+    doc_id: str
+    name: str
+    page: int
+    start: int
+    end: int
+    text: str
+
+
+def _cue_regex(cue: str) -> re.Pattern[str]:
+    return re.compile(r"(?<!\w)" + r"\s+".join(re.escape(w) for w in cue.casefold().split()) + r"(?!\w)")
+
+
+def _on_word_edges(text: str, a: int, b: int, cue_start: int, cue_end: int) -> tuple[int, int]:
+    """A quote never starts or ends inside a word ("egotiable", "881" for 1881): a start that falls inside a word moves forward to the
+    next word, an end moves back to the previous word end, in both cases only while the cue stays inside the quote."""
+    if a > 0 and text[a - 1].isalnum() and text[a].isalnum():
+        j = a
+        while j < cue_start and text[j].isalnum():
+            j += 1
+        while j < cue_start and not text[j].isalnum():
+            j += 1
+        if j <= cue_start:
+            a = j
+    if b < len(text) and text[b - 1].isalnum() and text[b].isalnum():
+        k = b
+        while k > cue_end and text[k - 1].isalnum():
+            k -= 1
+        while k > cue_end and not text[k - 1].isalnum():
+            k -= 1
+        if k >= cue_end:
+            b = k
+    return a, b
+
+
+def find_pointers(asset: dict[str, Any], passages: list[Passage]) -> dict[str, list[dict[str, Any]]]:
+    """For each ingredient, up to MAX_POINTERS passages (in paper order) that contain one of its cue words or phrases. A pointer is a
+    place to start reading: the passage text itself (cut to POINTER_QUOTE around the cue), its paper, page and offsets, and the cue."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    for ing in asset["ingredients"]:
+        rxs = [(c, _cue_regex(c)) for c in ing.get("cues", [])]
+        found: list[dict[str, Any]] = []
+        for p in passages:
+            low = p.text.casefold()
+            hit = next(((c, m) for c, rx in rxs if (m := rx.search(low)) is not None), None)
+            if hit is None:
+                continue
+            cue, m = hit
+            a = max(0, min(m.start() - POINTER_QUOTE // 2, len(p.text) - POINTER_QUOTE))
+            b = min(len(p.text), a + POINTER_QUOTE)
+            a, b = _on_word_edges(p.text, a, b, m.start(), m.end())
+            found.append(
+                {
+                    "doc_id": p.doc_id, "name": p.name, "page": p.page, "start": p.start + a, "end": p.start + b,
+                    "cue": cue, "quote": p.text[a:b],
+                }
+            )
+            if len(found) >= MAX_POINTERS:
+                break
+        out[str(ing["id"])] = found
+    return out
+
+
 @lru_cache(maxsize=1)
 def load_asset() -> dict[str, Any]:
     asset: dict[str, Any] = json.loads(AGENDA_ASSET.read_text(encoding="utf-8"))
@@ -188,6 +260,7 @@ def build_agenda(
     offence: str = OFFENCE_ID,
     ownership: bool = False,
     held_without_file: list[str] | None = None,
+    passages: list[Passage] | None = None,
 ) -> dict[str, Any]:
     """The page. `declared` maps doc_id -> paper type id (the user's word); any doc without one gets the file-name fallback.
     `held_without_file`: paper types the user says they hold but have not added as a file (a scan has no text for A2 to keep).
@@ -255,6 +328,7 @@ def build_agenda(
             out["status"] = NOT_ADDED
         return out
 
+    pointers = None if passages is None else find_pointers(asset, passages)
     tier1 = [row(e) for e in asset["tier_statute"]]
     confirmed = bool(asset["lawyer_confirmed"])
     tier2 = [row(e) for e in asset["tier_lawyer"]] if confirmed else None
@@ -269,7 +343,19 @@ def build_agenda(
         "offence": dict(asset["offence"]),
         "headings": {k: v for k, v in HEADINGS.items() if confirmed or k != "lawyer_listed"},  # a hidden tier leaves no trace
         "ingredients": [
-            {"id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": show_statute(i["quote"]), "statute_words_raw": i["quote"]}
+            {
+                "id": i["id"], "proviso": i["proviso"], "section": asset["statute"]["section"], "statute_words": show_statute(i["quote"]),
+                "statute_words_raw": i["quote"],
+                "where_mentioned": (
+                    None
+                    if pointers is None
+                    else {
+                        "heading": POINTER_HEADING,
+                        "line": POINTER_LINE if pointers[i["id"]] else NO_POINTER_LINE,
+                        "pointers": pointers[i["id"]],
+                    }
+                ),
+            }
             for i in asset["ingredients"]
         ],
         "statute_names": {"heading": HEADINGS["statute_names"], "rows": tier1},

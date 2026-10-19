@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """A3: the chronology of ONE matter's papers (flag `wf_a3_chronology`, default off). Core: plain span records in, a table out.
 
 Built and tested on court judgment recitals and invented fixtures only, not on the merits of any case. No lawyer has used this on
@@ -21,6 +22,7 @@ import json
 import re
 import time
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -77,6 +79,24 @@ NOT_READ_LINE = "We did not read this date, so it is not placed. Check it yourse
 UNDATED_LINE = "We list these apart and do not place them in the table."
 AMBIGUOUS_QUESTION = "Day or month first? Check"
 MAX_POSSIBLY_RELATED = 20
+# ---- cross-paper date check (Track B's quality pass, 17 Oct): PENDING R1 for every string in this block --------------------
+SAME_WORDS_HEADING = "Different dates next to the same word in different papers"
+SAME_WORDS_LINE = (
+    "These may be the same thing or different things: check each paper. We show the dates as written and do not choose between them."
+)
+ONE_DATE_HEADING = "Papers that give only one date"
+ONE_DATE_LINE = "This paper gives one date, so it is listed here so it is not missed."
+MAX_SAME_WORDS = 20
+_LEAD_SKIP = frozenset(
+    {
+        "dated", "dt", "date", "day", "on", "of", "the", "a", "an", "is", "was", "were", "at", "from", "to", "by", "for", "in",
+        "vide", "and", "being", "bearing", "under", "this", "that", "which", "said", "with", "as", "before", "after", "until",
+        "till", "upto", "about", "around", "between", "her", "his", "their", "its", "our", "your", "my",
+    }
+)
+_LEAD_GENERIC = frozenset(
+    {"order", "orders", "annexure", "copy", "case", "hearing", "court", "matter", "petition", "application", "judgment", "paper", "document", "file", "page"}
+)
 
 
 def load_asset() -> dict[str, Any]:
@@ -244,6 +264,48 @@ class _Row:
     filing: bool = False
     group: int | None = None
     id: int = 0
+    lead: str | None = None  # the last meaningful word before the date in its sentence (cross-paper date check)
+
+
+# The events a date may go with, a closed list read from the words of the date's own sentence (so "a legal notice was sent on" and "a
+# legal notice dated" both give "notice", and "returned unpaid by the bank on" and "returned the cheque on" both give "return").
+_TOPICS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("notice", re.compile(r"\bnotices?\b", re.I)),
+    ("return", re.compile(r"\b(?:returned|returns?|return\s+memo|dishonou?red|dishonou?r|unpaid)\b", re.I)),
+    ("presented", re.compile(r"\b(?:presented|presentation|presenting)\b", re.I)),
+    ("complaint", re.compile(r"\bcomplaint\b", re.I)),
+    ("FIR", re.compile(r"\b(?:FIR|first\s+information\s+report)\b")),
+    ("arrest", re.compile(r"\barrest(?:ed)?\b", re.I)),
+)
+_SENTENCE_END = re.compile(r"(?:[;!?]|\.(?=\s+[A-Z]))\s+|\n")
+
+
+def _date_topic(before: str, since: int = 0) -> str | None:
+    """The event named nearest before the date inside its own sentence and after the previous date of that sentence, from the closed
+    list above; when none is named there, the last meaningful word before the date (the older rule)."""
+    seg = before[since:]
+    cut = 0
+    for m in _SENTENCE_END.finditer(seg):
+        cut = m.end()
+    seg = seg[cut:]
+    best: tuple[int, str] | None = None
+    for name, rx in _TOPICS:
+        last = None
+        for m in rx.finditer(seg):
+            last = m
+        if last is not None and (best is None or last.start() > best[0]):
+            best = (last.start(), name)
+    return best[1] if best else _lead_word(before)
+
+
+def _lead_word(before: str) -> str | None:
+    """The last word before a date that says what the date goes with ("notice" in "the legal notice dated 12.04.2021"), or None."""
+    for w in reversed(re.findall(r"[A-Za-z]+", before)):
+        lw = w.lower()
+        if lw in _LEAD_SKIP:
+            continue
+        return lw if len(lw) >= 4 and lw not in _LEAD_GENERIC else None
+    return None
 
 
 def _fmt(d: date) -> str:
@@ -378,8 +440,13 @@ def build_chronology(
                     row.name = cands[0] if cands else None  # a person named: more likely a real event
                     rows.append(row)
                 continue
+            prev_end = 0
             for h in hs:
                 r = _Row(hit=h, category=h.category, **base)
+                here = max(0, h.start - st.start)
+                if h.category in ("exact", "ambiguous") and not h.scheduled:
+                    r.lead = _date_topic(text[:here], prev_end)
+                prev_end = max(prev_end, min(here + (h.end - h.start), len(text)))
                 if len(ids) == 1 and not several and not h.reference and cue is None and h.category == "exact":
                     r.name = _grouping_name(ids[0], text, ph, lower)
                 rows.append(r)
@@ -524,6 +591,8 @@ def build_chronology(
         }
         for m in docs
     ]
+    same_words = _same_words(cats["exact"] + cats["ambiguous"], scans, row_out)
+    one_date = _one_date_papers(rows, scans)
     toks_all = {t for m in docs for t in re.split(r"[^a-z0-9]+", m.name.lower()) if t}
     not_added = [p for p in asset["standard_papers"] if p.split()[0].lower().rstrip("s") not in toks_all]
     return {
@@ -564,11 +633,91 @@ def build_chronology(
         ],
         "possibly_related": [{"line": POSSIBLY_RELATED, "row_ids": [a.id, b.id]} for a, b in related[:MAX_POSSIBLY_RELATED]],
         "possibly_related_more": max(0, len(related) - MAX_POSSIBLY_RELATED),
+        "same_words_different_dates": same_words[:MAX_SAME_WORDS],
+        "same_words_different_dates_more": max(0, len(same_words) - MAX_SAME_WORDS),
+        "same_words_heading": SAME_WORDS_HEADING,
+        "papers_with_one_date": one_date,
+        "papers_with_one_date_heading": ONE_DATE_HEADING,
         "papers_read": papers,
         "papers_not_added_yet_that_may_matter": [f"No file whose name looks like: {p}" for p in not_added],
         "custody_days": "cannot say yet",
         "stopped": stopped,
     }
+
+
+def _day_key(h: Hit) -> tuple[int, int, int] | None:
+    """(year, month, day) for an exact date; for a day-or-month-first date the numbers as written, so 12.04.2021 and 12/04/2021 are the
+    same date and 15.04.2021 is not. None when nothing can be compared."""
+    if h.category == "exact" and h.value is not None:
+        return (h.value.year, h.value.month, h.value.day)
+    nums = [int(x) for x in re.findall(r"\d+", h.text)]
+    if h.category == "ambiguous" and len(nums) == 3:
+        return (nums[2], nums[1], nums[0])
+    return None
+
+
+def _same_words(rows: list[_Row], scans: list[Any], row_out: Callable[[_Row], dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dates that sit next to the SAME word (for example "notice") in two or more papers with different values: listed for the lawyer to
+    check. A hint by words only: nothing says they are the same event, and no date is chosen. Exact and day-or-month-first dates count."""
+    by_word: dict[str, list[tuple[tuple[int, int, int], _Row]]] = defaultdict(list)
+    for r in rows:
+        if r.lead is not None and r.hit is not None:
+            k = _day_key(r.hit)
+            if k is not None:
+                by_word[r.lead].append((k, r))
+    out: list[dict[str, Any]] = []
+    for word, items in sorted(by_word.items()):
+        sets: dict[str, set[tuple[int, int, int]]] = defaultdict(set)
+        values: dict[tuple[int, int, int], list[_Row]] = defaultdict(list)
+        for k, r in items:
+            sets[scans[r.scan_doc][0].doc_id].add(k)
+            values[k].append(r)
+        if len(sets) < 2 or len({frozenset(v) for v in sets.values()}) < 2:
+            continue  # one paper only, or every paper gives the same dates next to this word: nothing differs between papers
+        out.append(
+            {
+                "heading": SAME_WORDS_HEADING,
+                "line": SAME_WORDS_LINE,
+                "word": word,
+                "dates": [
+                    {
+                        "date_as_written": v[0].hit.text if v[0].hit else None,
+                        "normalised": v[0].hit.value.isoformat() if v[0].hit and v[0].category == "exact" and v[0].hit.value else None,
+                        "day_or_month_first_to_check": v[0].category == "ambiguous",
+                        "rows": [row_out(r) for r in v],
+                    }
+                    for _k, v in sorted(values.items())
+                ],
+            }
+        )
+    return out
+
+
+def _one_date_papers(rows: list[_Row], scans: list[Any]) -> list[dict[str, Any]]:
+    """Papers whose whole text gives exactly one date of any kind (printed lines and case numbers not counted): each is listed so a lone
+    date, which cannot be read day-or-month first from other dates in its paper, is not missed."""
+    per: dict[int, list[_Row]] = defaultdict(list)
+    for r in rows:
+        if r.hit is not None and r.category not in ("printed", "number_like"):
+            per[r.scan_doc].append(r)
+    out: list[dict[str, Any]] = []
+    for di, rs in sorted(per.items()):
+        if len(rs) != 1:
+            continue
+        meta = scans[di][0]
+        h = rs[0].hit
+        assert h is not None
+        out.append(
+            {
+                "doc_id": meta.doc_id,
+                "name": _esc(meta.name),
+                "line": ONE_DATE_LINE,
+                "date_as_written": h.text,
+                "category": rs[0].category,
+                "row_id": rs[0].id,
+            }
+        )
+    return out
 
 
 # ---- grouping ---------------------------------------------------------------------------------

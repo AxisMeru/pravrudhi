@@ -407,7 +407,7 @@ class MatterStore:
     # -- questions
     def query(self, tenant: str, matter_id: str, q: str) -> dict[str, Any]:
         terms = parse_query(q)
-        match = " AND ".join('"' + t.replace('"', '""') + '"' for t in terms)
+        match, variants = build_match(q, terms)
         with self._open(self._db_path(tenant, matter_id)) as conn:
             docs = _documents(conn)
             total = conn.execute(
@@ -425,8 +425,11 @@ class MatterStore:
         base = {
             "matter_id": matter_id,
             "terms": terms,
-            "searched_as_typed": "The words were searched as typed: not stemmed, not translated, not spell-corrected; "
-            "a quoted term with no letter or digit in it (a symbol, a section sign) cannot be searched and finds nothing",
+            "searched_as_typed": (
+                SEARCHED_WITH_VARIANTS if variants else SEARCHED_AS_TYPED
+            ),
+            "variants": variants,
+            "completeness_note": COMPLETENESS_NOTE,
             "documents": docs,
             "not_fully_indexed": [d["doc_id"] for d in docs if not d["ingest_done"]],
             **notes,
@@ -605,6 +608,71 @@ def normalise_for_quote(s: str) -> str:
                      0x2060: "", 0xFEFF: "", 0x00AD: ""})
     s = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", s)
     return re.sub(r"\s+", " ", s).strip().casefold()
+
+
+
+# ---- search forms (Track B's quality pass, 17 Oct): a long word also matches its common endings, and "section 420" also
+# matches the forms a paper writes ("S.420", "u/s 420", "420 IPC"). Every term still needs a hit; only the forms that count as a
+# hit widen. The strings below are customer-visible (PENDING R1).
+SEARCHED_AS_TYPED = (
+    "The words were searched as typed: not stemmed, not translated, not spell-corrected; "
+    "a quoted term with no letter or digit in it (a symbol, a section sign) cannot be searched and finds nothing"
+)
+SEARCHED_WITH_VARIANTS = (
+    "The words were searched as typed and also in the extra forms listed under variants (a longer word with other endings; "
+    "a section number as it is often written); not translated, not spell-corrected; "
+    "a quoted term with no letter or digit in it (a symbol, a section sign) cannot be searched and finds nothing"
+)
+COMPLETENESS_NOTE = "This may not be all the mentions: a word or number written another way is not found."
+SECTION_WORDS = frozenset(["section", "sections", "sec", "s", "u"])
+SECTION_ACTS = ("ipc", "bns", "crpc", "bnss", "ni")
+_NUMBER_TERM = re.compile(r"^\d{1,4}[A-Za-z]?$")
+_SECTION_REF = re.compile(r"(?i)(?<![\w])(?:sections?|sec\.?|s\.|u/s)\s*(\d{1,4}[A-Za-z]?)(?![\w])")
+_ENDINGS = ("ing", "ed", "es", "s", "d")
+
+
+def _q(t: str) -> str:
+    return '"' + t.replace('"', '""') + '"'
+
+
+SECTION_LIST_WINDOW = 8  # a section number may sit in a list after the word: "Sections 406, 407, 420 and 34"
+
+
+def build_match(q: str, terms: list[str]) -> tuple[str, list[dict[str, Any]]]:
+    """The FTS5 expression for a question and the list of extra forms it also searches. Terms are joined by AND exactly as before;
+    a term may widen into an OR of forms. Nothing of the user's text reaches FTS5 except through `_q` (escaped, double-quoted)."""
+    refs = {m.group(1).casefold() for m in _SECTION_REF.finditer(unicodedata.normalize("NFC", q))}
+    number_terms = [t for t in terms if _NUMBER_TERM.fullmatch(t) and t.casefold() in refs]
+    drop_words = bool(number_terms)
+    parts: list[str] = []
+    variants: list[dict[str, Any]] = []
+    for t in terms:
+        low = t.casefold()
+        if drop_words and low in SECTION_WORDS:
+            continue  # the section word is part of the section group below, not a separate must-match word
+        if t in number_terms:
+            forms = [f"section {low}", f"sections {low}", f"sec {low}", f"s {low}", f"u s {low}"]
+            forms += [f"{low} {a}" for a in SECTION_ACTS]
+            near = [f"NEAR({_q(w)} {_q(t)}, {SECTION_LIST_WINDOW})" for w in ("section", "sections")]
+            alternatives = [*(_q(f) for f in forms), *near]
+            parts.append("(" + f"({_q('section')} {_q(t)}) OR " + " OR ".join(alternatives) + ")")
+            listed = f"section or sections within {SECTION_LIST_WINDOW} words of {t}"
+            variants.append({"term": f"section {t}", "forms": [*forms, listed]})
+            continue
+        if t.isalpha() and len(t) >= 6:
+            stem = t
+            for suf in _ENDINGS:
+                if low.endswith(suf) and len(t) - len(suf) >= 5:
+                    stem = t[: -len(suf)]
+                    break
+            parts.append(_q(stem) + "*")
+            variants.append({"term": t, "forms": [stem + "*"]})
+            continue
+        parts.append(_q(t))
+    if not parts:  # only section words were typed: search them as typed
+        parts = [_q(t) for t in terms]
+        variants = []
+    return " AND ".join(parts), variants
 
 
 _PHRASE = re.compile(r'"([^"]{1,200})"')
