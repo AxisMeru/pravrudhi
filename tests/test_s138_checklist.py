@@ -971,3 +971,25 @@ def test_a_sunday_only_second_count_is_a_weekend_too() -> None:
     s = step(B.check(req(**chain(*dates, validity=3)), CFG, today=TODAY), "presentation")
     assert s["counts"]["A"]["period_ends"] == "2013-06-03" and s["counts"]["B"]["period_ends"] == "2013-06-02"
     assert s["status"] == "REFER" and "last_day_is_a_weekend" in codes(s)
+
+
+# ---- the plain line that says why a pandemic-era date answers REFER (Track B's quality pass, 17 Oct) ----------------------
+
+
+def test_a_pandemic_era_date_carries_the_one_plain_line_that_says_why() -> None:
+    out = run(cheque_date=d("01.06.2021"), presentations=[d("10.06.2021")], **later("10.06.2021"))
+    assert out["pandemic_note"] == B.PANDEMIC_NOTE and "15 March 2020 to 31 May 2022" in out["pandemic_note"]
+    assert any("pandemic_period" in codes(s_) or s_["status"] == "REFER" for s_ in out["steps"])
+    assert not any(w in out["pandemic_note"].lower() for w in ("valid", "in time", "late", "barred", "expired"))
+
+
+def test_a_period_that_only_touches_the_window_also_carries_the_line() -> None:
+    out = run(
+        cheque_date=d("01.01.2020"), presentations=[d("20.02.2020")], return_memos=[d("21.02.2020")],
+        information_received=[d("21.02.2020")], notices=[d("25.02.2020")], notice_receipts=[d("26.02.2020")],
+    )
+    assert any("pandemic_period" in codes(s) for s in out["steps"]) and out["pandemic_note"] == B.PANDEMIC_NOTE
+
+
+def test_dates_clear_of_the_window_carry_no_pandemic_line() -> None:
+    assert run()["pandemic_note"] is None  # the shipped fixture dates are 2013

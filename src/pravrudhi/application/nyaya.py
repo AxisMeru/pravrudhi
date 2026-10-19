@@ -37,6 +37,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -217,6 +218,30 @@ def _load_file(path: Path) -> tuple[list[Document], dict[str, Any]]:
 #: link. The app's `STATUTE_NOTICE` carries the same words. The wording "the official version on India Code prevails"
 #: is the one the counsel pack (Q6) leaves open: it changes when counsel answers.
 STATUTE_NOTICE = "Unofficial text; the official version on India Code prevails."
+
+#: Shown wherever IPC section text appears (R1's wording, 17 Oct 2026): the shipped IPC text is the 1860 Act as consolidated in
+#: the Ministry of Home Affairs PDF, which cites no amending Act after 1997. No claim about current law is made.
+IPC_TEXT_CAVEAT = "Section text is from the 1860 Act; amendments after 1997 are not included. Check the current text."
+
+
+#: sha256 of the Ministry of Home Affairs PDF the shipped IPC asset is built from (its `source.sha256`). The caveat is sent
+#: ONLY for an IPC asset with this provenance, never for the older asset that came from the IL-TUR statutes file (R1, 17 Oct):
+#: the app shows the 1860 line only when the engine sends `text_caveat` exactly.
+IPC_ASSET_SHA256 = "f25d61547212f152dda8c96b19ac05a286f3a9eb6a95490ab55ec40aa4f53197"
+
+
+@lru_cache(maxsize=4)
+def _ipc_asset_is_official(asset_dir: str) -> bool:
+    try:
+        src = json.loads((Path(asset_dir) / "ipc_sections.json").read_text(encoding="utf-8")).get("source") or {}
+    except (OSError, ValueError):
+        return False
+    return src.get("sha256") == IPC_ASSET_SHA256 and str(src.get("publisher", "")).startswith("Ministry of Home Affairs")
+
+
+def text_caveat(doc_id: str) -> str | None:
+    """The caveat that goes with a provision's text, or None. Only IPC rows of the official-text asset carry one."""
+    return IPC_TEXT_CAVEAT if doc_id.startswith("IPC/") and _ipc_asset_is_official(str(ASSET_DIR)) else None
 _INDIA_CODE_HOSTS = frozenset({"indiacode.gov.in", "www.indiacode.gov.in", "indiacode.nic.in", "www.indiacode.nic.in"})
 
 

@@ -3,6 +3,19 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.21 (2026-10-17)
+
+PATCH release on 0.6.20. A sixth new workflow, the quashing-categories agenda, is added and ships **disabled**; two earlier workflows get small fixes, and the engine reads its flag settings in a way that keeps the released start-up path unchanged when workflows are off. With every workflow off, responses and the API are unchanged from 0.6.20 (golden set, OpenAPI and a replay of recorded probes identical). **Rebuild the image.**
+
+### Added (none of this is reachable until its flag is turned on)
+
+- **A new configuration flag for the quashing-categories agenda, absent or off by default.** While it is off its routes answer 404 and `docs/api/openapi-v1.json` does not list them. Turning it on is a separate decision.
+
+### Changed
+
+- **Flag settings are read lazily.** A workflow that is off no longer loads its own code at start-up, so a deployment with the workflows off starts the way 0.6.20 did.
+- **The s.138 review agenda has its pre-switch-on items done (still off by default).** No response changes while the flag is off.
+
 ## 0.6.20 (2026-10-17)
 
 PATCH release on 0.6.19. Five new workflows are added and ship **disabled**: the whole-draft citation check (A1), the matter span index (A2), the chronology (A3), the s.138 cheque checklist (B3) and the s.138 review agenda (A5). With them off, responses and the API are unchanged from 0.6.19 (golden set, OpenAPI and a replay of recorded probes identical). **Rebuild the image.**
