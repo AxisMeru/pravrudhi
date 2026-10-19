@@ -36,9 +36,21 @@ Transport = Callable[[str, dict[str, Any]], Any]
 
 def _https_ok(url: str) -> bool:
     u = urllib.parse.urlsplit(url)
+    if u.username is not None or u.password is not None:  # no credentials inside the URL
+        return False
     return bool(u.netloc) and (
         u.scheme == "https" or (u.scheme == "http" and (u.hostname or "") in ("localhost", "127.0.0.1", "::1"))
     )
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is never followed: urllib would forward the Authorization header to the new host."""
+
+    def redirect_request(self, *_a: Any, **_k: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 class CloudflareTenancyStore:
@@ -56,7 +68,7 @@ class CloudflareTenancyStore:
             f"{self._url}/op/{op}", data=json.dumps(body).encode(), method="POST",
             headers={"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"},
         )  # fmt: skip
-        with urllib.request.urlopen(req, timeout=self._timeout) as r:  # noqa: S310
+        with _OPENER.open(req, timeout=self._timeout) as r:
             return json.loads(r.read())
 
     def _call(self, op: str, **args: Any) -> Any:
@@ -146,7 +158,7 @@ class CloudflareTenancyStore:
 
 def from_env(env: Mapping[str, str], *, transport: Transport | None = None) -> CloudflareTenancyStore | None:
     """None when the Worker URL or token is not set (the caller fails closed: a cloudflare backend is never half-configured)."""
-    url, token = env.get(URL_ENV, "").strip(), env.get(TOKEN_ENV, "")
+    url, token = env.get(URL_ENV, "").strip(), env.get(TOKEN_ENV, "").strip()
     if not url or not token:
         return None
     return CloudflareTenancyStore(url, token, transport=transport)

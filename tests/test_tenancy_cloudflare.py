@@ -124,3 +124,38 @@ def test_from_env_is_none_unless_both_the_url_and_the_token_are_set_and_names_on
 def test_an_unknown_operation_is_refused():
     with pytest.raises(T.TenancyStoreDown):
         store(Fake())._call("drop_table")
+
+
+def test_a_redirect_is_never_followed_and_userinfo_or_a_padded_token_is_handled():
+    import urllib.request
+
+    assert C._OPENER.handlers and any(isinstance(h, C._NoRedirect) for h in C._OPENER.handlers)
+    req = urllib.request.Request("https://a.example.test")
+    assert C._NoRedirect().redirect_request(req, None, 302, "x", {}, "https://b.example.test") is None
+    with pytest.raises(T.TenancyStoreDown):
+        C.CloudflareTenancyStore("https://user:pw@t.example.test", "t")
+    with pytest.raises(T.TenancyStoreDown):
+        C.CloudflareTenancyStore("https://user@t.example.test", "t")
+    s = C.from_env({C.URL_ENV: "https://t.example.test", C.TOKEN_ENV: "  tok \n"}, transport=Fake())
+    assert s is not None and s._token == "tok"
+
+
+def test_the_cloudflare_backend_is_selected_by_the_env_and_never_falls_back(monkeypatch: pytest.MonkeyPatch):
+    from pravrudhi.application import tenancy
+
+    monkeypatch.setattr(tenancy, "_pg_cache", {})
+    monkeypatch.setenv(tenancy.BACKEND_ENV, "cloudflare")
+    for k in (C.URL_ENV, C.TOKEN_ENV, "SUPABASE_TENANCY_DB_URL"):
+        monkeypatch.delenv(k, raising=False)
+    with pytest.raises(tenancy.TenancyUnavailable):  # selected but not configured: 503, not the files, not Supabase
+        tenancy._pg()
+    monkeypatch.setenv(C.URL_ENV, "https://t.example.test")
+    monkeypatch.setenv(C.TOKEN_ENV, "tok")
+    s = tenancy._pg()
+    assert isinstance(s, C.CloudflareTenancyStore) and tenancy._pg() is s  # one store per Worker URL
+    assert tenancy._backend_is_supabase() is True  # hosted
+    monkeypatch.setenv(tenancy.BACKEND_ENV, "cloudflair")  # a typo fails closed
+    with pytest.raises(tenancy.TenancyUnavailable):
+        tenancy._pg()
+    monkeypatch.setenv(tenancy.BACKEND_ENV, "file")
+    assert tenancy._pg() is None

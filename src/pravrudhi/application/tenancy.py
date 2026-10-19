@@ -55,6 +55,7 @@ from fastapi import HTTPException
 from pravrudhi.api.identity import User
 from pravrudhi.api.roles import admin_ids
 from pravrudhi.application.portable_lock import exclusive_lock
+from pravrudhi.application.tenancy_cloudflare import CloudflareTenancyStore
 from pravrudhi.application.tenancy_store import PgTenancyStore, TenancyStoreDown
 from pravrudhi.application.tenancy_store import from_env as _store_from_env
 
@@ -78,32 +79,49 @@ class TenancyUnavailable(HTTPException):
 
 
 _pg_lock = threading.Lock()
-_pg_cache: dict[str, PgTenancyStore | None] = {}
+_pg_cache: dict[str, PgTenancyStore | CloudflareTenancyStore | None] = {}
 _key_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _key_epoch = 0  # bumped by revoke/purge: a row read before the bump is never cached after it
 
 
-def _backend_is_supabase() -> bool:
-    """`file` (the default: a local engine) or `supabase` (the hosted shape). Any other value is a typo in a hosted setting
-    and must not silently select the volatile files: it fails closed (TenancyUnavailable) like a missing store."""
+def _backend_name() -> str:
+    """`file` (the default: a local engine), `supabase` or `cloudflare` (the hosted shapes). Any other value is a typo in a hosted
+    setting and must not silently select the volatile files: it fails closed (TenancyUnavailable) like a missing store."""
     v = os.environ.get(BACKEND_ENV, "file").strip().lower()
-    if v not in ("file", "supabase"):
+    if v not in ("file", "supabase", "cloudflare"):
         raise TenancyUnavailable()
-    return v == "supabase"
+    return v
 
 
-def _pg() -> PgTenancyStore | None:
-    """None = the file backend (dev, tests, a local engine). In the hosted shape `PRAVRUDHI_TENANCY_BACKEND=supabase` REQUIRES the
-    store: a missing DSN or driver raises TenancyUnavailable, it never falls back to the volatile files (that IS the bug)."""
-    if not _backend_is_supabase():
+def _backend_is_supabase() -> bool:
+    """True for a HOSTED backend (supabase or cloudflare); the name is historical. False = the file backend."""
+    return _backend_name() != "file"
+
+
+def _pg() -> PgTenancyStore | CloudflareTenancyStore | None:
+    """None = the file backend (dev, tests, a local engine). A hosted backend REQUIRES its store: a missing DSN, driver, Worker
+    URL or token raises TenancyUnavailable, never a fallback to the files or the other hosted backend (that IS the bug)."""
+    name = _backend_name()
+    if name == "file":
         return None
     with _pg_lock:
-        key = os.environ.get("SUPABASE_TENANCY_DB_URL", "")
-        store = _pg_cache.get(key)
-        if store is None:  # a missing store is NOT remembered: a DSN or CA file that appears later is picked up at once
-            store = _store_from_env(os.environ)
-            if store is not None:
-                _pg_cache[key] = store
+        if name == "cloudflare":
+            from pravrudhi.application import tenancy_cloudflare as _cf  # imported only when selected
+
+            key = "cf:" + os.environ.get(_cf.URL_ENV, "")
+            store: PgTenancyStore | CloudflareTenancyStore | None = _pg_cache.get(key)
+            if store is None:
+                try:
+                    store = _cf.from_env(os.environ)
+                except TenancyStoreDown:
+                    store = None
+        else:
+            key = os.environ.get("SUPABASE_TENANCY_DB_URL", "")
+            store = _pg_cache.get(key)
+            if store is None:  # a missing store is NOT remembered: a DSN or CA file that appears later is picked up at once
+                store = _store_from_env(os.environ)
+        if store is not None:
+            _pg_cache[key] = store
     if store is None:
         raise TenancyUnavailable()
     return store
@@ -761,7 +779,7 @@ _USAGE_MAX = 1000
 _usage_q: Any = None
 _usage_stats = {"queued": 0, "written": 0, "dropped": 0, "processed": 0}
 _usage_cond = threading.Condition()
-_writers: dict[int, PgTenancyStore] = {}
+_writers: dict[int, PgTenancyStore | CloudflareTenancyStore] = {}
 
 
 def usage_queue_stats() -> dict[str, int]:
@@ -769,7 +787,7 @@ def usage_queue_stats() -> dict[str, int]:
         return dict(_usage_stats)
 
 
-def _writer_store() -> PgTenancyStore | None:
+def _writer_store() -> PgTenancyStore | CloudflareTenancyStore | None:
     pg = _pg()
     if pg is None:
         return None
