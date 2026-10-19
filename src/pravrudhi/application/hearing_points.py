@@ -28,7 +28,10 @@ POINTS_HEADING = "Points to make"
 OTHER_HEADING = "Points the other side may raise"
 QUESTIONS_HEADING = "Questions to be ready for"
 OTHER_FRAME = "may rely on"
-FALLBACK_LINE = "No hearing points could be drafted from what was entered, so only your facts and the prompts for what they do not cover are shown."
+FALLBACK_LINE = (
+    "No points could be drafted from what was entered. A lawyer prepares the points."  # R1 a9_fallback 88d053446d24628e
+)
+OTHER_NOTE = "These are points the papers themselves raise. They are not a prediction of what the other side will say or of how the hearing will go."  # R1 a9_other_note 99ea43d23a8bfc82
 NO_OTHER_LINE = "Nothing you entered or the papers show was identified as something the other side may rely on."
 GAP_PROMPTS = {
     "accusation": "What is the accusation, and under which sections?",
@@ -300,7 +303,7 @@ def _result(case: Any, run_id: str, state: str, lists: dict[str, list[dict[str, 
     return {
         "run_id": run_id, "version": VERSION, "matter_id": case.matter_id, "state": state, "refused": refused,
         "points_to_make": {"heading": POINTS_HEADING, "items": lists.get("points_to_make", [])},
-        "other_side_may_raise": {"heading": OTHER_HEADING, "items": lists.get("other_side_may_raise", []), "none_line": NO_OTHER_LINE if state == "drafted" and not lists.get("other_side_may_raise") else None},
+        "other_side_may_raise": {"heading": OTHER_HEADING, "note": OTHER_NOTE, "items": lists.get("other_side_may_raise", []), "none_line": NO_OTHER_LINE if state == "drafted" and not lists.get("other_side_may_raise") else None},
         "questions": {"heading": QUESTIONS_HEADING, "items": lists.get("questions", []), "gap_prompts": [{"ground": g, "text": GAP_PROMPTS[g]} for g in gaps] if not refused else []},
         "fallback_line": line, "notes_for_lawyer": notes, "more_notes": more, "checks": checks, "facts_used": len(case.facts), "facts_excluded": int(getattr(case, "n_facts_excluded", 0)),
         "calls": calls, "tokens_in": tin, "tokens_out": tout, "cost_usd": cost, "regenerated": regenerated, "incomplete": incomplete,
