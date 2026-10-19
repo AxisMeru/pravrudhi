@@ -116,10 +116,11 @@ judge_health_ttl_s: 5
 # this key false (or removed): the route is then a framework 404 again. Only the boolean true turns it on.
 wf_b3_s138_checklist: true
 
-# 0.6.23 switch-ons (19 Oct 2026; Lead-2 ruling). Evidence per key: the B3 flag-ON package was R2-signed and run (19 Oct). For the other keys the
-# flag-OFF identity gate passed on fba3c2d5 (19 Oct) and their flag-ON packages are run on the 0.6.23 candidate before the swap; a slice whose
-# package fails has its key set back to false in the release. Only the boolean true turns a workflow on;
-# the kill for any one is its key false (or removed) in a new image or after a restart, because the packaged config is authoritative.
+# 0.6.23 switch-ons (19 Oct 2026; Lead-2 ruling). Evidence: Track A's switch-on gate (golden stage: flag-ON rows and cross-tenant 404) ran
+# ALL_PASS on engine fba3c2d5 on 19 Oct for A2, A3, A5, S1, S3, A4, A6, A7, A8 and B3; the remaining stages run on the merged 0.6.23 tree before
+# the swap, and a slice that fails there has its key set back to false in the release. R2 signed the B3 package and the 17 Oct A2/A3/A5/S1/S3 pairs,
+# and read the A4/A6/A7/A8 packages and results on 19 Oct. Only the boolean true turns a workflow on; the kill for any one is its key false (or
+# removed) in a new image or after a restart, because the packaged config is authoritative.
 wf_a2_span_index: true
 wf_a3_chronology: true
 wf_a5_ingredient_agenda: true
