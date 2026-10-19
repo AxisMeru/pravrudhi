@@ -26,10 +26,10 @@ How it works (each rule is a test):
   them is not used: every call answers 503 `store_unavailable` rather than risk two workers overwriting each other.
 * Credentials are read from the environment by NAME and never logged, returned or put in an error.
 
-Operator requirements (a runbook line, not enforced here): a PRIVATE bucket, a key limited to this prefix, server-side encryption turned
-on, and an https endpoint (plain http is accepted only for localhost). Until a leftover-snapshot sweep has run, a deleted document's text
-may still sit in an older snapshot after a failed cleanup (the next write or the retry removes it), so no retention sentence about
-the object store belongs in the product text yet.
+Operator requirements (a runbook line, not enforced here): a PRIVATE bucket, a key limited to this prefix, server-side
+encryption turned on, and an https endpoint (plain http is accepted only for localhost). Until a leftover-snapshot sweep
+has run, a deleted document's text may still sit in an older snapshot after a failed cleanup (the next write or the
+retry removes it), so no retention sentence about the object store belongs in the product text yet.
 
 Known limits, stated plainly: a whole matter file moves on every write (fine for the sizes the caps allow, not for very large
 matters); the tenant-bytes cap is counted on the local copies only (the matter-count cap is counted on the remote objects); a
