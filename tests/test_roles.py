@@ -180,7 +180,7 @@ class TestEveryRouteIsClassified:
         return {r.path for r in walk(create_app(Path(".")).routes)}
 
     def test_no_route_is_left_unclassified(self) -> None:
-        paths = self._paths()  # first: create_app() adds the switched-on routes to roles.USER_FACING (a rebinding), so import after
+        paths = self._paths()  # create_app() rebinds roles.USER_FACING: import after
         from pravrudhi.api.roles import ADMIN_IN_BOTH_EDITIONS, ADMIN_ONLY, USER_FACING
 
         missing = sorted(paths - ADMIN_ONLY - USER_FACING - ADMIN_IN_BOTH_EDITIONS)
