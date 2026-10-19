@@ -17,6 +17,7 @@ from pravrudhi.api import identity, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.api.server import create_app
 from pravrudhi.application import bail_draft as REAL
+from pravrudhi.application import bail_draft_input as I  # noqa: E741
 from pravrudhi.application import bail_draft_route as R
 from pravrudhi.application import matter_spans_config as msc
 from pravrudhi.application import synopsis_dates_config as sdc
@@ -87,7 +88,7 @@ def _matter(c: TestClient, *names: str, text: str = PAPER) -> str:
 
 
 def _body(m: str, **kw: Any) -> dict[str, Any]:
-    return {"consent": True, "matter_id": m, "facts": FACTS, **kw}
+    return {"consent": True, "sensitive_declaration": "none", "matter_id": m, "facts": FACTS, **kw}
 
 
 def _fake_completer(monkeypatch: pytest.MonkeyPatch, answer_for: Any) -> list[tuple[str, str, int]]:
@@ -215,3 +216,19 @@ def test_every_malformed_body_gets_the_one_fixed_422_and_nothing_of_the_request_
     _on(monkeypatch)
     r = _client(tmp_path).post(PATH, json={**_body("a" * 32), **patch})
     assert r.status_code == 422 and r.json() == {"error": "bad_request"} and "informant-marker-zq" not in r.text
+
+
+@pytest.mark.parametrize("value", [None, "yes", "NONE", True])
+def test_the_synopsis_route_refuses_without_a_valid_declaration_and_declared_sensitive_is_the_referral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: Any) -> None:
+    _on(monkeypatch)
+    calls = _fake_completer(monkeypatch, lambda _u: "{}")
+    c = _client(tmp_path)
+    m = _matter(c, "complaint.pdf")
+    body = {k: v for k, v in _body(m).items() if k != "sensitive_declaration"}
+    if value is not None:
+        body["sensitive_declaration"] = value
+    r = c.post(PATH, json={**body, "consent": False})  # checked before consent
+    assert r.status_code == 422 and r.json()["error"] == "sensitive_declaration_required" and r.json()["detail"] == I.DECLARATION_REFUSAL
+    assert calls == []
+    s = c.post(PATH, json=_body(m, sensitive_declaration="sensitive"))
+    assert s.status_code == 200 and s.json()["state"] == "referred" and s.json()["draft"] is None and calls == []

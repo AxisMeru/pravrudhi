@@ -46,6 +46,7 @@ class SynopsisParties(BaseModel):
 class SynopsisDatesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     consent: StrictBool
+    sensitive_declaration: Any = None  # "none" | "sensitive", see bail_draft_input.check_declaration (any other value is refused, coded)
     matter_id: StrictStr = Field(pattern=r"^[0-9a-f]{32}$")
     facts: list[SynopsisFact] = Field(default_factory=list, max_length=200)
     #: A3 row ids the person keeps in the list of dates; absent = every exact and two-reading row (the drafting module's cap applies)
@@ -115,9 +116,15 @@ def synopsis_for_request(
     synopsis_module: Any = None,
 ) -> dict[str, Any]:
     """The response for one request. Raises `DraftError` (400 consent_required) or the matter errors (404 / 409); a referral is a 200 answer."""
+    try:  # FIRST: before consent and before anything is read or called
+        declared = I.check_declaration(req.sensitive_declaration)
+    except ValueError:
+        raise DraftError(I.DECLARATION_REQUIRED, I.DECLARATION_REFUSAL, 422) from None
     if req.consent is not True:
         raise DraftError(I.CONSENT_REQUIRED, "Consent is required before a draft is made.", 400)
     base: dict[str, Any] = {"run_id": run_id, "client_data": True, "label": I.DRAFT_LABEL}
+    if declared == "sensitive":
+        return {**base, "state": "referred", "referral": {"code": "sensitive_matter", "text": I.REFER_SENSITIVE}, "draft": None}
     case = parse_case(req, cfg.max_facts, run_id)
     if isinstance(case, I.Referral):
         return {**base, "state": "referred", "referral": {"code": case.code, "text": case.text}, "draft": None}
