@@ -8,6 +8,10 @@
 # not a rolling average -- simple, and enough to stop one caller from burning the 5090's GPU time.
 rate_limit_per_minute: 6
 
+# Per-client-IP requests per minute for the OPTIONAL workflow routes (A1-A5, B3, S1-S3, bail draft), each with its own limiter; null = the number above.
+# A preview user who adds four papers and then searches makes more than 6 calls in a minute. analyse-facts keeps the limit above.
+slice_rate_limit_per_minute: 30
+
 # Failed-key attempts per address per minute before further key checks from that address get 429 (#396). null = the same
 # number as rate_limit_per_minute. Raise it (or set PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE, which wins) when callers behind a gateway
 # share one peer address and a flood of bad keys must not lock the valid keyed callers out; it does not change the anonymous limit.

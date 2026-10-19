@@ -55,6 +55,11 @@ COMPLAINT_REASON = (
     "The complaint window comes from s.142, which is not held: it is not computed here; a lawyer sets it. Nothing on this "
     "list says whether a complaint is in time"
 )
+#: One plain line saying WHY a pandemic-era date or period answers REFER (PENDING R1's wording; the window is `PANDEMIC` below).
+PANDEMIC_NOTE = (
+    "Some dates or periods here touch 15 March 2020 to 31 May 2022, the stretch this tool treats as a possible pandemic-era "
+    "exclusion. It does not work out limitation for that stretch: it answers REFER, and a lawyer decides how limitation applies."
+)
 NOTICE_MODES = ("registered_post", "speed_post", "courier", "email", "fax", "hand_delivery", "other")
 PANDEMIC = (date(2020, 3, 15), date(2022, 5, 31))
 ORDER = ("cheque", "presentation", "memo", "information", "notice", "receipt")  # the order the dates cannot break
@@ -497,10 +502,14 @@ def check(req: ChecklistRequest, cfg: S138ChecklistConfig, run_id: str = "", tod
         for role, lst in items.items()
         for i in lst
     ]
+    pandemic = any(r.get("code") == "pandemic_period" for s_ in steps for r in s_["refer"]) or any(
+        "pandemic_window" in i.problems for lst in items.values() for i in lst
+    )
     return {
         "statement": STATEMENT,
         "description": DESCRIPTION,
         "lawyer_confirmed": False,
+        "pandemic_note": PANDEMIC_NOTE if pandemic else None,
         "run_id": run_id,
         "conventions": {
             "A": "first day excluded, last day included (default)",

@@ -196,11 +196,23 @@ class PartnerApiConfig:
     #: `POST /intake`: the wall-clock budget of the whole intake (text processing and its citation lookups; the lookups alone are
     #: held to INTAKE_LOOKUP_BUDGET_S). An exceeded budget is a 503 `intake_timeout`; 0 turns the budget off.
     intake_timeout_s: float = 30.0
+    #: Per-client-IP requests per minute for the OPTIONAL workflow routes (A1-A5, B3, S1-S3 and the bail draft), each with its own
+    #: limiter. None = the same as `rate_limit_per_minute`. The shipped config sets 30: a preview user adding four papers and then
+    #: searching made more than 6 calls in a minute and was refused (Track B's quality pass). `rate_limit_per_minute` still guards
+    #: analyse-facts.
+    slice_rate_limit_per_minute: int | None = None
+
+    @property
+    def slice_ip_limit(self) -> int:
+        return self.slice_rate_limit_per_minute or self.rate_limit_per_minute
 
     def __post_init__(self) -> None:
         t = self.intake_timeout_s
         if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or t < 0:
             raise ValueError(f"intake_timeout_s must be a finite number of seconds, 0 or more (0 = off), got {t!r}"[:200])
+        sl = self.slice_rate_limit_per_minute
+        if sl is not None and (isinstance(sl, bool) or not isinstance(sl, int) or not 1 <= sl <= 600):
+            raise ValueError(f"slice_rate_limit_per_minute must be None or an integer from 1 to 600, got {sl!r}"[:200])
         b = self.bad_key_budget_per_minute
         if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
             raise ValueError(
@@ -308,6 +320,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
         intake_timeout_s=_intake_timeout(body.get("intake_timeout_s", 30.0)),
+        slice_rate_limit_per_minute=body.get("slice_rate_limit_per_minute"),
     )
 
 
@@ -2342,7 +2355,7 @@ def build_partner_router(
             with _a1_lock:
                 if not _a1_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a1_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a1_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a1_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2453,7 +2466,7 @@ def build_partner_router(
             with _b3_lock:
                 if not _b3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _b3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _b3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _b3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2556,7 +2569,7 @@ def build_partner_router(
             with _a2_lock:
                 if not _a2_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a2_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a2_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a2_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2692,7 +2705,7 @@ def build_partner_router(
             with _a3_lock:
                 if not _a3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2806,7 +2819,7 @@ def build_partner_router(
             with _a5_lock:
                 if not _a5_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a5_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a5_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a5_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2909,7 +2922,7 @@ def build_partner_router(
             with _s3_lock:
                 if not _s3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _s3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _s3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _s3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -3257,7 +3270,7 @@ def build_partner_router(
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
                     _a4_state["slots"] = ConcurrencyLimiter(_a4_cfg.max_concurrent)
-                    _a4_state["ceiling"] = _a4.shared_ceiling()
+                    _a4_state["ceiling"] = _a4.DayCeiling()
                 return _a4_state["ip"], _a4_state["key"], _a4_state["slots"], _a4_state["ceiling"]
 
         def _a4_admit(

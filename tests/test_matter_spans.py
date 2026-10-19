@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """A2 matter span-index (wf_a2_span_index): the store. Invented text only; both arms of every rule."""
 
 from __future__ import annotations
@@ -156,7 +157,8 @@ def test_devanagari_text_is_searchable_as_typed(store: MatterStore) -> None:
 def test_function_words_do_not_have_to_match_but_every_other_word_does(store: MatterStore) -> None:
     m, _ = _matter(store)
     assert store.query(TENANT, m, "what did the court hold about bail")["found"] is False  # "hold" is not in the span
-    assert store.query(TENANT, m, "what did the court record about bail")["found"] is False  # "record" is "recorded"
+    assert store.query(TENANT, m, "what did the court record about bail")["found"] is True  # "record" now also matches "recorded" (variants)
+    assert store.query(TENANT, m, "what did the court rec about bail")["found"] is False  # a short word is still searched as typed
     assert store.query(TENANT, m, "what the court held about bail")["found"] is True
     with pytest.raises(MatterError) as e:
         store.query(TENANT, m, "what is the of and")
@@ -873,3 +875,63 @@ def test_read_passages_never_returns_a_document_that_is_not_fully_indexed(store:
     with sqlite3.connect(store._matter_dir(TENANT, m) / M.DB_NAME) as c:
         c.execute("UPDATE document SET ingest_done = 0")
     assert store.read_passages(TENANT, m) == ([], [])
+
+
+# ---- search forms (Track B's quality pass, 17 Oct): endings of a long word, and the forms a paper writes a section number in ----------------
+
+
+FORMS = (
+    "The accused is charged under Section 420 of the IPC. "
+    "The order cites S.420 and u/s 420 again.\n\n"
+    "The complaint names 420 IPC and 420 BNS as well. A fourth mention reads Sec. 420.\n\n"
+    "The cheque was dishonoured on presentation; the dishonour memo is annexed. Cheques are listed."
+)
+
+
+def test_a_section_number_also_finds_the_forms_a_paper_writes_it_in(store: MatterStore) -> None:
+    m, _ = _matter(store, text=FORMS)
+    out = store.query(TENANT, m, "section 420")
+    assert out["found"] and out["total_matches"] == 2  # two paragraphs hold all five forms
+    assert {v["term"] for v in out["variants"]} == {"section 420"} and "s 420" in out["variants"][0]["forms"] and "420 ipc" in out["variants"][0]["forms"]
+    for spelling in ("S.420", "u/s 420", "420 BNS", "Sec. 420"):
+        only = store.create_matter(TENANT)
+        store.add_document(TENANT, only, f"The order cites {spelling} once.", "p")
+        assert store.query(TENANT, only, "section 420")["found"], spelling
+
+
+def test_a_section_number_does_not_match_a_longer_number_or_a_bare_number_with_no_section_form(store: MatterStore) -> None:
+    for text in ("Rule 4200 applies.", "There were 420 people present.", "Section 4201 is cited.", "The cases 420 and 421."):
+        m = store.create_matter(TENANT)
+        store.add_document(TENANT, m, text, "p")
+        assert store.query(TENANT, m, "section 420")["found"] is False, text
+
+
+def test_a_long_word_matches_its_other_endings_in_both_directions(store: MatterStore) -> None:
+    m, _ = _matter(store, text=FORMS)
+    for typed in ("dishonoured", "dishonour", "dishonours", "cheque", "cheques"):
+        out = store.query(TENANT, m, typed)
+        assert out["found"], typed
+        assert out["variants"][0]["term"] == typed
+    assert store.query(TENANT, m, "disho")["found"] is False  # under six letters a word is searched as typed
+
+
+def test_every_answer_carries_the_completeness_note_and_says_which_forms_were_searched(store: MatterStore) -> None:
+    from pravrudhi.application import matter_spans as MS
+
+    m, _ = _matter(store, text=FORMS)
+    for q in ("section 420", "dishonoured", "bail", "zebra"):
+        out = store.query(TENANT, m, q)
+        assert out["completeness_note"] == MS.COMPLETENESS_NOTE and "may not be all" in out["completeness_note"]
+        assert "as typed" in out["searched_as_typed"] and "no letter or digit" in out["searched_as_typed"]
+    assert store.query(TENANT, m, "zebra")["variants"] == [] and store.query(TENANT, m, "zebra")["searched_as_typed"] == MS.SEARCHED_AS_TYPED
+    assert store.query(TENANT, m, "section 420")["searched_as_typed"] == MS.SEARCHED_WITH_VARIANTS
+
+
+def test_the_match_expression_is_built_only_from_escaped_quoted_terms() -> None:
+    from pravrudhi.application.matter_spans import build_match, parse_query
+
+    for q in ('section 420 NEAR(a b)', 'dishonoured "x\' OR 1" AND', "section 420; DROP TABLE span", "s. 420 u/s 420"):
+        terms = parse_query(q)
+        expr, _v = build_match(q, terms)
+        stripped = __import__("re").sub(r'"(?:[^"]|"")*"\*?', "", expr)
+        assert set(stripped.replace("(", " ").replace(")", " ").split()) <= {"AND", "OR"}, (q, expr)
