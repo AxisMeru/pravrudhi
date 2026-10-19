@@ -132,12 +132,15 @@ def test_a_merged_or_split_row_says_check_both_and_names_no_one_to_one() -> None
         r = _ask("IPC", sec)
         assert r["state"] == "check_both" and "matches this section to one section:" not in r["line"]
         assert r["new"], sec  # both official texts side by side
+        assert r["line"] == L.load_assets()["strings"]["b1_check_both"]
 
 
 def test_a_hand_check_row_never_lists_a_mapping() -> None:
     for sec in ("63", "326A", "429", "472", "498A", "54", "55", "29A"):
         r = _ask("IPC", sec)
         assert r["state"] in ("check_both", "no_match") and r["new"] == [], sec
+        if r["state"] == "check_both":
+            assert r["line"] == L.load_assets()["strings"]["b1_check_old_only"]
 
 
 def test_a_deleted_section_says_the_table_shows_no_corresponding_section() -> None:
@@ -335,3 +338,22 @@ def test_the_answer_body_has_no_per_caller_field_except_the_run_id(tmp_path: Pat
     a.pop("run_id")
     b.pop("run_id")
     assert a == b
+
+
+def test_the_side_by_side_line_is_used_only_when_a_new_text_is_listed_for_every_check_both_row() -> None:
+    S = L.load_assets()["strings"]
+    mp, _ip, _new = _raw()
+    for t in mp["tables"].values():
+        for r in t["rows"]:
+            if r["kind"] in ("deleted", "one_to_one") and not r["hand_check_required"]:
+                continue
+            a = _ask(t["old_code"], r["old_id"].split("Section ")[1])
+            if a["state"] == "check_both":
+                assert a["line"] == (S["b1_check_both"] if a["new"] else S["b1_check_old_only"]), r["old_id"]
+
+
+def test_a_missing_required_string_is_rejected() -> None:
+    mp, ip, new = _raw()
+    del mp["strings_pending_R1"]["b1_check_old_only"]
+    with pytest.raises(L.AssetChanged):
+        L.build_assets(mp, ip, new)
