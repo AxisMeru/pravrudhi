@@ -152,7 +152,7 @@ def test_a_sensitive_tag_or_section_refers_without_reading_the_matter_or_calling
     for patch, code, text in (({"tags": ["pocso"]}, "sensitive_matter", I.REFER_SENSITIVE), ({"charged_sections": ["IPC 370"]}, "sensitive_section", I.REFER_SENSITIVE_SECTION)):
         r = c.post(PATH, json=_body("a" * 32, **patch))  # a matter that does not exist: the referral comes first, nothing is read
         b = r.json()
-        assert r.status_code == 200 and b["state"] == "referred" and b["draft"] is None and b["referral"] == {"code": code, "text": text} and b["label"] == I.PREVIEW_LABEL
+        assert r.status_code == 200 and b["state"] == "referred" and b["draft"] is None and b["referral"] == {"code": code, "text": text} and b["label"] == I.DRAFT_LABEL
     assert calls == []
 
 
@@ -162,7 +162,7 @@ def test_without_a_drafting_endpoint_the_page_is_the_table_of_dates_as_written_w
     m = _matter(c, "complaint.pdf")
     r = c.post(PATH, json=_body(m))
     b = r.json()
-    assert r.status_code == 200 and b["run_id"].startswith("synopsis-") and b["state"] == "table_only" and b["preview"] is True
+    assert r.status_code == 200 and b["run_id"].startswith("synopsis-") and b["state"] == "table_only" and "preview" not in b
     rows = b["draft"]["list_of_dates"]["rows"]
     assert {x["date_as_written"] for x in rows} >= {"18 July 2021", "12.06.2024"} and all(x["event_quote"] and x["source"] for x in rows)
     assert b["facts_set_aside"] == 1 and "informant-marker-zq" not in r.text

@@ -4,7 +4,7 @@
 Glue between the request and Track A's `synopsis_dates.draft`: consent, the deterministic referrals (sensitive tags and charged sections, shared
 with bail drafting), A3's chronology of the matter read as a function (tenant-checked: a foreign, deleted or unknown matter is the same 404, 409
 `no_papers` when it holds none), the guarded completer and the ONE shared day ceiling of the drafting slices, and the response wrapper. The engine
-stores nothing; nothing of the request or the papers is logged or audited (the audit row carries the run id only). The output is a PREVIEW for a
+stores nothing; nothing of the request or the papers is logged or audited (the audit row carries the run id only). The output is a first draft for a
 lawyer to rewrite; the label and the referral lines are R1's (bail_draft_input).
 """
 
@@ -117,7 +117,7 @@ def synopsis_for_request(
     """The response for one request. Raises `DraftError` (400 consent_required) or the matter errors (404 / 409); a referral is a 200 answer."""
     if req.consent is not True:
         raise DraftError(I.CONSENT_REQUIRED, "Consent is required before a draft is made.", 400)
-    base: dict[str, Any] = {"run_id": run_id, "client_data": True, "preview": True, "label": I.PREVIEW_LABEL}
+    base: dict[str, Any] = {"run_id": run_id, "client_data": True, "label": I.DRAFT_LABEL}
     case = parse_case(req, cfg.max_facts, run_id)
     if isinstance(case, I.Referral):
         return {**base, "state": "referred", "referral": {"code": case.code, "text": case.text}, "draft": None}
