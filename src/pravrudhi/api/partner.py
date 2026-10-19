@@ -3022,6 +3022,96 @@ def build_partner_router(
         )
         _s3.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- B1 old-section look-up (IPC / CrPC to BNS / BNSS): registered ONLY when partner_api.yaml sets wf_b1_section_lookup to
+    # true. It reads three shipped assets (no matter store, no model, no network, nothing written), so it needs none of A2. The
+    # module and the assets are imported ONLY behind the flag; with the flag off nothing is imported, opened or served. Gated like
+    # the other partner routes: a signed-in user or an API key. Own limiters and slots; audit "intake", run id "lookup-".
+    try:
+        _b1_cfg = None
+        if _flags.get("wf_b1_section_lookup") is True:
+            from pravrudhi.application.section_lookup_config import load_section_lookup_config as _load_b1
+
+            _b1_cfg = _load_b1(engine_root)
+        if _b1_cfg is not None:
+            from pravrudhi.application import section_lookup as _b1
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("section look-up unavailable; it stays off", exc_info=True)
+        _b1_cfg = None
+    if _b1_cfg is not None:
+        _b1_state: dict[str, Any] = {}
+        _b1_lock = threading.Lock()
+
+        def _b1_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _b1_lock:
+                if not _b1_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _b1_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _b1_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _b1_state["slots"] = ConcurrencyLimiter(_b1_cfg.max_concurrent)
+                return _b1_state["ip"], _b1_state["key"], _b1_state["slots"]
+
+        def section_lookup_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "The section look-up is offered only to signed-in users"})
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _b1_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            run = {"run_id": f"lookup-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _b1.lookup(req)
+            except ValueError:
+                _intake_audit(metered, "intake", 422, run)
+                return JSONResponse(status_code=422, content=_b1.BAD_BODY)  # the code and the section are never echoed
+            except _b1.AssetChanged:
+                _intake_audit(metered, "intake", 503, run)
+                return JSONResponse(status_code=503, content={"detail": _b1.UNAVAILABLE, "error": "lookup_unavailable"})
+            except Exception:
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return {"run_id": run["run_id"], "code": req.code, "section": req.section.upper(), **out}
+
+        section_lookup_ep.__annotations__["req"] = _b1.SectionLookupRequest  # a local import is not visible to a string hint
+        router.add_api_route(
+            "/section-lookup", section_lookup_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_b1.FixedValidationRoute,
+        )
+        _b1.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     # --- S1 matter citation sweep: registered ONLY when partner_api.yaml sets wf_s1_matter_citation_sweep to true. It reads A2's
     # passages (tenant-checked) and runs A1's citation check over them, so it needs A2 ON (wf_a2_span_index true, not just a store
     # folder) and a configured citation index; A1's own flag is NOT required (only A1's module is imported, lazily). Off (the
