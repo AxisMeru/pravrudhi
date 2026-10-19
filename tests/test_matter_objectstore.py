@@ -438,3 +438,81 @@ def test_with_no_object_store_in_the_environment_the_plain_disk_store_is_used(tm
     assert O.object_store_settings({}) is None
     plain = MatterStore(tmp_path / "p", MatterSpansConfig())
     assert not isinstance(plain, O.ObjectBackedMatterStore)
+
+
+# ---- R2's advice on #547 ----
+
+
+def test_an_endpoint_must_be_https_except_on_this_machine() -> None:
+    env = {O.ACCESS_KEY_ENV: "k", O.SECRET_KEY_ENV: "s"}
+    for bad in ("http://s3.example.test", "ftp://x", "s3.example.test", "https://"):
+        with pytest.raises(O.ObjectStoreError):
+            O.S3Objects(O.ObjectStoreSettings(bad, "b"), env)
+    for ok in ("https://s3.example.test", "http://localhost:9000", "http://127.0.0.1:9000"):
+        assert O.S3Objects(O.ObjectStoreSettings(ok, "b"), env)
+
+
+class FailDeletes(O.MemoryObjects):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_delete = False
+
+    def delete(self, key: str) -> None:
+        if self.fail_delete and "/snapshot-" in key:
+            raise O.ObjectStoreError("down")
+        super().delete(key)
+
+
+def test_a_delete_whose_cleanup_failed_is_finished_by_the_retry_which_sweeps_the_old_text(tmp_path: Path) -> None:
+    objs = FailDeletes()
+    a = worker(tmp_path, "a", objs)
+    m = a.create_matter(TENANT)
+    a.add_document(TENANT, m, "keep THISWORD paper.", "one")
+    doc = a.add_document(TENANT, m, f"remove {NEEDLE} paper.", "two")["doc_id"]
+    objs.fail_delete = True
+    with pytest.raises(MatterError) as e:
+        a.delete_document(TENANT, m, doc)
+    assert e.value.status_code == 503
+    assert a.query(TENANT, m, NEEDLE)["found"] is False  # gone for every reader already
+    assert any(NEEDLE.encode() in objs.get(k)[0] for k in keys(objs) if "/snapshot-" in k)  # type: ignore[index]  # but old text stays
+    objs.fail_delete = False
+    out = a.delete_document(TENANT, m, doc)  # the retry: no such document, old snapshots swept, answered as a delete
+    assert out["deleted"] is True and out["doc_id"] == doc
+    assert not any(NEEDLE.encode() in objs.get(k)[0] for k in keys(objs))  # type: ignore[index]
+    with pytest.raises(MatterError) as e2:
+        a.delete_document(TENANT, m, doc)  # nothing left to sweep: now it is "no such document"
+    assert e2.value.code == "document_not_found"
+
+
+def test_leftover_old_snapshots_are_swept_by_the_next_write(tmp_path: Path) -> None:
+    objs = FailDeletes()
+    a = worker(tmp_path, "a", objs)
+    m = a.create_matter(TENANT)
+    for i in range(3):
+        objs.fail_delete = True  # every sweep fails quietly on an add: old snapshots pile up
+        a.add_document(TENANT, m, f"paper {i} here.", f"p{i}")
+    assert len([k for k in keys(objs) if "/snapshot-" in k]) >= 4
+    objs.fail_delete = False
+    a.add_document(TENANT, m, "last paper here.", "last")
+    assert len([k for k in keys(objs) if "/snapshot-" in k]) == 2  # the current one and the previous one
+
+
+def test_a_reader_racing_two_writers_retries_against_the_new_pointer_instead_of_answering_503(
+    tmp_path: Path, objs: O.MemoryObjects
+) -> None:
+    a, b = worker(tmp_path, "a", objs), worker(tmp_path, "b", objs)
+    m = a.create_matter(TENANT)
+    a.add_document(TENANT, m, "first paper says FIRSTWORD.", "one")
+    real_get = objs.get
+    state = {"n": 0}
+
+    def racing_get(key: str) -> tuple[bytes, str] | None:
+        if "/snapshot-" in key and state["n"] == 0:
+            state["n"] = 1
+            for i in range(2):  # two writers move on and sweep the snapshot this reader was about to fetch
+                a.add_document(TENANT, m, f"racing paper {i}.", f"r{i}")
+            return None
+        return real_get(key)
+
+    objs.get = racing_get  # type: ignore[method-assign]
+    assert len(b.list_documents(TENANT, m)["documents"]) == 3 and state["n"] == 1

@@ -435,3 +435,15 @@ def test_an_object_store_named_in_the_environment_is_used_and_unusable_credentia
     r = c.post(f"{P}/matters", json={})
     assert r.status_code == 503 and "s3.example.test" not in r.text and "bkt" not in r.text
     assert not (tmp_path / "store").exists() or not any((tmp_path / "store").iterdir())  # nothing fell back to a local disk
+
+
+def test_with_an_object_store_named_the_delete_route_exists_with_the_flag_off_and_no_local_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.application import matter_objectstore as obj
+
+    assert f"{P}/delete" not in _paths(_client(tmp_path))
+    monkeypatch.setenv(obj.ENDPOINT_ENV, "https://s3.example.test")
+    monkeypatch.setenv(obj.BUCKET_ENV, "bkt")
+    off = _client(tmp_path)
+    assert f"{P}/delete" in _paths(off) and f"{P}/query" not in _paths(off) and f"{P}/documents" not in _paths(off)

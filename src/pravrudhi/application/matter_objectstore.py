@@ -26,11 +26,16 @@ How it works (each rule is a test):
   them is not used: every call answers 503 `store_unavailable` rather than risk two workers overwriting each other.
 * Credentials are read from the environment by NAME and never logged, returned or put in an error.
 
+Operator requirements (a runbook line, not enforced here): a PRIVATE bucket, a key limited to this prefix, server-side encryption turned
+on, and an https endpoint (plain http is accepted only for localhost). Until a leftover-snapshot sweep has run, a deleted document's text
+may still sit in an older snapshot after a failed cleanup (the next write or the retry removes it), so no retention sentence about
+the object store belongs in the product text yet.
+
 Known limits, stated plainly: a whole matter file moves on every write (fine for the sizes the caps allow, not for very large
 matters); the tenant-bytes cap is counted on the local copies only (the matter-count cap is counted on the remote objects); a
 snapshot older than the previous one is removed after each write, the previous one is kept. Data in the object store is the
 operator's retention concern as much as a disk is: a delete here removes it from this service's store and nothing more is
-claimed. """
+claimed."""
 
 from __future__ import annotations
 
@@ -167,8 +172,10 @@ class S3Objects:
         if not self._access or not self._secret:
             raise ObjectStoreError("the object-store credentials are not set")
         u = urllib.parse.urlsplit(settings.endpoint)
-        if u.scheme not in ("https", "http") or not u.netloc:
-            raise ObjectStoreError("the object-store endpoint is not a URL")
+        if not u.netloc or not (
+            u.scheme == "https" or (u.scheme == "http" and (u.hostname or "") in ("localhost", "127.0.0.1", "::1"))
+        ):
+            raise ObjectStoreError("the object-store endpoint must be an https URL")
         self._base, self._host, self._bucket, self._region = (
             f"{u.scheme}://{u.netloc}",
             u.netloc,
@@ -436,20 +443,37 @@ class ObjectBackedMatterStore(MatterStore):
                 shutil.rmtree(mdir, ignore_errors=True)
 
     def _current(self, tenant: str, matter_id: str) -> tuple[dict[str, Any], str]:
-        """Bring the local copy to the remote HEAD (or raise not found). Returns the head and its etag."""
-        found = self._read_head(tenant, matter_id)
-        if found is None:
-            self._drop_local(tenant, matter_id)
-            raise MatterNotFound()
-        head, etag = found
-        mdir = self._matter_dir(tenant, matter_id)
-        if self._local_seq(mdir) != head["seq"]:
-            self._pull(tenant, matter_id, head)
-        return head, etag
+        """Bring the local copy to the remote HEAD (or raise not found). Returns the head and its etag. A snapshot that vanished
+        between reading HEAD and reading the snapshot (a writer moved on and swept it) is retried against the new HEAD."""
+        for attempt in range(3):
+            found = self._read_head(tenant, matter_id)
+            if found is None:
+                self._drop_local(tenant, matter_id)
+                raise MatterNotFound()
+            head, etag = found
+            mdir = self._matter_dir(tenant, matter_id)
+            if self._local_seq(mdir) == head["seq"]:
+                return head, etag
+            try:
+                self._pull(tenant, matter_id, head)
+                return head, etag
+            except ObjectStoreError:
+                if attempt == 2:
+                    raise
+                self._sleep(0.05 + random.random() * 0.1)  # noqa: S311 - jitter, not security
+        raise ObjectStoreError("unreachable")  # pragma: no cover
 
-    def _push(
-        self, tenant: str, matter_id: str, prev: tuple[dict[str, Any], str] | None, keep_previous: bool = True
-    ) -> None:
+    def _sweep(self, prefix: str, keep: set[str]) -> int:
+        """Delete every snapshot of a matter except the named ones (the caller holds the matter's lock). Returns how many went."""
+        n = 0
+        for k, _size in self.objects.list(prefix):
+            leaf = k.rsplit("/", 1)[-1]
+            if leaf.startswith("snapshot-") and leaf not in keep:
+                self.objects.delete(k)
+                n += 1
+        return n
+
+    def _push(self, tenant: str, matter_id: str, prev: tuple[dict[str, Any], str] | None, keep_previous: bool = True) -> None:
         mdir = self._matter_dir(tenant, matter_id)
         db = mdir / DB_NAME
         tmp = mdir / f"snapshot.{uuid.uuid4().hex}.tmp"
@@ -473,14 +497,13 @@ class ObjectBackedMatterStore(MatterStore):
         self.objects.put(mp + "HEAD", json.dumps(head).encode(), **({"if_match": prev[1]} if prev else {"if_none_match": True}))
         self._atomic_write(mdir / SYNC_NAME, json.dumps({"seq": seq}).encode())
         keep = {name, str(prev[0]["key"]) if prev and keep_previous else ""}
-        for k, _size in self.objects.list(mp):  # the previous snapshot stays; anything older goes
-            leaf = k.rsplit("/", 1)[-1]
-            if leaf.startswith("snapshot-") and leaf not in keep:
-                if keep_previous:
-                    with suppress(ObjectStoreError):  # an old snapshot left behind is harmless here; the next write removes it
-                        self.objects.delete(k)
-                else:
-                    self.objects.delete(k)  # after a delete no older copy may stay: a failure here is the caller's 503
+        if keep_previous:
+            with suppress(ObjectStoreError):  # an old snapshot left behind is harmless here; the next write removes it
+                self._sweep(mp, keep)
+        else:
+            self._sweep(
+                mp, keep
+            )  # after a delete no older copy may stay: a failure here is the caller's 503, a retry sweeps again
 
     # -- the remote lock
     @contextmanager
@@ -598,8 +621,22 @@ class ObjectBackedMatterStore(MatterStore):
     def delete_document(self, tenant: str, matter_id: str, doc_id: str) -> dict[str, Any]:
         with self._wrap():
             self._ready()
-            with self._write(tenant, matter_id, keep_previous=False):  # no older snapshot may keep the deleted text
-                return super().delete_document(tenant, matter_id, doc_id)
+            with self._write(tenant, matter_id, keep_previous=False) as (
+                head,
+                _etag,
+            ):  # no older snapshot may keep the deleted text
+                try:
+                    return super().delete_document(tenant, matter_id, doc_id)
+                except MatterError as e:
+                    # A document already gone for readers whose older snapshots were left (a delete whose cleanup failed): this
+                    # retry sweeps them and answers as a delete, not "no such document" while old text is still held.
+                    mp = self._mprefix(tenant, matter_id)
+                    if e.code == "document_not_found" and self._sweep(mp, {str(head["key"])}) > 0:
+                        return {
+                            "deleted": True, "matter_id": matter_id, "doc_id": doc_id,
+                            "message": "The document was deleted from this service's store.",
+                        }  # fmt: skip
+                    raise
 
     def delete_matter(self, tenant: str, matter_id: str) -> dict[str, Any]:
         with self._wrap():
