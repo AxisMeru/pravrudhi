@@ -123,3 +123,18 @@ def test_with_a2_off_an_existing_default_folder_stays_deletable_but_none_is_crea
     assert isinstance(
         F.open_store(tmp_path, cfg, {}, delete_only=False), F.UnconfiguredStore
     )  # with A2 on it is never used unconfigured
+
+
+def test_one_store_per_process_for_one_configuration_and_a_fresh_one_when_the_location_changes(tmp_path: Path) -> None:
+    cfg = MatterSpansConfig()
+    env = {msc.DIR_ENV: str(tmp_path / "v")}
+    a, b = F.open_store(tmp_path, cfg, env), F.open_store(tmp_path, cfg, env)
+    assert a is b  # the same object: an object-backed store keeps its probe and its locks across requests
+    assert F.open_store(tmp_path, cfg, {msc.DIR_ENV: str(tmp_path / "w")}) is not a
+    assert F.open_store(tmp_path, MatterSpansConfig(max_docs=5), env) is not a
+    o = {obj.ENDPOINT_ENV: "https://s3.example.test", obj.BUCKET_ENV: "bkt", obj.ACCESS_KEY_ENV: "k", obj.SECRET_KEY_ENV: "s"}
+    s1, s2 = F.open_store(tmp_path, cfg, o), F.open_store(tmp_path, cfg, o)
+    assert s1 is s2 and isinstance(s1, obj.ObjectBackedMatterStore)
+    assert F.open_store(tmp_path, cfg, {}) is F.open_store(tmp_path, cfg, {})  # the refusing store is cached too
+    F.clear_cache()
+    assert F.open_store(tmp_path, cfg, env) is not a
