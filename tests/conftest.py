@@ -55,6 +55,23 @@ def _without_the_operators_live_configuration(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.fixture(autouse=True)
+def _gate_and_role_lists_are_restored_after_every_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A route that a switched-on workflow registers is added to the process-wide key-gate and role lists
+    (identity.PARTNER_KEY_ROUTES, PARTNER_KEY_PATHS, roles.USER_FACING, ...). With the workflows switched on in the packaged
+    config (0.6.22/0.6.23) any test that builds the app on the shipped config would leave those additions for the next test;
+    restoring them here keeps every test independent."""
+    from pravrudhi.api import identity, roles
+
+    for module, names in (
+        (identity, ("PARTNER_KEY_ROUTES", "PARTNER_KEY_PATHS")),
+        (roles, ("USER_FACING", "ADMIN_ONLY", "ADMIN_IN_BOTH_EDITIONS")),
+    ):
+        for name in names:
+            if hasattr(module, name):
+                monkeypatch.setattr(module, name, getattr(module, name))
+
+
+@pytest.fixture(autouse=True)
 def _claude_seat_is_seat2_unless_testing_the_check(request, monkeypatch):
     """`panel.ask_vendor` asserts (via `account.claude_env(live=True)`) that `claude auth status --json` shows the seat-2 email
     before every claude call. No test may shell out to the real CLI for that, so the verified-seat seam is stubbed to the dir

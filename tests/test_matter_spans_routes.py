@@ -121,10 +121,10 @@ def test_with_the_flag_on_all_five_routes_exist_outside_openapi(tmp_path: Path, 
     assert P not in c.get("/openapi.json").text
 
 
-def test_the_flag_in_the_shipped_config_is_off() -> None:
-    assert msc.load_matter_spans_config(REPO) is None
+def test_the_flag_in_the_shipped_config_is_on() -> None:  # on since 0.6.23 (19 Oct 2026)
+    assert msc.load_matter_spans_config(REPO) is not None
     text = (REPO / "configs" / "partner_api.yaml").read_text()
-    assert "wf_a2_span_index" not in text or "wf_a2_span_index: false" in text
+    assert "\nwf_a2_span_index: true\n" in text
 
 
 def test_with_the_flag_on_no_route_of_the_whole_app_is_unclassified_or_stale(monkeypatch: pytest.MonkeyPatch) -> None:

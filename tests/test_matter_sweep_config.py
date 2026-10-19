@@ -68,5 +68,5 @@ def test_a_missing_or_broken_file_is_off(tmp_path: Path) -> None:
     assert load_sweep_config(tmp_path) is None
 
 
-def test_the_shipped_config_has_the_sweep_off() -> None:
-    assert load_sweep_config(REPO) is None
+def test_the_shipped_config_has_the_sweep_on() -> None:  # on since 0.6.23 (19 Oct 2026)
+    assert load_sweep_config(REPO) is not None

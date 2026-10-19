@@ -138,26 +138,40 @@ def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, mon
 # ---- flag OFF: nothing of the slices is imported (fresh interpreter, the real shipped config) -----------------------------------------
 
 
-# B3 ships ON in the shipped config (19 Oct 2026): its own two modules are the ONLY ones loaded by create_app on that config.
-B3_MODULES = ("pravrudhi.application.s138_checklist_config", "pravrudhi.application.s138_checklist")
+# The packaged config ships these workflows ON (B3 19 Oct 2026; A2, A3, A5, S1, S3 with 0.6.23): their own modules are loaded by create_app.
+# S2 (tabular) still ships OFF and must import nothing of its own (A1's modules are imported by the ON slices that build on the draft check, so they are not asserted).
+ON_READERS = tuple(
+    "pravrudhi.application." + n
+    for n in (
+        "s138_checklist_config",
+        "matter_spans_config",
+        "chronology_config",
+        "agenda_config",
+        "quashing_config",
+        "matter_sweep_config",
+    )
+)
+STILL_OFF_MODULES = tuple(
+    "pravrudhi.application." + n for n in ("tabular_config", "tabular", "tabular_matter", "tabular_sections")
+)
 
 
-def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path: Path) -> None:
+def test_with_a_flag_off_no_reader_and_no_slice_module_of_it_is_imported(tmp_path: Path) -> None:
     code = (
         "import os, sys\n"
         f"sys.path.insert(0, {str(REPO / 'src')!r})\n"
         f"os.environ['PRAVRUDHI_MATTER_SPANS_DIR'] = {str(tmp_path / 'no-such-store')!r}\n"
         "from pravrudhi.api.server import create_app\n"
         f"create_app({str(REPO)!r})\n"
-        f"mods = {[m for m in READER_MODULES + SLICE_MODULES if m not in B3_MODULES]!r}\n"
-        f"b3 = {list(B3_MODULES)!r}\n"
-        "print(','.join(m for m in mods if m in sys.modules))\n"
-        "print(','.join(m for m in b3 if m in sys.modules))\n"
+        f"off = {list(STILL_OFF_MODULES)!r}\n"
+        f"on = {list(ON_READERS)!r}\n"
+        "print(','.join(m for m in off if m in sys.modules))\n"
+        "print(','.join(m for m in on if m in sys.modules))\n"
     )
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=REPO, check=True)
-    others, b3_loaded = (out.stdout.split("\n") + [""])[:2]
-    assert others.strip() == "", out.stdout  # the names of any other slice module found loaded would be printed
-    assert set(b3_loaded.strip().split(",")) == set(B3_MODULES), out.stdout  # B3 is ON in the shipped config
+    still_off_loaded, on_loaded = (out.stdout.split("\n") + [""])[:2]
+    assert still_off_loaded.strip() == "", out.stdout  # the names of any OFF slice module found loaded would be printed
+    assert set(on_loaded.strip().split(",")) == set(ON_READERS), out.stdout  # every ON reader is read by the shipped config
 
 
 # ---- one flag on: only that slice's reader is imported/called -----------------------------------------------------------------------

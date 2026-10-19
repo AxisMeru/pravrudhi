@@ -163,7 +163,24 @@ def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any
                 yield from walk(r.original_router.routes)
 
     key_listed = {(m, p) for m, p, _b in KEY_ROUTES} | {("GET", "/api/v1/orgs/acme/usage")}
-    key_listed.add(("POST", "/api/v1/s138-checklist"))  # B3 ships ON in the shipped config (19 Oct 2026)
+    # ON in the packaged config (B3 19 Oct 2026; A2-A8, S1, S3 with 0.6.23): each registers its own gate routes
+    key_listed |= {
+        ("POST", "/api/v1/s138-checklist"),
+        ("POST", "/api/v1/chronology"),
+        ("POST", "/api/v1/review-agenda"),
+        ("POST", "/api/v1/matter-citation-sweep"),
+        ("POST", "/api/v1/quashing-agenda"),
+        ("GET", "/api/v1/quashing-agenda/health"),
+        ("POST", "/api/v1/cheque-case-check"),
+        ("POST", "/api/v1/matter-hearing-pack"),
+        ("POST", "/api/v1/synopsis-dates"),
+        ("POST", "/api/v1/bail-draft"),
+        ("POST", "/api/v1/matter-spans/delete"),
+        ("POST", "/api/v1/matter-spans/documents"),
+        ("POST", "/api/v1/matter-spans/list"),
+        ("POST", "/api/v1/matter-spans/matters"),
+        ("POST", "/api/v1/matter-spans/query"),
+    }
     secret_listed = {(m, p) for m, p, _b in ORG_ROUTES}
     seen = 0
     for r in walk(c.app.routes):
