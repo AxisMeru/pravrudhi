@@ -3340,6 +3340,113 @@ def build_partner_router(
         )
         _a4.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- A6 cheque-case check: registered ONLY when partner_api.yaml sets wf_a6_cheque_case_check to true. It reads A2's stored
+    # papers (tenant-checked) and runs A3's chronology, A5's papers agenda and, when the request carries confirmed dates, B3's
+    # checklist as functions, so it needs A2 ON (wf_a2_span_index true, not just a store folder); the other three slices' own
+    # flags are NOT required (only their modules are imported, lazily). Off (the default) adds nothing: no module import, no
+    # route, no limiter, no thread, no read. Own limiters and slots; audit mode "intake" with a "cheque-" run id.
+    try:
+        _a6_cfg = None
+        if _flags.get("wf_a6_cheque_case_check") is True:
+            from pravrudhi.application.cheque_case_config import load_cheque_case_config as _load_a6
+
+            _a6_cfg = _load_a6(engine_root)
+        if _a6_cfg is not None:
+            from pravrudhi.application import cheque_case_route as _a6
+            from pravrudhi.application import matter_spans_config as _a6m
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("cheque-case check unavailable; it stays off", exc_info=True)
+        _a6_cfg = None
+    if _a6_cfg is not None:
+        _a6_state: dict[str, Any] = {}
+        _a6_lock = threading.Lock()
+
+        def _a6_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _a6_lock:
+                if not _a6_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    ip_limit = getattr(cfg, "slice_ip_limit", cfg.rate_limit_per_minute)  # the slice limit once it exists (#534)
+                    _a6_state["ip"] = RateLimiter(ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a6_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a6_state["slots"] = ConcurrencyLimiter(_a6_cfg.max_concurrent)
+                return _a6_state["ip"], _a6_state["key"], _a6_state["slots"]
+
+        def _a6_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _a6_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def cheque_case_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a6_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, tenant = admitted
+            run = {"run_id": f"cheque-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                a2_cfg = _a6m.load_matter_spans_config(engine_root)  # "A2 on" = its flag in the config, never the store folder
+                if a2_cfg is None:
+                    _intake_audit(metered, "intake", 409, run)
+                    return JSONResponse(status_code=409, content={"detail": _a6.STORE_OFF, "error": "store_off"})
+                from pravrudhi.application.matter_spans import MatterStore as _Store
+
+                out = _a6.check_for_matter(_Store(_a6m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"])
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"detail": str(e), "error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        cheque_case_ep.__annotations__["req"] = _a6.ChequeCaseRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/cheque-case-check", cheque_case_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_a6.FixedValidationRoute,
+        )
+        _a6.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     # --- A8 synopsis and list of dates: registered ONLY when partner_api.yaml sets wf_a8_synopsis_list_of_dates to true. It reads
     # A2's stored papers through A3's chronology (a function; A3's own flag is NOT required), so it needs A2 ON (wf_a2_span_index
     # true, not just a store folder). The drafting endpoint, caps and the in-process day ceiling are the ones bail drafting uses.
