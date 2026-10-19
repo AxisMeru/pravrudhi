@@ -116,7 +116,7 @@ judge_health_ttl_s: 5
 # this key false (or removed): the route is then a framework 404 again. Only the boolean true turns it on.
 wf_b3_s138_checklist: true
 
-# 0.6.23 switch-ons (19 Oct 2026; Lead-2 ruling; each key's Track A flag-ON package ran on the exact tree, R2 signed). Only the boolean true turns a workflow on;
+# 0.6.23 switch-ons (19 Oct 2026; Lead-2 ruling). Evidence per key: Track A's flag-ON package, release gate ALL_PASS on fba3c2d5 (19 Oct; re-run on the merged tree to follow); R2 signed the package for B3 only. Only the boolean true turns a workflow on;
 # the kill for any one is its key false (or removed) in a new image or after a restart, because the packaged config is authoritative.
 wf_a2_span_index: true
 wf_a3_chronology: true
