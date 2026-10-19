@@ -105,7 +105,9 @@ def test_citations_to_check_lists_not_found_and_not_checked_and_counts_found():
 
 def test_all_found_gives_the_none_line_and_no_sweep_gives_the_off_line():
     ok = HP.citations_to_check(sweep({"(2014) 8 SCC 273": ["found"]}), {})
-    assert ok["line"] == HP.CITES_NONE and not ok["needs_attention"]
+    assert (
+        ok["line"] == HP.CITES_NONE and "does not say that any citation is right" in HP.CITES_NONE and not ok["needs_attention"]
+    )
     off = HP.citations_to_check(None, {})
     assert off["switched_on"] is False and off["line"] == HP.CITES_OFF and off["counts"] is None
 
