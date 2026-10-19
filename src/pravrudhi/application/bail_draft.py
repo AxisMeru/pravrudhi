@@ -242,11 +242,37 @@ INVENTED_NOUNS = (
     "sole breadwinner",
 )
 #: Fail-closed backstop on the fact text only (the lawyer's tag is the first line of defence and is the route's job).
-SENSITIVE_RE = re.compile(
-    r"\b(rape[sd]?|pocso|protection of children from sexual|sexual (?:assault|offence|offense|harassment|intercourse)|prosecutrix|"
-    r"minor (?:victim|girl|boy)|victim (?:is|was) a minor|molest\w*|outrag\w+ (?:the )?modesty)\b",
+_NUM_WORDS = {w: i for i, w in enumerate(["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen"], 1)}
+_WORDS_ALT = "|".join(_NUM_WORDS)
+_SENSITIVE_WORDS = re.compile(
+    r"\b(rape[sd]?|gang[- ]?rape\w*|pocso|protection of children from sexual|"
+    r"sexual(?:ly)? (?:assault\w*|abuse\w*|exploit\w*|offence\w*|offense\w*|harass\w*|intercourse)|prosecutrix|"
+    r"minor (?:victim|girl|boy)|victim (?:is|was) a minor|(?:a|the) minor(?! (?:injur\w+|stake|share|damage|error|issue|dispute|detail|child(?:ren)?|son|daughter|dependant\w*))|"
+    r"juvenile|child (?:of (?:\d{1,2}|" + _WORDS_ALT + r")|abuse\w*|labou?r|victim|pornograph\w+)|traffick\w+|prostitut\w+|bonded labou?r|sold the (?:girl|boy|child)|obscene|unnatural|non[- ]?consensual|"
+    r"forced himself|kidnap\w*|lawful guardian\w*|molest\w*|outrag\w+ (?:the )?modesty|"
+    r"(?:girl|boy)s?\b.{0,24}\b(?:aged|age of|below|under)|(?:below|under|less than) (?:the age of )?(?:18|eighteen)(?: years)?|"
+    r"(?:age of|aged) (?:\d{1,2}|" + _WORDS_ALT + r"))\b",
     re.I,
 )
+#: "15 year old", "eleven-year-old": an age under 18 (not "12-year-old son": the applicant's own child, Track B's near-miss).
+_YOUNG_AGE = re.compile(rf"\b(\d{{1,2}}|{_WORDS_ALT})[- ]year[- ]old\b(?!\s+son\b)", re.I)
+
+
+class _SensitiveWords:
+    """The fail-closed backstop on the fact wording: `.search(text)` returns a match (with `.group(0)`) or None. An uncertain wording refers."""
+
+    @staticmethod
+    def search(text: str) -> re.Match[str] | None:
+        if (m := _SENSITIVE_WORDS.search(text)) is not None:
+            return m
+        for m in _YOUNG_AGE.finditer(text):
+            tok = m.group(1).lower()
+            if (int(tok) if tok.isdigit() else _NUM_WORDS.get(tok, 99)) < 18:
+                return m
+        return None
+
+
+SENSITIVE_RE = _SensitiveWords()
 #: Facts that read like the other side's voice or an adverse fact. ADVISORY only: the lawyer ticked the fact, so it is never excluded; it is named in a note and in an info check.
 ADVERSE_RE = re.compile(
     r"\b(public prosecutor|state counsel|learned counsel for the (?:state|complainant)|the prosecution (?:has |had )?(?:opposed|states|submits|alleges|contends)|prosecution'?s (?:case|version|contention)|the court (?:has )?observed|"
