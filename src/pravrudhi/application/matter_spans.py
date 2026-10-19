@@ -653,7 +653,7 @@ def build_match(q: str, terms: list[str]) -> tuple[str, list[dict[str, Any]]]:
         if t in number_terms:
             forms = [f"section {low}", f"sections {low}", f"sec {low}", f"s {low}", f"u s {low}"]
             forms += [f"{low} {a}" for a in SECTION_ACTS]
-            near = [f"NEAR({_q(w)} {_q(t)}, {SECTION_LIST_WINDOW})" for w in ("section", "sections")]  # "Sections 406, 420 and 34"
+            near = [f"NEAR({_q(w)} {_q(t)}, {SECTION_LIST_WINDOW})" for w in ("section", "sections")]
             alternatives = [*(_q(f) for f in forms), *near]
             parts.append("(" + f"({_q('section')} {_q(t)}) OR " + " OR ".join(alternatives) + ")")
             listed = f"section or sections within {SECTION_LIST_WINDOW} words of {t}"
