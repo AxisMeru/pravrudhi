@@ -3,6 +3,25 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.23 (2026-10-19)
+
+PATCH release on 0.6.22. Seven workflows are switched on in the shipped configuration; two more, bail drafting and the synopsis and list of dates, stay **off** and now sit behind a mandatory sensitive-matter declaration; one new workflow, the section look-up (B1), is added and ships **disabled**.
+
+### Changed
+
+- **Switched on in the shipped configuration:** the matter span index (A2, `wf_a2_span_index`), the chronology (A3, `wf_a3_chronology`), the ingredient agenda (A5, `wf_a5_ingredient_agenda`), the matter citation sweep (S1, `wf_s1_matter_citation_sweep`), the quashing-categories agenda (S3, `wf_b2_quashing_agenda`), the cheque-case check (A6, `wf_a6_cheque_case_check`) and the matter hearing pack (A7, `wf_a7_matter_hearing_pack`). Each was added in an earlier release with its flag absent or off; their routes now answer. A request without a partner key still gets the same refusal as before.
+- **The matter span index needs a store location.** With no configured store location (`PRAVRUDHI_MATTER_SPANS_DIR` or the object-store option) every matter-store route answers 503 `store_unavailable` and writes nothing, instead of writing to a default path on a disk that may not survive a restart. One store factory now serves every workflow that uses the matter store, and it keeps one store per process per configuration.
+- **Bail drafting (A4) and the synopsis and list of dates (A8) stay off** (`wf_a4_bail_drafting` and `wf_a8_synopsis_list_of_dates` are `false`). Before either can be turned on, a draft request must carry a sensitive-matter declaration; a request without it is refused. The fail-closed check on sensitive fact wording is wider (extra wordings are refused), and a best-effort second check sits behind the declaration.
+
+### Added (not reachable until its flag is turned on)
+
+- **Section look-up (B1, flag `wf_b1_section_lookup`, off).** Finds the new BNS or BNSS section for an old IPC or CrPC section, and the reverse. When both texts are shown the answer says which texts are on screen; when only one is shown, it says which. If the look-up data cannot be read, the route answers 503 `lookup_unavailable` and the failure is kept until the engine restarts.
+
+### Notes
+
+- The 0.6.22 entry did not name two workflows whose code shipped in it with their flags absent: the matter citation sweep (S1), which is now on, and the tabular fact table (S2, `wf_s2_tabular_fact_table`), which is still off.
+- Credentials for the object-store option that appear after the engine has started need an engine restart to be picked up.
+
 ## 0.6.22 (2026-10-19)
 
 PATCH release on 0.6.21. One workflow is switched on, four new workflows and an object-store option for the matter store are added and ship **disabled**, and several earlier workflows get fixes.
