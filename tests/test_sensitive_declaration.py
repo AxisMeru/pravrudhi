@@ -6,12 +6,21 @@ import hashlib
 
 import pytest
 
+from pravrudhi.api import identity, roles
 from pravrudhi.application import bail_draft_input as I  # noqa: E741
 from pravrudhi.application.bail_draft_config import BailDraftConfig
 from tests.test_bail_draft_routes import BODY as BAIL_BODY
 from tests.test_bail_draft_routes import PATH as BAIL_PATH
 from tests.test_bail_draft_routes import _client as bail_client
 from tests.test_bail_draft_routes import _flags as bail_flags
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_wide_lists(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Building an app adds routes to the gate and role lists; restore them after each test so no other test file sees them."""
+    monkeypatch.setattr(identity, "PARTNER_KEY_ROUTES", identity.PARTNER_KEY_ROUTES)
+    monkeypatch.setattr(identity, "PARTNER_KEY_PATHS", identity.PARTNER_KEY_PATHS)
+    monkeypatch.setattr(roles, "USER_FACING", roles.USER_FACING)
 
 
 def test_the_refusal_line_is_r1s_exactly_and_the_values_are_closed():
