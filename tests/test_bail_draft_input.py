@@ -19,7 +19,7 @@ FACTS = [
 
 def req(**kw: Any) -> I.BailDraftRequest:
     base: dict[str, Any] = {
-        "consent": True, "kind": "bail", "forum": "trial_court", "offence_date": "2024-08-01", "fir_date": "2024-08-02", "facts": FACTS,
+        "consent": True, "sensitive_declaration": "none", "kind": "bail", "forum": "trial_court", "offence_date": "2024-08-01", "fir_date": "2024-08-02", "facts": FACTS,
     }
     base.update(kw)
     return I.BailDraftRequest(**base)

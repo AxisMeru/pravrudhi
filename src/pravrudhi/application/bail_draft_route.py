@@ -143,9 +143,15 @@ def draft_for_request(
     drafter: Any = None,
 ) -> dict[str, Any]:
     """The response for one request. Raises `DraftError` (400 consent_required); every other refusal is a 200 `referred` answer with no draft."""
+    try:  # FIRST: before consent and before anything is read or called
+        declared = I.check_declaration(req.sensitive_declaration)
+    except ValueError:
+        raise DraftError(I.DECLARATION_REQUIRED, I.DECLARATION_REFUSAL, 422) from None
     if req.consent is not True:
         raise DraftError(I.CONSENT_REQUIRED, "Consent is required before a draft is made.", 400)
     base: dict[str, Any] = {"run_id": run_id, "client_data": True, "label": I.DRAFT_LABEL}
+    if declared == "sensitive":
+        return {**base, "state": "referred", "referral": {"code": "sensitive_matter", "text": I.REFER_SENSITIVE}, "draft": None}
     case = I.parse_case(req, cfg.max_facts, matter_id=run_id)
     if isinstance(case, I.Referral):
         return {**base, "state": "referred", "referral": {"code": case.code, "text": case.text}, "draft": None}

@@ -3331,7 +3331,10 @@ def build_partner_router(
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
                     _intake_audit(metered, "intake", status, run)
-                    return JSONResponse(status_code=status, content={"error": e.code})
+                    body = {"error": e.code}
+                    if e.code == "sensitive_declaration_required":
+                        body["detail"] = str(e)  # R1's line, for the app to show
+                    return JSONResponse(status_code=status, content=body)
                 _intake_audit(metered, "intake", 500, run)
                 raise
             finally:

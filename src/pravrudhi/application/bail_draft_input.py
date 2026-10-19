@@ -30,6 +30,19 @@ GROUND_IDS = ("accusation_nature", "custody_period", "antecedents", "flight", "t
 SENSITIVE_TAGS = ("pocso", "minor_involved", "sexual_offence", "marked_sensitive", "trafficking")
 
 # ---- strings: PENDING R1 (flag off; none is shown to a user until R1 rules it) -----------------------------------------------------------
+DECLARATION_REQUIRED = "sensitive_declaration_required"
+#: R1's a4_declaration_missing (4c30a82379c58f15): the 422 detail and the app's line when nothing is chosen.
+DECLARATION_REFUSAL = "Say whether this matter involves a person under 18, a sexual offence or trafficking before a draft can be made."
+DECLARATION_VALUES = ("none", "sensitive")
+
+
+def check_declaration(value: Any) -> str:
+    """"none" or "sensitive" (the lawyer's declaration), else raises ValueError: no default, no coercion (not "None", not True, not "NONE")."""
+    if isinstance(value, str) and value in DECLARATION_VALUES:
+        return value
+    raise ValueError("sensitive_declaration is required")
+
+
 DRAFT_LABEL = "A first draft for a lawyer to rewrite. A lawyer decides what to use."
 REFER_SENSITIVE = "This matter is marked sensitive, so no draft was made. Refer it to a lawyer."
 REFER_SENSITIVE_SECTION = (
@@ -55,6 +68,9 @@ class FactIn(BaseModel):
 class BailDraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     consent: StrictBool
+    #: the lawyer's mandatory declaration: "none" = no person under 18 and no sexual offence or trafficking is involved; "sensitive" = one is.
+    #: Typed Any on purpose: any other value reaches the route's coded refusal instead of the one fixed validation body.
+    sensitive_declaration: Any = None
     kind: Literal["bail", "anticipatory_bail"]
     forum: Literal["trial_court", "sessions_or_high_court"] | None = None
     offence_date: StrictStr = Field(min_length=10, max_length=10)
