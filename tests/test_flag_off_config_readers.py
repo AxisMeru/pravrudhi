@@ -28,6 +28,9 @@ IDS = [r[0] for r in READERS]
 
 @pytest.mark.parametrize(("name", "load", "parse", "flag"), READERS, ids=IDS)
 def test_the_shipped_config_has_every_flag_off(name: str, load: Callable[[Path], Any], parse: Callable[[Any], Any], flag: str) -> None:
+    if name == "B3":  # switched on 19 Oct 2026 (gate ALL_PASS); every other reader still ships OFF
+        assert load(REPO) is not None, name
+        return
     assert load(REPO) is None, name
 
 

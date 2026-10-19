@@ -152,10 +152,11 @@ def test_the_route_is_not_in_the_openapi_document(tmp_path: Path, monkeypatch: p
     assert PATH not in c.get("/openapi.json").text
 
 
-def test_the_flag_in_the_shipped_config_is_off() -> None:
-    assert scc.load_s138_checklist_config(REPO) is None
+def test_the_flag_in_the_shipped_config_is_on() -> None:
+    # 19 Oct 2026: B3 switched on (gate ALL_PASS, R1 product_line_check); the kill is the key false.
+    assert scc.load_s138_checklist_config(REPO) == scc.S138ChecklistConfig()
     text = (REPO / "configs" / "partner_api.yaml").read_text()
-    assert "wf_b3_s138_checklist" not in text or "wf_b3_s138_checklist: false" in text
+    assert "\nwf_b3_s138_checklist: true\n" in text
 
 
 # ---- sign-in and the answers ----------------------------------------------------------------------------------------------
