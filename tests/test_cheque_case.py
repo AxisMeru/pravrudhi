@@ -143,3 +143,11 @@ def test_a_filler_word_between_notice_and_sent_does_not_hide_the_step():
     out = CC.date_candidates(chron(("p.pdf", "The notice was also sent by courier on 03/04/2013.")))
     c = [c for v in out["roles"].values() for c in v]
     assert len(c) == 1 and c[0]["role"] == "notice" and c[0]["ambiguous"] is True
+
+
+def test_a_cheque_number_written_with_no_and_a_dot_does_not_split_the_sentence_before_its_date():
+    out = CC.date_candidates(chron(("p.pdf", "Cheque no. 000123 dated 02 February 2021 was returned unpaid by the bank on 20 March 2021.")))
+    got = roles_of(out)
+    assert got["cheque"] == ["02 February 2021"] and got["memo"] == ["20 March 2021"]
+    out2 = CC.date_candidates(chron(("p.pdf", "The accused issued cheque No. 7 dated 02 February 2021. The notice was sent on 15 April 2021.")))
+    assert roles_of(out2)["cheque"] == ["02 February 2021"] and roles_of(out2)["notice"] == ["15 April 2021"]  # a real sentence end still splits

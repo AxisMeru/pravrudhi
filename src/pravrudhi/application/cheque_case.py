@@ -94,7 +94,7 @@ def candidate_id(role: str, doc_id: str, start: int, mention_start: int | None) 
     return "cc-" + hashlib.sha256(f"{role}|{doc_id}|{start}|{mention_start}".encode()).hexdigest()[:10]
 
 
-BOUNDARY = re.compile(r"(?<=[.;!?])\s+(?=[A-Z0-9\[])|\n")
+BOUNDARY = re.compile(r"(?<!\b[Nn]o\.)(?<=[.;!?])\s+(?=[A-Z0-9\[])|\n")  # not after "No." in "cheque no. 000123 dated"
 
 
 def _dists(role: str, before: str, after: str, sentence: str) -> tuple[int | None, int | None]:
