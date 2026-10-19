@@ -516,3 +516,15 @@ def test_every_ingredient_has_cues_and_every_cue_is_lower_case_text() -> None:
     a = G.load_asset()
     for i in a["ingredients"]:
         assert i["cues"] and all(c == c.casefold() and c.strip() == c and c for c in i["cues"]), i["id"]
+
+
+def test_a_pointer_quote_never_starts_or_ends_inside_a_word() -> None:
+    long_text = "Negotiable Instruments Act, 1881. " * 3 + ("x " * 30) + "the cheque was presented to the bank on 1881 date " + ("yz " * 60) + "Negotiable end"
+    for pad in range(0, 40):
+        t = ("a" * pad) + " " + long_text
+        page = build_agenda([doc(1, "a.pdf")], passages=[P(1, t)])
+        q = next(i for i in page["ingredients"] if i["id"] == "presentation")["where_mentioned"]["pointers"][0]
+        a, b = q["start"], q["end"]
+        assert t[a:b] == q["quote"] and "presented" in q["quote"]
+        assert a == 0 or not (t[a - 1].isalnum() and t[a].isalnum()), (pad, q["quote"][:20])
+        assert b == len(t) or not (t[b - 1].isalnum() and t[b].isalnum()), (pad, q["quote"][-20:])

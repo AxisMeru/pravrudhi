@@ -335,7 +335,10 @@ def test_a_key_only_caller_reaches_the_route_and_leaves_one_audit_row_without_th
     rows = _rows(root)
     assert len(rows) == 1 and rows[0]["status_code"] == 200 and rows[0]["mode"] == "intake"
     assert rows[0]["run_id"].startswith("s138-checklist-")
-    assert "2013" not in str(rows)  # never what the user typed
+    # never what the user typed (the bare year is not asserted: it can sit in a timestamp or a run id)
+    items = [d for v in BODY.values() for d in (v if isinstance(v, list) else [v]) if isinstance(d, dict)]
+    typed = {str(d[k]) for d in items for k in ("value", "confirmed_as")}
+    assert typed and not any(t in str(rows) for t in typed)
 
 
 def test_a_refused_request_leaves_an_audit_row_with_the_checklist_run_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

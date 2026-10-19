@@ -635,6 +635,9 @@ def _q(t: str) -> str:
     return '"' + t.replace('"', '""') + '"'
 
 
+SECTION_LIST_WINDOW = 8  # a section number may sit in a list after the word: "Sections 406, 407, 420 and 34"
+
+
 def build_match(q: str, terms: list[str]) -> tuple[str, list[dict[str, Any]]]:
     """The FTS5 expression for a question and the list of extra forms it also searches. Terms are joined by AND exactly as before;
     a term may widen into an OR of forms. Nothing of the user's text reaches FTS5 except through `_q` (escaped, double-quoted)."""
@@ -650,8 +653,11 @@ def build_match(q: str, terms: list[str]) -> tuple[str, list[dict[str, Any]]]:
         if t in number_terms:
             forms = [f"section {low}", f"sections {low}", f"sec {low}", f"s {low}", f"u s {low}"]
             forms += [f"{low} {a}" for a in SECTION_ACTS]
-            parts.append("(" + f"({_q('section')} {_q(t)}) OR " + " OR ".join(_q(f) for f in forms) + ")")
-            variants.append({"term": f"section {t}", "forms": forms})
+            near = [f"NEAR({_q(w)} {_q(t)}, {SECTION_LIST_WINDOW})" for w in ("section", "sections")]
+            alternatives = [*(_q(f) for f in forms), *near]
+            parts.append("(" + f"({_q('section')} {_q(t)}) OR " + " OR ".join(alternatives) + ")")
+            listed = f"section or sections within {SECTION_LIST_WINDOW} words of {t}"
+            variants.append({"term": f"section {t}", "forms": [*forms, listed]})
             continue
         if t.isalpha() and len(t) >= 6:
             stem = t
