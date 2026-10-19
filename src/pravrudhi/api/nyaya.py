@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from pravrudhi.api.errors import CHECKER_UNAVAILABLE, REGISTRY_CHECKER_UNAVAILABLE, VENDOR_NOT_ALLOWED, coded, coded_503
 from pravrudhi.api.identity import CurrentUserDep, User
@@ -70,6 +70,16 @@ class NyayaCorpusHit(BaseModel):
     #: Always set: the India Code home page, for a reader of a hit whose act has no recorded page (so every hit has
     #: the notice AND a source link). A fallback, never a deep link.
     source_fallback_url: str
+    #: Set for IPC sections: the text is the 1860 Act, amendments after 1997 NOT included (R1's line); the app shows it
+    #: wherever the section text appears. None for every other act.
+    text_caveat: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _caveat_from_id(cls, v: Any) -> Any:
+        if isinstance(v, dict) and "text_caveat" not in v:
+            return {**v, "text_caveat": nyaya.text_caveat(str(v.get("id", "")))}
+        return v
 
 
 class NyayaCorpusResponse(BaseModel):
@@ -121,6 +131,15 @@ class NyayaSource(BaseModel):
     act: str
     section: str
     title: str
+    #: As on `NyayaCorpusHit`: set for IPC sections, so a provision listed or cited from the IPC carries the line wherever shown.
+    text_caveat: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _caveat_from_id(cls, v: Any) -> Any:
+        if isinstance(v, dict) and "text_caveat" not in v:
+            return {**v, "text_caveat": nyaya.text_caveat(str(v.get("id", "")))}
+        return v
 
 
 class NyayaAskResponse(BaseModel):
