@@ -70,10 +70,11 @@ def test_a_changed_statute_text_or_a_quote_that_is_not_in_it_stops_the_agenda(mo
     assert G.load_asset()["statute"]["sha256"] == real["statute"]["sha256"]
 
 
-def test_no_paper_is_mapped_to_an_ingredient() -> None:
+def test_with_no_passages_given_no_ingredient_carries_a_pointer() -> None:
     page = build_agenda([doc(1, "cheque.pdf")])
     for ing in page["ingredients"]:
-        assert set(ing) == {"id", "proviso", "section", "statute_words", "statute_words_raw"}
+        assert set(ing) == {"id", "proviso", "section", "statute_words", "statute_words_raw", "where_mentioned"}
+        assert ing["where_mentioned"] is None
 
 
 def test_the_ingredients_carry_their_proviso_letters_in_the_sections_own_words() -> None:
@@ -464,3 +465,54 @@ def test_the_blank_page_note_is_singular_for_one_page_and_never_says_zero(blank:
 def test_a_one_page_file_with_that_page_blank_is_not_read_so_its_note_is_the_unread_line_instead() -> None:
     p = build_agenda([doc(1, "one.pdf", 1, (1,))])
     assert p["papers_read"]["n"] == 0 and any("one.pdf" in r.get("line", "") for r in p["not_added"]["rows"])
+
+
+# ---- ingredient pointers (Track B's quality pass, 17 Oct): a place to start reading, never a finding -------------------------------------
+
+
+def P(i: int, text: str, doc_i: int = 1, page: int = 1, start: int = 0, name: str = "paper.pdf") -> G.Passage:
+    return G.Passage(f"{doc_i:032x}", name, page, start, start + len(text), text)
+
+
+def test_a_passage_with_a_cue_is_pointed_to_for_that_ingredient_with_its_place_and_its_own_words() -> None:
+    text = "The complainant sent a legal notice dated 12.04.2021 by registered post. The drawer did not pay within fifteen days."
+    page = build_agenda([doc(1, "complaint.pdf")], passages=[P(1, text, page=3, start=500, name="complaint.pdf")])
+    by = {i["id"]: i["where_mentioned"] for i in page["ingredients"]}
+    n = by["notice"]
+    assert n["heading"] == G.POINTER_HEADING and n["line"] == G.POINTER_LINE and len(n["pointers"]) == 1
+    p = n["pointers"][0]
+    assert (p["doc_id"], p["name"], p["page"], p["cue"]) == (f"{1:032x}", "complaint.pdf", 3, "legal notice")
+    assert text[p["start"] - 500 : p["end"] - 500] == p["quote"] and "legal notice" in p["quote"]
+    assert by["non_payment"]["pointers"][0]["cue"] in ("did not pay", "within fifteen days")
+    assert by["returned_unpaid"]["line"] == G.NO_POINTER_LINE and by["returned_unpaid"]["pointers"] == []
+
+
+def test_pointers_follow_paper_order_stop_at_five_and_cut_a_long_passage_around_the_cue() -> None:
+    texts = [f"Item {i}: the cheque was presented on a date." for i in range(8)]
+    ps = [P(i, t, doc_i=i + 1, name=f"p{i}.pdf") for i, t in enumerate(texts)]
+    page = build_agenda([doc(i + 1, f"p{i}.pdf") for i in range(8)], passages=ps)
+    pres = next(i for i in page["ingredients"] if i["id"] == "presentation")["where_mentioned"]["pointers"]
+    assert [p["name"] for p in pres] == [f"p{i}.pdf" for i in range(5)]  # the first five, in order
+    long_text = ("x " * 400) + "the cheque was presented to the bank " + ("y " * 400)
+    q = next(i for i in build_agenda([doc(1, "a.pdf")], passages=[P(1, long_text)])["ingredients"] if i["id"] == "presentation")["where_mentioned"]["pointers"][0]
+    assert len(q["quote"]) <= G.POINTER_QUOTE and "presented" in q["quote"]
+
+
+def test_a_cue_must_be_a_whole_word_or_phrase_and_case_does_not_matter() -> None:
+    page = build_agenda([doc(1, "a.pdf")], passages=[P(1, "The overpresented sketch was disliked. He was NOT PAID anything."), P(2, "A Legal Notice was sent.", doc_i=2, name="b.pdf")])
+    by = {i["id"]: i["where_mentioned"]["pointers"] for i in page["ingredients"]}
+    assert by["presentation"] == [] and [p["name"] for p in by["notice"]] == ["b.pdf"] and by["non_payment"][0]["cue"] == "not paid"
+
+
+def test_a_pointer_reaches_no_other_ingredient_and_the_lines_claim_nothing_about_the_papers() -> None:
+    for s in (G.POINTER_HEADING, G.POINTER_LINE, G.NO_POINTER_LINE):
+        assert G.barred_in(s) == []
+        low = s.lower()
+        assert not any(w in low for w in ("proves", "shows that", "established", "satisfied", "made out", "valid"))
+    assert "not a finding" in G.POINTER_LINE and "does not mean" in G.NO_POINTER_LINE
+
+
+def test_every_ingredient_has_cues_and_every_cue_is_lower_case_text() -> None:
+    a = G.load_asset()
+    for i in a["ingredients"]:
+        assert i["cues"] and all(c == c.casefold() and c.strip() == c and c for c in i["cues"]), i["id"]
