@@ -19,6 +19,7 @@ ALL_FLAG_KEYS = (
     "wf_s2_tabular_fact_table",
     "wf_b3_s138_checklist",
     "wf_a4_bail_drafting",
+    "wf_a6_cheque_case_check",
 )
 
 
