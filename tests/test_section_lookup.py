@@ -140,7 +140,8 @@ def test_a_hand_check_row_never_lists_a_mapping() -> None:
         r = _ask("IPC", sec)
         assert r["state"] in ("check_both", "no_match") and r["new"] == [], sec
         if r["state"] == "check_both":
-            assert r["line"] == L.load_assets()["strings"]["b1_check_old_only"]
+            S = L.load_assets()["strings"]
+            assert r["line"] == (S["b1_check_old_only"] if r["old"]["held"] else S["b1_body_not_held"])
 
 
 def test_a_deleted_section_says_the_table_shows_no_corresponding_section() -> None:
@@ -349,7 +350,12 @@ def test_the_side_by_side_line_is_used_only_when_a_new_text_is_listed_for_every_
                 continue
             a = _ask(t["old_code"], r["old_id"].split("Section ")[1])
             if a["state"] == "check_both":
-                assert a["line"] == (S["b1_check_both"] if a["new"] else S["b1_check_old_only"]), r["old_id"]
+                want = (
+                    (S["b1_check_both"] if a["old"]["held"] else S["b1_check_new_only"])
+                    if a["new"]
+                    else (S["b1_check_old_only"] if a["old"]["held"] else S["b1_body_not_held"])
+                )
+                assert a["line"] == want, r["old_id"]
 
 
 def test_a_missing_required_string_is_rejected() -> None:
@@ -357,3 +363,20 @@ def test_a_missing_required_string_is_rejected() -> None:
     del mp["strings_pending_R1"]["b1_check_old_only"]
     with pytest.raises(L.AssetChanged):
         L.build_assets(mp, ip, new)
+
+
+def test_each_of_the_four_check_both_cases_has_its_own_single_line() -> None:
+    S = L.load_assets()["strings"]
+    seen: dict[str, str] = {}
+    mp, _ip, _new = _raw()
+    for t in mp["tables"].values():
+        for r in t["rows"]:
+            a = _ask(t["old_code"], r["old_id"].split("Section ")[1])
+            if a["state"] == "check_both":
+                seen[("new" if a["new"] else "nonew") + ("_old" if a["old"]["held"] else "_noold")] = a["line"]
+    assert seen == {
+        "new_old": S["b1_check_both"],
+        "nonew_old": S["b1_check_old_only"],
+        "new_noold": S["b1_check_new_only"],
+        "nonew_noold": S["b1_body_not_held"],
+    }

@@ -27,7 +27,7 @@ UNAVAILABLE = "The section look-up is not available just now."
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "section_lookup"
 NYAYA_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: sha256 of the two shipped files: a changed file fails closed (503) until the pin and the tests are updated on purpose
-PIN_MAPPING = "6b8f516276ebfe1c0229c0b68a3b433493bd2afcec4e9c0edfe0ca91a2d8809e"
+PIN_MAPPING = "ec2e7e7efd35bf5526b1c3b6209e1a7cbd4d0a5a7e8c100dc8a95dde06517cad"
 PIN_IPC_BODIES = "86a46ccba17bc16cf6c2abc2353122c8b90c489a855bca10fba2c28a5345c7db"
 REQUIRED_STRINGS = frozenset(
     {
@@ -35,6 +35,7 @@ REQUIRED_STRINGS = frozenset(
         "b1_one_to_one",
         "b1_check_both",
         "b1_check_old_only",
+        "b1_check_new_only",
         "b1_no_match",
         "b1_not_in_table",
         "b1_lawyer",
@@ -201,8 +202,13 @@ def lookup(req: SectionLookupRequest, assets: dict[str, Any] | None = None) -> d
     # an unresolved or hand-check row never lists a section: the table's own cells are not trusted there
     if not row["hand_check_required"]:
         out["new"] = [_new(a, n, S) for n in row["new_ids"]]
-    # the line says "side by side" only when a new text is listed: an empty list gets R1's old-text-only line
-    out.update(state="check_both", line=S["b1_check_both"] if out["new"] else S["b1_check_old_only"])
+    # one line per answer, naming exactly which text(s) are on screen (R1's rule): "side by side" only when two texts are shown
+    old_held = out["old"]["held"]
+    if out["new"]:
+        line = S["b1_check_both"] if old_held else S["b1_check_new_only"]
+    else:
+        line = S["b1_check_old_only"] if old_held else S["b1_body_not_held"]
+    out.update(state="check_both", line=line)
     return out
 
 
