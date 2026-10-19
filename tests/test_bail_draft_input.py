@@ -180,3 +180,11 @@ def test_the_request_bounds_the_charged_sections() -> None:
     for bad in (["x" * 61], [" "], ["IPC 1"] * 31):
         with pytest.raises(ValidationError):
             req(charged_sections=bad)
+
+
+def test_the_two_sensitive_referral_lines_are_r1s_exactly_and_do_not_tell_the_lawyer_to_refer_to_a_lawyer():
+    import hashlib
+
+    h = lambda s: hashlib.sha256(s.encode()).hexdigest()[:16]  # noqa: E731
+    assert h(I.REFER_SENSITIVE) == "fe6d7c5868d8b680" and h(I.REFER_SENSITIVE_SECTION) == "e13051d73d4ba4ec"
+    assert "Refer it to a lawyer" not in I.REFER_SENSITIVE + I.REFER_SENSITIVE_SECTION

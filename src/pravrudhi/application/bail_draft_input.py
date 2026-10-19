@@ -44,10 +44,10 @@ def check_declaration(value: Any) -> str:
 
 
 DRAFT_LABEL = "A first draft for a lawyer to rewrite. A lawyer decides what to use."
-REFER_SENSITIVE = "This matter is marked sensitive, so no draft was made. Refer it to a lawyer."
+REFER_SENSITIVE = "This matter is marked sensitive, so no draft was made."  # R1 fe6d7c5868d8b680: the caller is the lawyer
 REFER_SENSITIVE_SECTION = (
     "A section you listed is one this draft tool does not handle (trafficking, sexual offences or an offence against a child), "
-    "so no draft was made. Refer it to a lawyer."
+    "so no draft was made."
 )
 REFER_NO_FACTS = "No fact was ticked as the applicant's side, so no draft was made."
 REFER_NO_FORUM = "A bail request needs the forum (trial court, or sessions court or High Court), so no draft was made."
