@@ -1,6 +1,6 @@
 {
  "version": 1,
- "note": "Slice 1 of the A5 review agenda: cheque dishonour under NI Act s.138 only. Tier 1 holds ONLY the statute's own words (each quote is checked to be a substring of the pinned s.138 text). Tier 2 is lawyer practice and is hidden while lawyer_confirmed is false. No paper is mapped to an ingredient. The lawyer confirms the paper list, its bases and the wording before launch (prabhasa-nyaya#972). The file-name fallback matches whole words and phrases (tokens split on non-alphanumerics); a name that fits two or more types is not typed. A hint word of ANOTHER type in the name makes the name ambiguous: hints never type a file by themselves. A hint-only entry (reply) has no phrases of its own: a name with reply, response or objection beside a notice phrase is a reply to the paper, not the paper, so it gets no type.",
+ "note": "Slice 1 of the A5 review agenda: cheque dishonour under NI Act s.138 only. Tier 1 holds ONLY the statute's own words (each quote is checked to be a substring of the pinned s.138 text). Tier 2 is lawyer practice and is hidden while lawyer_confirmed is false. No paper is mapped to an ingredient. The lawyer confirms the paper list, its bases and the wording before launch (prabhasa-nyaya#972). The file-name fallback matches whole words and phrases (tokens split on non-alphanumerics); a name that fits two or more types is not typed. A hint word of ANOTHER type in the name makes the name ambiguous: hints never type a file by themselves. A hint-only entry (reply) has no phrases of its own: a name with reply, response or objection beside a notice phrase is a reply to the paper, not the paper, so it gets no type. Each ingredient also carries `cues`: a closed list of words and phrases used ONLY to point at passages that contain them (a place to start reading, never a finding); a lawyer confirms, strikes or adds entries.",
  "offence": {
   "id": "s138_ni_act",
   "name": "Dishonour of a cheque (Negotiable Instruments Act, 1881, s.138)"
@@ -18,32 +18,104 @@
   {
    "id": "cheque_for_a_liability",
    "proviso": null,
-   "quote": "any cheque drawn by a person on an account maintained by him with a banker for payment of any amount of money to another person from out of that account for the discharge, in whole or in part, of any debt or other liability"
+   "quote": "any cheque drawn by a person on an account maintained by him with a banker for payment of any amount of money to another person from out of that account for the discharge, in whole or in part, of any debt or other liability",
+   "cues": [
+    "legally enforceable debt",
+    "enforceable debt",
+    "discharge of",
+    "in discharge",
+    "liability",
+    "loan",
+    "outstanding amount",
+    "balance amount",
+    "towards repayment"
+   ]
   },
   {
    "id": "returned_unpaid",
    "proviso": null,
-   "quote": "is returned by the bank unpaid, either because of the amount of money standing to the credit of that account is insufficient to honour the cheque or that it exceeds the amount arranged to be paid from that account by an agreement made with that bank"
+   "quote": "is returned by the bank unpaid, either because of the amount of money standing to the credit of that account is insufficient to honour the cheque or that it exceeds the amount arranged to be paid from that account by an agreement made with that bank",
+   "cues": [
+    "returned unpaid",
+    "returned by the bank",
+    "dishonoured",
+    "dishonour",
+    "funds insufficient",
+    "insufficient funds",
+    "return memo",
+    "returning memo",
+    "cheque returned",
+    "exceeds the arrangement",
+    "account closed",
+    "payment stopped"
+   ]
   },
   {
    "id": "presentation",
    "proviso": "(a)",
-   "quote": "the cheque has been presented to the bank within a period of six months from the date on which it is drawn or within the period of its validity, whichever is earlier"
+   "quote": "the cheque has been presented to the bank within a period of six months from the date on which it is drawn or within the period of its validity, whichever is earlier",
+   "cues": [
+    "presented",
+    "presentation",
+    "deposited",
+    "tendered for encashment",
+    "encashment",
+    "validity of the cheque",
+    "within six months",
+    "three months",
+    "six months"
+   ]
   },
   {
    "id": "notice",
    "proviso": "(b)",
-   "quote": "makes a demand for the payment of the said amount of money by giving a notice; in writing, to the drawer of the cheque, 3 [within thirty days] of the receipt of information by him from the bank regarding the return of the cheque as unpaid"
+   "quote": "makes a demand for the payment of the said amount of money by giving a notice; in writing, to the drawer of the cheque, 3 [within thirty days] of the receipt of information by him from the bank regarding the return of the cheque as unpaid",
+   "cues": [
+    "legal notice",
+    "demand notice",
+    "statutory notice",
+    "notice dated",
+    "notice of demand",
+    "demand for payment",
+    "within thirty days",
+    "thirty days",
+    "30 days",
+    "registered post",
+    "speed post"
+   ]
   },
   {
    "id": "non_payment",
    "proviso": "(c)",
-   "quote": "the drawer of such cheque fails to make the payment of the said amount of money to the payee or, as the case may be, to the holder in due course of the cheque, within fifteen days of the receipt of the said notice"
+   "quote": "the drawer of such cheque fails to make the payment of the said amount of money to the payee or, as the case may be, to the holder in due course of the cheque, within fifteen days of the receipt of the said notice",
+   "cues": [
+    "failed to pay",
+    "fails to pay",
+    "failed to make the payment",
+    "did not pay",
+    "no payment",
+    "non-payment",
+    "non payment",
+    "within fifteen days",
+    "fifteen days",
+    "15 days",
+    "despite notice",
+    "has not paid",
+    "not paid"
+   ]
   },
   {
    "id": "explanation",
    "proviso": "Explanation",
-   "quote": "debt of other liability means a legally enforceable debt or other liability"
+   "quote": "debt of other liability means a legally enforceable debt or other liability",
+   "cues": [
+    "legally enforceable",
+    "enforceable debt",
+    "time barred",
+    "time-barred",
+    "security cheque",
+    "as security"
+   ]
   }
  ],
  "tier_statute": [
