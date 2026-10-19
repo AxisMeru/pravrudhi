@@ -251,11 +251,16 @@ _SENSITIVE_WORDS = re.compile(
     r"juvenile|child (?:of (?:\d{1,2}|" + _WORDS_ALT + r")|abuse\w*|labou?r|victim|pornograph\w+)|traffick\w+|prostitut\w+|bonded labou?r|sold the (?:girl|boy|child)|obscene|unnatural|non[- ]?consensual|"
     r"forced himself|kidnap\w*|lawful guardian\w*|molest\w*|outrag\w+ (?:the )?modesty|"
     r"(?:girl|boy)s?\b.{0,24}\b(?:aged|age of|below|under)|(?:below|under|less than) (?:the age of )?(?:18|eighteen)(?: years)?|"
-    r"(?:age of|aged) (?:\d{1,2}|" + _WORDS_ALT + r"))\b",
+    r"(?:complainant|victim|witness|informant|accused|co-accused)(?:'s|\u2019s|s')?\s+(?:minor|young|juvenile|\w+[- ]year[- ]old)\s+"
+    r"(?:daughter|son|child|girl|boy|niece|nephew|sister|brother))\b",
     re.I,
 )
 #: "15 year old", "eleven-year-old": an age under 18 (not "12-year-old son": the applicant's own child, Track B's near-miss).
-_YOUNG_AGE = re.compile(rf"\b(\d{{1,2}}|{_WORDS_ALT})[- ]year[- ]old\b(?!\s+son\b)", re.I)
+_YOUNG_AGE = re.compile(
+    rf"\b(?:(?:aged?|age of)\s+(\d{{1,2}}|{_WORDS_ALT})\b|(\d{{1,2}}|{_WORDS_ALT})(?:[- ]years?[- ]old|\s+years?\s+of\s+age)\b"
+    r"(?!\s+(?:son|daughter|child|children)\b))",
+    re.I,
+)
 
 
 class _SensitiveWords:
@@ -266,7 +271,7 @@ class _SensitiveWords:
         if (m := _SENSITIVE_WORDS.search(text)) is not None:
             return m
         for m in _YOUNG_AGE.finditer(text):
-            tok = m.group(1).lower()
+            tok = (m.group(1) or m.group(2)).lower()
             if (int(tok) if tok.isdigit() else _NUM_WORDS.get(tok, 99)) < 18:
                 return m
         return None

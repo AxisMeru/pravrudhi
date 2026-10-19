@@ -654,8 +654,8 @@ def test_the_real_table_is_found_when_the_route_layer_is_present():
 _MUST_REFER = ["sexually assaulted", "15 year old", "juvenile", "taken from her lawful guardian", "sexual abuse of the girl", "below 18 years", "gangrape",
                "trafficked for prostitution", "forced into prostitution", "bonded labour", "sold the girl", "under the age of 18", "unnatural offences",
                "obscene photographs", "child of 12", "kidnapped a minor", "forced himself", "non-consensual intercourse", "eleven-year-old",
-               "minor girl aged 14", "prosecutrix", "FIR alleges rape", "molesting", "outraging modesty", "gang-rape", "victim is a minor"]  # fmt: skip
-_MUST_NOT = ["minor injuries", "a minority stake in the firm", "my 12-year-old son", "the tenant paid the rent", "a 40-year-old shopkeeper"]
+               "minor girl aged 14", "The applicant is 17 years old", "the accused was 16 years of age", "the complainant's minor daughter was with her", "the victim's 9-year-old son", "prosecutrix", "FIR alleges rape", "molesting", "outraging modesty", "gang-rape", "victim is a minor"]  # fmt: skip
+_MUST_NOT = ["minor injuries", "a minority stake in the firm", "my 12-year-old son", "the tenant paid the rent", "a 40-year-old shopkeeper", "the applicant is 40 years old", "aged 52", "the applicant's 12-year-old daughter", "he is 18 years old"]
 
 
 def test_the_fact_wording_backstop_refers_every_sensitive_wording_and_none_of_the_near_misses():
