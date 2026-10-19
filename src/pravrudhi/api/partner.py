@@ -2564,10 +2564,10 @@ def build_partner_router(
         _a2_on = _a2_delete = False
     if _a2_delete:
         _a2_cfg_eff = _a2_cfg or _a2c.MatterSpansConfig()
-        from pravrudhi.application import matter_objectstore as _a2o
+        from pravrudhi.application import matter_store_factory as _a2f
 
-        _a2_obj = _a2o.object_store_settings()  # object store named: matters live there, `_a2_dir` is a cache
-        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff) if _a2_obj is None else _a2o.make_store(_a2_dir, _a2_cfg_eff, _a2_obj)
+        # a folder, an object store, or the refusing store (503, no write); with A2 off only the delete route exists
+        _a2_store = _a2f.open_store(engine_root, _a2_cfg_eff, delete_only=not _a2_on)
         _a2_state: dict[str, Any] = {}
         _a2_lock = threading.Lock()
 
@@ -2770,10 +2770,10 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _a3.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 out = _a3.chronology_for_matter(
-                    _Store(_a3m.store_dir(engine_root), a2_cfg), tenant, req.matter_id, _a3_cfg, run["run_id"]
+                    _Store(engine_root, a2_cfg), tenant, req.matter_id, _a3_cfg, run["run_id"]
                 )
             except Exception as e:
                 status = getattr(e, "status_code", None)
@@ -2884,9 +2884,9 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _a5.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
-                out = _a5.agenda_for_matter(_Store(_a5m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], _a5_owners)
+                out = _a5.agenda_for_matter(_Store(engine_root, a2_cfg), tenant, req, run["run_id"], _a5_owners)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -2987,11 +2987,11 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _s3.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
                 idx = citation_index_path or (Path(env_path) if env_path else None)
-                out = _s3.agenda_for_matter(_Store(_s3m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], idx)
+                out = _s3.agenda_for_matter(_Store(engine_root, a2_cfg), tenant, req, run["run_id"], idx)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -3106,7 +3106,7 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _s1.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
                 path = citation_index_path or (Path(env_path) if env_path else None)
@@ -3121,7 +3121,7 @@ def build_partner_router(
                         return result.result, compared
 
                     look = _s1_look
-                out = _s1.sweep_for_matter(_Store(_s1m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], _s1_cfg, look)
+                out = _s1.sweep_for_matter(_Store(engine_root, a2_cfg), tenant, req, run["run_id"], _s1_cfg, look)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -3224,10 +3224,10 @@ def build_partner_router(
                 _intake_audit(metered, "intake", 503, run)
                 return coded_503(AGENT_AT_CAPACITY)
             try:
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 assert _s2_a2 is not None  # the route exists only when A2 is on
-                out = _s2.table_for_matter(_Store(_s2m.store_dir(engine_root), _s2_a2), tenant, req, run["run_id"], _s2_cfg)
+                out = _s2.table_for_matter(_Store(engine_root, _s2_a2), tenant, req, run["run_id"], _s2_cfg)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -3431,9 +3431,9 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _a6.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
-                out = _a6.check_for_matter(_Store(_a6m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"])
+                out = _a6.check_for_matter(_Store(engine_root, a2_cfg), tenant, req, run["run_id"])
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -3538,7 +3538,7 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _a7.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 sweep_runner: Callable[..., dict[str, Any]] | None = None
                 if _s1_cfg is not None:  # S1's own flag is on (its module and config were imported above)
@@ -3557,7 +3557,7 @@ def build_partner_router(
                             req_s1 = _s1.SweepRequest(matter_id=matter_id)
                             return _s1.sweep_for_matter(store, tnt, req_s1, run_id, _s1_cfg, _a7_look)
 
-                out = _a7.pack_for_matter(_Store(_a7m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], sweep_runner)
+                out = _a7.pack_for_matter(_Store(engine_root, a2_cfg), tenant, req, run["run_id"], sweep_runner)
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 if isinstance(status, int) and hasattr(e, "code"):
@@ -3663,10 +3663,10 @@ def build_partner_router(
                 if a2_cfg is None:
                     _intake_audit(metered, "intake", 409, run)
                     return JSONResponse(status_code=409, content={"detail": _a8.STORE_OFF, "error": "store_off"})
-                from pravrudhi.application.matter_spans import MatterStore as _Store
+                from pravrudhi.application.matter_store_factory import open_store as _Store
 
                 out = _a8.synopsis_for_request(
-                    _Store(_a8m.store_dir(engine_root), a2_cfg), tenant, req, _a8_cfg, run["run_id"], _a8b.shared_ceiling()
+                    _Store(engine_root, a2_cfg), tenant, req, _a8_cfg, run["run_id"], _a8b.shared_ceiling()
                 )
             except Exception as e:
                 status = getattr(e, "status_code", None)
