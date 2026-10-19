@@ -1,8 +1,10 @@
-# The 12 keyed B1 strings exactly as R1 signed them (R1 files B1_LIMITS_DRAFT 353c35f8bc96, B1_SOURCE_LINES ef893e7d2820 + addendum, B1_STRINGS_SIGN 0be8f6831ec8; the later file wins).
+# The 12 keyed B1 strings exactly as R1 signed them (R1 files B1_LIMITS_DRAFT 353c35f8bc96, B1_SOURCE_LINES ef893e7d2820 + addendum, B1_STRINGS_SIGN 0be8f6831ec8, B1_EMPTY_NEW_LINE 42c35cc11337, B1_NEW_ONLY_LINE cfd28dd14ead; the later file wins).
 # key | sha256[:16] | text
 b1_bns_source | b1abd5288f60d06e | BNS and BNSS text is from India Code (Legislative Department, Ministry of Law and Justice).
 b1_body_not_held | 685eaaf2be1f081e | The text of this section is not held. Check the official text.
 b1_check_both | 050b010f1064ee3e | The table does not match this section to one section. Check both official texts, shown side by side.
+b1_check_new_only | 026621ad3f9a5717 | The table lists a new section for this one, but the old text is not held. Only the new text is shown. Check the official texts.
+b1_check_old_only | 85dd838014b36ef5 | This section cannot be matched in the table. Only the old text is shown. Check the official texts.
 b1_ipc_currency | 50de073483bc751c | This copy may not show later amendments. Check the official text.
 b1_ipc_marks | 417ae571eb3282c2 | Amendment marks and footnotes are left out of this text.
 b1_ipc_source | 9fd9450287e9c454 | IPC text is from a copy of the Act published by the Ministry of Home Affairs, file dated January 2007.

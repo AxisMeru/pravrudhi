@@ -27,8 +27,25 @@ UNAVAILABLE = "The section look-up is not available just now."
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "section_lookup"
 NYAYA_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: sha256 of the two shipped files: a changed file fails closed (503) until the pin and the tests are updated on purpose
-PIN_MAPPING = "aa1b5be41b4aaa6d3aa8f1e550aa76151b0840e47b5383a03e2a48c49e987f0a"
+PIN_MAPPING = "ec2e7e7efd35bf5526b1c3b6209e1a7cbd4d0a5a7e8c100dc8a95dde06517cad"
 PIN_IPC_BODIES = "86a46ccba17bc16cf6c2abc2353122c8b90c489a855bca10fba2c28a5345c7db"
+REQUIRED_STRINGS = frozenset(
+    {
+        "b1_source",
+        "b1_one_to_one",
+        "b1_check_both",
+        "b1_check_old_only",
+        "b1_check_new_only",
+        "b1_no_match",
+        "b1_not_in_table",
+        "b1_lawyer",
+        "b1_ipc_source",
+        "b1_ipc_currency",
+        "b1_ipc_marks",
+        "b1_body_not_held",
+        "b1_bns_source",
+    }
+)
 KINDS = frozenset({"one_to_one", "merged", "split", "deleted", "new_subsection", "needs_review_blank_cell"})
 CODES = ("IPC", "CrPC")
 _TABLE = {"IPC": "IPC_to_BNS", "CrPC": "CrPC_to_BNSS"}
@@ -88,6 +105,8 @@ def build_assets(
 ) -> dict[str, Any]:
     """Validate the three assets against each other and return the look-up structure. Raises AssetChanged on ANY disagreement (pure: the tests call it)."""
     strings = {k: v["text"] for k, v in mapping["strings_pending_R1"].items()}
+    if not set(strings) >= REQUIRED_STRINGS:
+        raise AssetChanged("a required string is missing")
     for k, v in mapping["strings_pending_R1"].items():
         if hashlib.sha256(v["text"].encode()).hexdigest()[:16] != v["sha256_16"]:
             raise AssetChanged(f"string {k} does not match its recorded hash")
@@ -180,11 +199,16 @@ def lookup(req: SectionLookupRequest, assets: dict[str, Any] | None = None) -> d
         n = row["new_ids"][0]
         out.update(state="one_to_one", line=S["b1_one_to_one"].replace("{new}", n.split("/", 1)[1]), new=[_new(a, n, S)])
         return out
-    out.update(state="check_both", line=S["b1_check_both"])
-    if not row[
-        "hand_check_required"
-    ]:  # an unresolved or hand-check row never lists a section: the table's own cells are not trusted there
+    # an unresolved or hand-check row never lists a section: the table's own cells are not trusted there
+    if not row["hand_check_required"]:
         out["new"] = [_new(a, n, S) for n in row["new_ids"]]
+    # one line per answer, naming exactly which text(s) are on screen (R1's rule): "side by side" only when two texts are shown
+    old_held = out["old"]["held"]
+    if out["new"]:
+        line = S["b1_check_both"] if old_held else S["b1_check_new_only"]
+    else:
+        line = S["b1_check_old_only"] if old_held else S["b1_body_not_held"]
+    out.update(state="check_both", line=line)
     return out
 
 

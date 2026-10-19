@@ -19539,6 +19539,14 @@
   "b1_bns_source": {
    "text": "BNS and BNSS text is from India Code (Legislative Department, Ministry of Law and Justice).",
    "sha256_16": "b1abd5288f60d06e"
+  },
+  "b1_check_old_only": {
+   "text": "This section cannot be matched in the table. Only the old text is shown. Check the official texts.",
+   "sha256_16": "85dd838014b36ef5"
+  },
+  "b1_check_new_only": {
+   "text": "The table lists a new section for this one, but the old text is not held. Only the new text is shown. Check the official texts.",
+   "sha256_16": "026621ad3f9a5717"
   }
  },
  "text_policy": "mapping rows hold refs and the verbatim old-cell title only; section bodies live in separate assets joined by id; nothing from the secondary table is customer text"
