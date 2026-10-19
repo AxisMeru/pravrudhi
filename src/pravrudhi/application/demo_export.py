@@ -695,8 +695,8 @@ def _windows(t: str) -> set[int]:
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "nyaya"
 
 #: Fewer documents than this and the backstop has nothing meaningful to compare against, which must not read as
-#: "clean": the write is refused instead (the shipped corpus alone is 1,609 provisions).
-MIN_CORPUS_DOCUMENTS = 1609
+#: "clean": the write is refused instead (the shipped corpus alone is 1,604 provisions).
+MIN_CORPUS_DOCUMENTS = 1604
 
 
 def unloaded_assets() -> list[str]:
