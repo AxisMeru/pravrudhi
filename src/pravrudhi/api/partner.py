@@ -3447,4 +3447,128 @@ def build_partner_router(
         )
         _a6.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
+    # --- A7 matter hearing pack: registered ONLY when partner_api.yaml sets wf_a7_matter_hearing_pack to true. It reads A2's
+    # stored papers (tenant-checked) and runs A3's chronology and A5's papers agenda as functions, plus S1's citation sweep ONLY
+    # when the S1 flag is also on and the citation index is available; it needs A2 ON (wf_a2_span_index true, not just a store
+    # folder). A3's and A5's own flags are NOT required. Off (the default) adds nothing: no module import, no route, no limiter,
+    # no thread, no read. Own limiters and slots; audit mode "intake" with a "hearing-" run id.
+    try:
+        _a7_cfg = None
+        if _flags.get("wf_a7_matter_hearing_pack") is True:
+            from pravrudhi.application.matter_hearing_pack_config import load_matter_hearing_pack_config as _load_a7
+
+            _a7_cfg = _load_a7(engine_root)
+        if _a7_cfg is not None:
+            from pravrudhi.application import matter_hearing_pack_route as _a7
+            from pravrudhi.application import matter_spans_config as _a7m
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("matter hearing pack unavailable; it stays off", exc_info=True)
+        _a7_cfg = None
+    if _a7_cfg is not None:
+        _a7_state: dict[str, Any] = {}
+        _a7_lock = threading.Lock()
+
+        def _a7_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter]:
+            with _a7_lock:
+                if not _a7_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    ip_limit = getattr(cfg, "slice_ip_limit", cfg.rate_limit_per_minute)  # the slice limit once it exists (#534)
+                    _a7_state["ip"] = RateLimiter(ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a7_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a7_state["slots"] = ConcurrencyLimiter(_a7_cfg.max_concurrent)
+                return _a7_state["ip"], _a7_state["key"], _a7_state["slots"]
+
+        def _a7_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, str] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Stored papers are offered only to signed-in users"})
+            tenant = f"org:{principal.org_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots = _a7_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, tenant
+
+        def hearing_pack_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a7_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            cfg, slots, tenant = admitted
+            run = {"run_id": f"hearing-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                a2_cfg = _a7m.load_matter_spans_config(engine_root)  # "A2 on" = its flag in the config, never the store folder
+                if a2_cfg is None:
+                    _intake_audit(metered, "intake", 409, run)
+                    return JSONResponse(status_code=409, content={"detail": _a7.STORE_OFF, "error": "store_off"})
+                from pravrudhi.application.matter_spans import MatterStore as _Store
+
+                sweep_runner: Callable[..., dict[str, Any]] | None = None
+                if _s1_cfg is not None:  # S1's own flag is on (its module and config were imported above)
+                    env_path = os.environ.get("PRAVRUDHI_CITATION_INDEX")
+                    path = citation_index_path or (Path(env_path) if env_path else None)
+                    if path is not None and Path(path).is_file():
+                        index_path = Path(path)
+
+                        def _a7_look(citation_text: str) -> tuple[str, bool]:
+                            result, _cov, compared = _lookup(
+                                index_path, VerifyCitationRequest(citation=citation_text), cfg.verify_timeout_s
+                            )
+                            return result.result, compared
+
+                        def sweep_runner(store: Any, tnt: str, matter_id: str, run_id: str) -> dict[str, Any]:  # noqa: F811
+                            req_s1 = _s1.SweepRequest(matter_id=matter_id)
+                            return _s1.sweep_for_matter(store, tnt, req_s1, run_id, _s1_cfg, _a7_look)
+
+                out = _a7.pack_for_matter(_Store(_a7m.store_dir(engine_root), a2_cfg), tenant, req, run["run_id"], sweep_runner)
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"detail": str(e), "error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        hearing_pack_ep.__annotations__["req"] = _a7.MatterHearingPackRequest  # a local import is not visible to an annotation
+        router.add_api_route(
+            "/matter-hearing-pack", hearing_pack_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_a7.FixedValidationRoute,
+        )
+        _a7.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
     return router
