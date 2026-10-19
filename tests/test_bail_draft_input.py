@@ -127,7 +127,7 @@ def test_a_listed_section_on_the_sensitive_list_refers_the_matter(sections: list
 
 @pytest.mark.parametrize(
     "sections",
-    [[], ["302 IPC"], ["IPC 420"], ["BNS 318"], ["BNS 103"], ["34 IPC"], ["IPC 363"], ["BNS 363"], ["Section 138 NI Act"], ["420"], ["IPC 37"], ["BNS 6"], ["IPC 3760"]],
+    [[], ["302 IPC"], ["IPC 420"], ["BNS 318"], ["BNS 103"], ["34 IPC"], ["BNS 363"], ["Section 138 NI Act"], ["420"], ["IPC 37"], ["BNS 6"], ["IPC 3760"], ["NDPS s.8"], ["Section 8 NDPS Act"], ["IT Act 66"], ["Information Technology Act section 43"], ["ITA 66C"], ["Section 3"], ["Section 67B"]],
 )
 def test_other_sections_do_not_refer(sections: list[str]) -> None:
     assert I.sensitive_section(sections) is False
@@ -138,6 +138,26 @@ def test_the_act_named_decides_which_list_a_number_is_checked_against() -> None:
     assert I.sensitive_section(["BNS 370"]) is False and I.sensitive_section(["IPC 370"]) is True  # 370 is trafficking in the IPC only
     assert I.sensitive_section(["IPC 143"]) is False and I.sensitive_section(["BNS 143"]) is True  # 143 is trafficking in the BNS only
     assert I.sensitive_section(["370"]) is True and I.sensitive_section(["143"]) is True  # no Act named: either list refers
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [["IPC 377"], ["IPC 363"], ["IPC 364A"], ["BNS 137"], ["BNS 140"], ["377 IPC"], ["IT Act 67B"], ["Section 67A of the Information Technology Act"], ["ITPA s.3"],
+     ["Immoral Traffic (Prevention) Act section 5"], ["Immoral Traffic (Prevention) Act"], ["itpa"], ["IPC 363, 420"]],
+)
+def test_the_lawyer_sheet_additions_refer(sections: list[str]) -> None:
+    assert I.sensitive_section(sections) is True
+    assert I.parse_case(req(charged_sections=sections), 40) == I.Referral("sensitive_section", I.REFER_SENSITIVE_SECTION)
+
+
+def test_a_named_only_act_counts_only_when_it_is_named_and_the_act_name_alone_refers_for_pocso_and_itpa() -> None:
+    t = I.load_sensitive()
+    assert t["named_only"] == ["ITA", "ITPA"] and set(t["refer_by_name"]) == {"POCSO", "ITPA"}
+    assert I.sensitive_section(["Section 5"]) is False and I.sensitive_section(["ITPA 5"]) is True and I.sensitive_section(["NDPS 5"]) is False
+    assert I.sensitive_section(["IT Act 66"]) is False and I.sensitive_section(["IT Act 67A"]) is True  # a listed Act refers on its listed sections only
+    assert I.sensitive_section(["POCSO"]) is True and I.sensitive_section(["Protection of Children from Sexual Offences Act s.4"]) is True
+    old = {k: v for k, v in t.items() if k not in ("refer_by_name", "named_only")}  # a table without the new keys still refers on POCSO
+    assert I.sensitive_section(["POCSO"], old) is True and I.sensitive_section(["IPC 363"], old) is True
 
 
 def test_the_trafficking_tag_refers_like_the_other_sensitive_tags_and_comes_first() -> None:

@@ -185,21 +185,23 @@ def load_sensitive(path: Path | None = None) -> dict[str, Any]:
 
 
 def sensitive_section(sections: list[str], table: dict[str, Any] | None = None) -> bool:
-    """True when any section the lawyer wrote is on the sensitive list. The Act is read from the words ("IPC", "BNS", "POCSO" and their long
-    names); a section with no Act named is checked against BOTH lists (the cautious reading). Sub-clauses are ignored: 376(2)(n) is 376."""
+    """True when any section the lawyer wrote is on the sensitive list. The Act is read from the words ("IPC", "BNS", "POCSO", "IT Act", "ITPA" and
+    their long names); a section with no Act named is checked against the IPC and BNS lists (the cautious reading; the table's `named_only` Acts count only when named). Sub-clauses are ignored: 376(2)(n) is 376."""
     t = table or load_sensitive()
     acts = {a: {x.upper() for x in lst} for a, lst in t["acts"].items()}
     aliases = {a: tuple(w.casefold() for w in ws) for a, ws in t["aliases"].items()}
+    by_name = set(t.get("refer_by_name", ["POCSO"]))
+    bare = [s for a, s in acts.items() if a not in set(t.get("named_only", []))]
     for raw in sections:
         low = raw.casefold()
         named = {a for a, ws in aliases.items() if any(re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low) for w in ws)}
-        if "POCSO" in named:
+        if named & by_name:
             return True
         m = _SECTION_NO.search(raw)
         if m is None:
             continue
         number = m.group(1).upper()
-        pool = [acts[a] for a in (named & acts.keys())] or list(acts.values())
+        pool = [acts[a] for a in (named & acts.keys())] or bare
         if any(number in s for s in pool):
             return True
     return False

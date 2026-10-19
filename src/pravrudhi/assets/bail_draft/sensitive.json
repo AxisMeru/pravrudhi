@@ -1,20 +1,30 @@
 {
   "version": 1,
   "confirmed_by_lawyer": false,
-  "note": "Sections that refer a bail-drafting request to a lawyer with no draft (trafficking, sexual offences, offences against a child). A lawyer confirms, strikes or adds entries. Section numbers are checked against the held India Code texts (BNS) and the held IPC asset; a request names its sections itself, the engine infers none.",
+  "note": "Sections that refer a bail-drafting request to a lawyer with no draft (trafficking, sexual offences, offences against a child). A lawyer confirms, strikes or adds entries. Section numbers are checked against the held India Code texts (BNS) and the held IPC asset; a request names its sections itself, the engine infers none. `refer_by_name`: an Act whose mere name refers (no section needed). `named_only`: an Act whose section numbers count only when that Act is named (a bare number is read against the IPC and BNS lists only).",
   "acts": {
     "IPC": [
-      "354", "354A", "354B", "354C", "354D", "363A", "366", "366A", "366B", "370", "370A", "372", "373", "375", "376", "376A", "376AB",
-      "376B", "376C", "376D", "376DA", "376DB", "376E", "509"
+      "354", "354A", "354B", "354C", "354D", "363", "363A", "364A", "366", "366A", "366B", "370", "370A", "372", "373", "375", "376",
+      "376A", "376AB", "376B", "376C", "376D", "376DA", "376DB", "376E", "377", "509"
     ],
     "BNS": [
-      "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "74", "75", "76", "77", "78", "79", "95", "96", "98", "99", "141",
-      "143", "144"
+      "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "74", "75", "76", "77", "78", "79", "95", "96", "98", "99", "137", "140",
+      "141", "143", "144"
+    ],
+    "ITA": [
+      "67A", "67B"
+    ],
+    "ITPA": [
+      "3", "4", "5", "6", "7", "8", "9"
     ]
   },
   "aliases": {
     "IPC": ["ipc", "indian penal code"],
     "BNS": ["bns", "bharatiya nyaya sanhita"],
-    "POCSO": ["pocso", "protection of children from sexual offences"]
-  }
+    "POCSO": ["pocso", "protection of children from sexual offences"],
+    "ITA": ["it act", "information technology act"],
+    "ITPA": ["itpa", "immoral traffic (prevention) act", "immoral traffic prevention act"]
+  },
+  "refer_by_name": ["POCSO", "ITPA"],
+  "named_only": ["ITA", "ITPA"]
 }
