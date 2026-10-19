@@ -106,3 +106,8 @@ audit_retention_s: 7776000
 # check reads ready) or turns this check off for that window, then waits about 5 s (judge_health_ttl_s) for the cache.
 judge_health_check: true
 judge_health_ttl_s: 5
+
+# B3 (s.138 cheque checklist, flag wf_b3_s138_checklist): ON. Switch-on gate ALL_PASS 19 Oct 2026 (Track A, record
+# nr_gate/runs/switchon_b3_4f27fff9/report.json sha12 87616d9255c1), R1 product_line_check 414fceaa631afe4e. The kill is
+# this key false (or removed): the route is then a framework 404 again. Only the boolean true turns it on.
+wf_b3_s138_checklist: true
