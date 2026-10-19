@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +33,7 @@ KINDS = frozenset({"one_to_one", "merged", "split", "deleted", "new_subsection",
 CODES = ("IPC", "CrPC")
 _TABLE = {"IPC": "IPC_to_BNS", "CrPC": "CrPC_to_BNSS"}
 _NEW_BODY_FILE = {"BNS": "bns_sections.json", "BNSS": "bnss_sections.json"}
-SECTION_RE = r"^[0-9]{1,3}[A-Za-z]{0,3}$"
+SECTION_RE = r"[0-9]{1,3}[A-Za-z]{0,3}"  # matched with fullmatch: a trailing newline is not a section
 
 
 class AssetChanged(Exception):
@@ -112,8 +111,7 @@ def build_assets(
     return {"strings": strings, "rows": rows, "ipc": held, "new": new_bodies}
 
 
-@lru_cache(maxsize=1)
-def load_assets() -> dict[str, Any]:
+def _load() -> dict[str, Any]:
     mp, ip = ASSET_DIR / "corresponding_sections_v1.json", ASSET_DIR / "ipc_bodies_v1.json"
     if _sha(mp) != PIN_MAPPING or _sha(ip) != PIN_IPC_BODIES:
         raise AssetChanged("a shipped asset does not match its pin")
@@ -121,6 +119,30 @@ def load_assets() -> dict[str, Any]:
     for code, fn in _NEW_BODY_FILE.items():
         new[code] = {d["id"]: d for d in json.loads((NYAYA_DIR / fn).read_text(encoding="utf-8"))["documents"]}
     return build_assets(json.loads(mp.read_text(encoding="utf-8")), json.loads(ip.read_text(encoding="utf-8")), new)
+
+
+_RESULT: list[
+    Any
+] = []  # one entry once loaded: the assets, or the AssetChanged that a failed pin or check raised (a failure is cached, not re-hashed per request)
+
+
+def load_assets() -> dict[str, Any]:
+    if not _RESULT:
+        try:
+            _RESULT.append(_load())
+        except AssetChanged as e:
+            _RESULT.append(e)
+    got = _RESULT[0]
+    if isinstance(got, AssetChanged):
+        raise AssetChanged(str(got))
+    return got  # type: ignore[no-any-return]
+
+
+def _clear_cache() -> None:
+    _RESULT.clear()
+
+
+load_assets.cache_clear = _clear_cache  # type: ignore[attr-defined]  # the tests reset it after changing a pin
 
 
 def _body(doc: dict[str, Any] | None, source_keys: tuple[str, ...], strings: dict[str, str]) -> dict[str, Any]:
@@ -138,7 +160,7 @@ def _body(doc: dict[str, Any] | None, source_keys: tuple[str, ...], strings: dic
 def lookup(req: SectionLookupRequest, assets: dict[str, Any] | None = None) -> dict[str, Any]:
     """The look-up answer. Raises ValueError for an unknown code or a malformed section (the route maps both to the fixed 422); never echoes the input."""
     a = assets if assets is not None else load_assets()
-    if req.code not in CODES or not re.match(SECTION_RE, req.section):
+    if req.code not in CODES or not re.fullmatch(SECTION_RE, req.section):
         raise ValueError("bad request")
     sec = req.section.upper()
     S = a["strings"]

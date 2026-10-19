@@ -1,0 +1,14 @@
+# The 12 keyed B1 strings exactly as R1 signed them (R1 files B1_LIMITS_DRAFT 353c35f8bc96, B1_SOURCE_LINES ef893e7d2820 + addendum, B1_STRINGS_SIGN 0be8f6831ec8; the later file wins).
+# key | sha256[:16] | text
+b1_bns_source | b1abd5288f60d06e | BNS and BNSS text is from India Code (Legislative Department, Ministry of Law and Justice).
+b1_body_not_held | 685eaaf2be1f081e | The text of this section is not held. Check the official text.
+b1_check_both | 050b010f1064ee3e | The table does not match this section to one section. Check both official texts, shown side by side.
+b1_ipc_currency | 50de073483bc751c | This copy may not show later amendments. Check the official text.
+b1_ipc_marks | 417ae571eb3282c2 | Amendment marks and footnotes are left out of this text.
+b1_ipc_source | 9fd9450287e9c454 | IPC text is from a copy of the Act published by the Ministry of Home Affairs, file dated January 2007.
+b1_lawyer | b560afcfe8b59b5c | Check the official texts before you rely on this. A lawyer decides.
+b1_no_match | 6775bdd2a737d8de | The table shows no corresponding section for this one. Check the official texts.
+b1_not_in_table | 94b19d596e22356b | This section is not in the table. Check the official texts.
+b1_one_to_one | bcc74e43b49b0165 | The table matches this section to one section: {new}.
+b1_source | 4c970072403634ba | The sections shown come from the Corresponding Section Table that the National Crime Records Bureau (Ministry of Home Affairs) appends to the official Act texts, marked "For reference only".
+b1_text_cut | d3e55d292d5ec26a | Showing the start of the text. Open the official text for the rest.

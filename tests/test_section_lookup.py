@@ -267,3 +267,47 @@ def test_the_bns_source_line_is_the_one_r1_signed() -> None:
     import hashlib
 
     assert hashlib.sha256(v.encode()).hexdigest()[:16] == "b1abd5288f60d06e"
+
+
+def test_a_trailing_newline_or_space_is_not_a_section_and_is_not_echoed() -> None:
+    for bad in ("302\n", "302 ", " 302", "302\r\n", "\n302"):
+        with pytest.raises(ValueError):
+            _ask("IPC", bad)
+
+
+def test_a_trailing_newline_over_the_route_gets_the_fixed_422_without_echo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    c = _client(tmp_path, monkeypatch, on=True)
+    r = c.post(PATH, json={"code": "IPC", "section": "302\n"})
+    assert r.status_code == 422 and r.json() == L.BAD_BODY
+
+
+def test_a_failed_asset_check_is_cached_so_a_bad_pin_does_not_rehash_every_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    L.load_assets.cache_clear()
+    monkeypatch.setattr(L, "PIN_MAPPING", "0" * 64)
+    calls: list[int] = []
+    real = L._sha
+    monkeypatch.setattr(L, "_sha", lambda p: (calls.append(1), real(p))[1])
+    for _ in range(5):
+        with pytest.raises(L.AssetChanged):
+            L.load_assets()
+    assert len(calls) <= 2  # the first request hashed (the mapping fails before the second file is read); the next four did not
+    L.load_assets.cache_clear()
+    monkeypatch.undo()
+    assert L.load_assets()["rows"]  # a clear reloads
+
+
+def test_the_asset_strings_are_exactly_the_ones_r1_signed() -> None:
+    """tests/fixtures/b1_r1_signed_strings.txt holds the 12 keyed strings as R1's files give them (key | sha256[:16] | text)."""
+    import hashlib
+
+    signed: dict[str, tuple[str, str]] = {}
+    for ln in (Path(__file__).parent / "fixtures" / "b1_r1_signed_strings.txt").read_text(encoding="utf-8").splitlines():
+        if ln and not ln.startswith("#"):
+            k, h, txt = (p.strip() for p in ln.split(" | ", 2))
+            assert hashlib.sha256(txt.encode()).hexdigest()[:16] == h, k
+            signed[k] = (h, txt)
+    mp, _ip, _new = _raw()
+    got = {k: (v["sha256_16"], v["text"]) for k, v in mp["strings_pending_R1"].items()}
+    assert got == signed
