@@ -66,9 +66,11 @@ _FLOATS = {
 _STRS = {"a4_base_url": "base_url", "a4_model": "model", "a4_api_key_env": "api_key_env"}
 
 
-def parse_bail_draft_config(body: Any) -> BailDraftConfig | None:
-    """The config for a parsed `partner_api.yaml` body, or None (off). Pure."""
-    if not isinstance(body, dict) or body.get(FLAG) is not True:
+def parse_drafting_fields(body: Any, flag: str, label: str = "bail drafting") -> BailDraftConfig | None:
+    """The drafting config (caps and the optional endpoint) for a parsed `partner_api.yaml` body and the flag that switches a drafting slice on,
+    or None (off). Pure. Every drafting slice (bail drafting, the synopsis and list of dates) reads the SAME `a4_*` keys: one endpoint, one set
+    of caps, one in-process day ceiling."""
+    if not isinstance(body, dict) or body.get(flag) is not True:
         return None
     values: dict[str, Any] = {}
     for key, (field, lo, hi) in _INTS.items():
@@ -76,7 +78,7 @@ def parse_bail_draft_config(body: Any) -> BailDraftConfig | None:
             continue
         raw = body[key]
         if isinstance(raw, bool) or not isinstance(raw, int) or not lo <= raw <= hi:
-            _logger.warning("%s must be a whole number from %s to %s, got %r: bail drafting stays OFF", key, lo, hi, raw)
+            _logger.warning("%s must be a whole number from %s to %s, got %r: %s stays OFF", key, lo, hi, raw, label)
             return None
         values[field] = raw
     for key, (ffield, flo, fhi) in _FLOATS.items():
@@ -84,7 +86,7 @@ def parse_bail_draft_config(body: Any) -> BailDraftConfig | None:
             continue
         raw = body[key]
         if isinstance(raw, bool) or not isinstance(raw, int | float) or not math.isfinite(raw) or not flo <= raw <= fhi:
-            _logger.warning("%s must be a number from %s to %s, got %r: bail drafting stays OFF", key, flo, fhi, raw)
+            _logger.warning("%s must be a number from %s to %s, got %r: %s stays OFF", key, flo, fhi, raw, label)
             return None
         values[ffield] = float(raw)
     for key, sfield in _STRS.items():
@@ -92,10 +94,15 @@ def parse_bail_draft_config(body: Any) -> BailDraftConfig | None:
             continue
         raw = body[key]
         if not isinstance(raw, str) or not raw.strip() or len(raw) > 300:
-            _logger.warning("%s must be a non-empty string of at most 300 characters: bail drafting stays OFF", key)
+            _logger.warning("%s must be a non-empty string of at most 300 characters: %s stays OFF", key, label)
             return None
         values[sfield] = raw.strip()
     return BailDraftConfig(**values)
+
+
+def parse_bail_draft_config(body: Any) -> BailDraftConfig | None:
+    """The config for a parsed `partner_api.yaml` body, or None (off). Pure."""
+    return parse_drafting_fields(body, FLAG)
 
 
 def load_bail_draft_config(root: Path) -> BailDraftConfig | None:

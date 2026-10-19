@@ -26,6 +26,7 @@ from pravrudhi.application import matter_spans_config as msc
 from pravrudhi.application import matter_sweep_config as swc
 from pravrudhi.application import quashing_config as qc
 from pravrudhi.application import s138_checklist_config as scc
+from pravrudhi.application import synopsis_dates_config as sdc
 from pravrudhi.application import tabular_config as tbc
 from tests.flag_peek_util import ALL_FLAG_KEYS
 from tests.test_api_partner import _agent, _proof_script
@@ -40,6 +41,7 @@ READER_MODULES = (
     "pravrudhi.application.quashing_config",
     "pravrudhi.application.matter_sweep_config",
     "pravrudhi.application.bail_draft_config",
+    "pravrudhi.application.synopsis_dates_config",
     "pravrudhi.application.matter_hearing_pack_config",
     "pravrudhi.application.cheque_case_config",
     "pravrudhi.application.tabular_config",
@@ -60,6 +62,8 @@ SLICE_MODULES = (
     "pravrudhi.application.bail_draft_input",
     "pravrudhi.application.bail_draft_route",
     "pravrudhi.application.bail_draft",
+    "pravrudhi.application.synopsis_dates",
+    "pravrudhi.application.synopsis_dates_route",
     "pravrudhi.application.matter_hearing_pack",
     "pravrudhi.application.matter_hearing_pack_route",
     "pravrudhi.application.cheque_case",
@@ -95,7 +99,7 @@ def test_the_peek_is_one_mapping_read_and_never_raises(tmp_path: Path) -> None:
 
 
 def test_the_flag_keys_the_router_peeks_are_the_modules_own_flag_constants() -> None:
-    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, swc.FLAG, tbc.FLAG, scc.FLAG, bdc.FLAG, ccc.FLAG, hpc.FLAG}
+    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, swc.FLAG, tbc.FLAG, scc.FLAG, bdc.FLAG, ccc.FLAG, hpc.FLAG, sdc.FLAG}
 
 
 def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,6 +162,7 @@ def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path:
         ("wf_b2_quashing_agenda", qc, "load_quashing_config"),
         ("wf_s1_matter_citation_sweep", swc, "load_sweep_config"),
         ("wf_a4_bail_drafting", bdc, "load_bail_draft_config"),
+        ("wf_a8_synopsis_list_of_dates", sdc, "load_synopsis_dates_config"),
         ("wf_a7_matter_hearing_pack", hpc, "load_matter_hearing_pack_config"),
         ("wf_a6_cheque_case_check", ccc, "load_cheque_case_config"),
         ("wf_s2_tabular_fact_table", tbc, "load_tabular_config"),
@@ -176,6 +181,7 @@ def test_a_flag_that_reads_true_calls_only_its_own_reader(
         (qc, "load_quashing_config"),
         (swc, "load_sweep_config"),
         (bdc, "load_bail_draft_config"),
+        (sdc, "load_synopsis_dates_config"),
         (hpc, "load_matter_hearing_pack_config"),
         (ccc, "load_cheque_case_config"),
         (tbc, "load_tabular_config"),
@@ -200,7 +206,7 @@ def test_a_flag_of_false_or_a_look_alike_calls_no_reader(tmp_path: Path, monkeyp
     monkeypatch.setattr(
         partner,
         "_peek_flags",
-        lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off", "n8", "n9", "n10"), strict=True)),
+        lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off", "n8", "n9", "n10", "n11"), strict=True)),
     )
     monkeypatch.setenv(msc.DIR_ENV, str(tmp_path / "no-such-store"))
     agent = _agent(tmp_path, _proof_script())

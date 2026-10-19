@@ -117,7 +117,7 @@ REASON_WORDS = {
     "conclusory": "it used outcome or strength wording that is not in your facts", "forbidden_words": "it used outcome or strength wording",
     "blanket_opener": "it opened with 'It is submitted' although only the first paragraph may", "new_noun": "it named something that is in none of your facts",
     "number_not_in_facts": "it used a number, date or amount that is not written like that in your facts", "authority_not_supplied": "it cited an authority you did not supply",
-    "unsupported_sentence": "it had a sentence that none of your facts supports", "role_flip": "it named the applicant as another party", "repeated_subject": "it repeated the subject ('The Applicant states that the Applicant')",
+    "unsupported_sentence": "it had a sentence that none of your facts supports", "role_flip": "it named the applicant as another party", "tool_voice": "it spoke as the tool and not as a party", "repeated_subject": "it repeated the subject ('The Applicant states that the Applicant')",
 }  # fmt: skip
 #: Section mentions in a fact ("Sections 370, 370-A and 34 of the Indian Penal Code"): the list after the word Section(s), then up to 80 characters naming the Act.
 SECTION_MENTION_RE = re.compile(

@@ -30,7 +30,7 @@ GROUND_IDS = ("accusation_nature", "custody_period", "antecedents", "flight", "t
 SENSITIVE_TAGS = ("pocso", "minor_involved", "sexual_offence", "marked_sensitive", "trafficking")
 
 # ---- strings: PENDING R1 (flag off; none is shown to a user until R1 rules it) -----------------------------------------------------------
-PREVIEW_LABEL = "Preview: a first draft of the grounds for a lawyer to rewrite; not legal advice."
+DRAFT_LABEL = "A first draft for a lawyer to rewrite. A lawyer decides what to use."
 REFER_SENSITIVE = "This matter is marked sensitive, so no draft was made. Refer it to a lawyer."
 REFER_SENSITIVE_SECTION = (
     "A section you listed is one this draft tool does not handle (trafficking, sexual offences or an offence against a child), "
