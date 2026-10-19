@@ -116,7 +116,7 @@ def _role_for(row: dict[str, Any]) -> tuple[str | None, list[str]]:
         return None, []
     a, b = max(0, ms - st), max(0, me - st)
     starts = [m.end() for m in BOUNDARY.finditer(quote[:a])]
-    lo = starts[-1] if starts else 0
+    lo = starts[-1] if starts else 0  # fail-open-ok: character offset of the sentence start (0 = start of quote), not a statistic
     nxt = BOUNDARY.search(quote, b)
     hi = nxt.start() if nxt else len(quote)
     before, after, sentence = quote[lo:a], quote[b : min(hi, b + AFTER)], quote[lo:hi]
