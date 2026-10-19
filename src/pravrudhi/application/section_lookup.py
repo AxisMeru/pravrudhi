@@ -132,6 +132,8 @@ def load_assets() -> dict[str, Any]:
             _RESULT.append(_load())
         except AssetChanged as e:
             _RESULT.append(e)
+        except Exception as e:  # noqa: BLE001 - an unreadable or malformed asset (a changed byte in a body file included) fails closed like a changed pin, never a 500
+            _RESULT.append(AssetChanged(f"an asset could not be read: {type(e).__name__}"))
     got = _RESULT[0]
     if isinstance(got, AssetChanged):
         raise AssetChanged(str(got))

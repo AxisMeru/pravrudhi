@@ -311,3 +311,27 @@ def test_the_asset_strings_are_exactly_the_ones_r1_signed() -> None:
     mp, _ip, _new = _raw()
     got = {k: (v["sha256_16"], v["text"]) for k, v in mp["strings_pending_R1"].items()}
     assert got == signed
+
+
+def test_a_malformed_or_missing_body_asset_fails_closed_not_a_500(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "bns_sections.json").write_text("{not json", encoding="utf-8")  # a changed byte in a body file
+    monkeypatch.setattr(L, "NYAYA_DIR", tmp_path)
+    L.load_assets.cache_clear()
+    with pytest.raises(L.AssetChanged):
+        L.load_assets()
+    monkeypatch.undo()
+    L.load_assets.cache_clear()
+    assert L.load_assets()["rows"]
+
+
+def test_the_answer_body_has_no_per_caller_field_except_the_run_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    a = _client(tmp_path, monkeypatch, on=True, user=USER).post(PATH, json={"code": "IPC", "section": "302"}).json()
+    b = (
+        _client(tmp_path, monkeypatch, on=True, user=identity.User("u2", "two@example.test", "user"))
+        .post(PATH, json={"code": "IPC", "section": "302"})
+        .json()
+    )
+    assert a["run_id"] != b["run_id"]
+    a.pop("run_id")
+    b.pop("run_id")
+    assert a == b
