@@ -419,3 +419,19 @@ def test_two_orgs_with_keys_never_see_each_others_matters(monkeypatch: pytest.Mo
     assert c.post(f"{P}/query", json={"matter_id": m, "q": "notice"}, headers=h2).status_code == 404
     assert c.post(f"{P}/delete", json={"matter_id": m}, headers=h2).status_code == 404
     assert c.post(f"{P}/query", json={"matter_id": m, "q": "notice"}, headers=h1).json()["found"] is True
+
+
+def test_an_object_store_named_in_the_environment_is_used_and_unusable_credentials_answer_503(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.application import matter_objectstore as obj
+
+    _on(monkeypatch)
+    monkeypatch.setenv(obj.ENDPOINT_ENV, "https://s3.example.test")
+    monkeypatch.setenv(obj.BUCKET_ENV, "bkt")
+    monkeypatch.delenv(obj.ACCESS_KEY_ENV, raising=False)
+    monkeypatch.delenv(obj.SECRET_KEY_ENV, raising=False)
+    c = _client(tmp_path)
+    r = c.post(f"{P}/matters", json={})
+    assert r.status_code == 503 and "s3.example.test" not in r.text and "bkt" not in r.text
+    assert not (tmp_path / "store").exists() or not any((tmp_path / "store").iterdir())  # nothing fell back to a local disk

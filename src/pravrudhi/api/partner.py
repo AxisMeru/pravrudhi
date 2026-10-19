@@ -2548,7 +2548,10 @@ def build_partner_router(
         _a2_on = _a2_delete = False
     if _a2_delete:
         _a2_cfg_eff = _a2_cfg or _a2c.MatterSpansConfig()
-        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff)
+        from pravrudhi.application import matter_objectstore as _a2o
+
+        _a2_obj = _a2o.object_store_settings()  # object store named: matters live there, `_a2_dir` is a cache
+        _a2_store = _a2.MatterStore(_a2_dir, _a2_cfg_eff) if _a2_obj is None else _a2o.make_store(_a2_dir, _a2_cfg_eff, _a2_obj)
         _a2_state: dict[str, Any] = {}
         _a2_lock = threading.Lock()
 
