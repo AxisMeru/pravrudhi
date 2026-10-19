@@ -934,4 +934,17 @@ def test_the_match_expression_is_built_only_from_escaped_quoted_terms() -> None:
         terms = parse_query(q)
         expr, _v = build_match(q, terms)
         stripped = __import__("re").sub(r'"(?:[^"]|"")*"\*?', "", expr)
+        stripped = __import__("re").sub(r"NEAR\(\s*,\s*\d+\)", " ", stripped)  # the one proximity form, built from two quoted terms and a number
         assert set(stripped.replace("(", " ").replace(")", " ").split()) <= {"AND", "OR"}, (q, expr)
+
+
+def test_a_section_number_in_a_list_after_the_section_word_is_found(store: MatterStore) -> None:
+    for text in ("Sections 406, 420 and 34 of the Code were invoked.", "Section 406, 407, 408, 420 of the IPC.", "under sections 34 and 420."):
+        m = store.create_matter(TENANT)
+        store.add_document(TENANT, m, text, "p")
+        out = store.query(TENANT, m, "section 420")
+        assert out["found"] is True, text
+    for text in ("Sections 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 420 are far apart.", "Section 4201, 420A and 4200."):
+        m = store.create_matter(TENANT)
+        store.add_document(TENANT, m, text, "p")
+        assert store.query(TENANT, m, "section 420")["found"] is False, text  # beyond the window, or a longer number

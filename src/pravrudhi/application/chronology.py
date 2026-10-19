@@ -267,6 +267,37 @@ class _Row:
     lead: str | None = None  # the last meaningful word before the date in its sentence (cross-paper date check)
 
 
+# The events a date may go with, a closed list read from the words of the date's own sentence (so "a legal notice was sent on" and "a
+# legal notice dated" both give "notice", and "returned unpaid by the bank on" and "returned the cheque on" both give "return").
+_TOPICS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("notice", re.compile(r"\bnotices?\b", re.I)),
+    ("return", re.compile(r"\b(?:returned|returns?|return\s+memo|dishonou?red|dishonou?r|unpaid)\b", re.I)),
+    ("presented", re.compile(r"\b(?:presented|presentation|presenting)\b", re.I)),
+    ("complaint", re.compile(r"\bcomplaint\b", re.I)),
+    ("FIR", re.compile(r"\b(?:FIR|first\s+information\s+report)\b")),
+    ("arrest", re.compile(r"\barrest(?:ed)?\b", re.I)),
+)
+_SENTENCE_END = re.compile(r"(?:[;!?]|\.(?=\s+[A-Z]))\s+|\n")
+
+
+def _date_topic(before: str, since: int = 0) -> str | None:
+    """The event named nearest before the date inside its own sentence and after the previous date of that sentence, from the closed
+    list above; when none is named there, the last meaningful word before the date (the older rule)."""
+    seg = before[since:]
+    cut = 0
+    for m in _SENTENCE_END.finditer(seg):
+        cut = m.end()
+    seg = seg[cut:]
+    best: tuple[int, str] | None = None
+    for name, rx in _TOPICS:
+        last = None
+        for m in rx.finditer(seg):
+            last = m
+        if last is not None and (best is None or last.start() > best[0]):
+            best = (last.start(), name)
+    return best[1] if best else _lead_word(before)
+
+
 def _lead_word(before: str) -> str | None:
     """The last word before a date that says what the date goes with ("notice" in "the legal notice dated 12.04.2021"), or None."""
     for w in reversed(re.findall(r"[A-Za-z]+", before)):
@@ -409,10 +440,13 @@ def build_chronology(
                     row.name = cands[0] if cands else None  # a person named: more likely a real event
                     rows.append(row)
                 continue
+            prev_end = 0
             for h in hs:
                 r = _Row(hit=h, category=h.category, **base)
+                here = max(0, h.start - st.start)
                 if h.category in ("exact", "ambiguous") and not h.scheduled:
-                    r.lead = _lead_word(text[: max(0, h.start - st.start)])
+                    r.lead = _date_topic(text[:here], prev_end)
+                prev_end = max(prev_end, min(here + (h.end - h.start), len(text)))
                 if len(ids) == 1 and not several and not h.reference and cue is None and h.category == "exact":
                     r.name = _grouping_name(ids[0], text, ph, lower)
                 rows.append(r)
