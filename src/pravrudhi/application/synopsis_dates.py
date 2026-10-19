@@ -24,7 +24,7 @@ from pravrudhi.application.bail_draft import Completer, Completion
 
 VERSION = "synopsis-dates-1"
 MAX_ROWS = 60
-MAX_EVENT_WORDS = 25
+MAX_EVENT_WORDS = 40
 MAX_SYNOPSIS_WORDS = 180
 QUOTE_CHARS = 200
 TABLE_HEADINGS = ("Date", "Event", "Source")
@@ -55,7 +55,7 @@ SYSTEM = (
     "You write two parts of the opening pages of a draft court document for a lawyer to rewrite. Answer with ONE JSON object and nothing else: "
     '{"event_lines": [{"ref": "F7", "text": "..."}], "synopsis": [{"text": "...", "facts": ["F1", "F7"]}], "notes_for_lawyer": ["..."]}. '
     "The message lists FACTS and DATE ROWS, each with an id [F1], [F2]... Use ONLY them. "
-    f"event_lines: for a date row, one short line (at most {MAX_EVENT_WORDS} words) saying what that row's own sentence says happened, in its words; do not write the date, do not add anything the sentence does not say, keep 'alleged' or 'stated' where it says so. "
+    f"event_lines: for a date row, one short line of ONE sentence (at most {MAX_EVENT_WORDS} words; count them, and stop at the limit rather than add detail) saying what that row's own sentence says happened, in its words; do not write the date, do not add anything the sentence does not say, keep 'alleged' or 'stated' where it says so. "
     f"synopsis: 1 to 3 short paragraphs (at most {MAX_SYNOPSIS_WORDS} words in all) in neutral wording ('the applicant states that ...'); each paragraph names in \"facts\" the ids it rests on and carries the same ids in its text as [F1], [F2]. "
     "Copy any square-bracket placeholder exactly as written; never replace it with a guessed word. "
     "State no fact, place, institution, person, date or amount that is not in the facts and rows. Do not predict an outcome and do not write 'entitled', 'fit case' or 'should be granted'. "
@@ -82,18 +82,34 @@ def select_rows(chronology: dict[str, Any], include_row_ids: list[Any] | None = 
 
 
 def table_rows(rows: list[dict[str, Any]], first_ref: int) -> list[dict[str, Any]]:
-    """The engine's table: nothing here is model text. `ref` is the id the model sees for the row."""
+    """The engine's table: nothing here is model text. Rows of ONE sentence (A3 gives one row per date) become ONE table row with each date as written, in the order
+    A3 gave them; `ref` is the id the model sees for the row."""
+    groups: dict[tuple[Any, Any, Any], list[dict[str, Any]]] = {}
+    for r in rows:
+        groups.setdefault((r.get("doc_id"), r.get("start"), r.get("end")), []).append(r)
     out: list[dict[str, Any]] = []
-    for i, r in enumerate(rows):
-        readings = r.get("readings")
+    for i, grp in enumerate(groups.values()):
+        r = grp[0]
+        dates = [
+            {
+                "date_as_written": g.get("date_as_written"),
+                "read_as": g.get("normalised"),
+                "readings": list(g["readings"]) if g.get("readings") else None,
+                "ambiguous": bool(g.get("readings") and len(g["readings"]) > 1),
+                "row_id": g.get("id"),
+            }
+            for g in grp
+        ]
         out.append(
             {
                 "ref": f"F{first_ref + i}",
                 "row_id": r.get("id"),
-                "date_as_written": r.get("date_as_written"),
-                "read_as": r.get("normalised"),
-                "readings": list(readings) if readings else None,
-                "ambiguous": bool(readings and len(readings) > 1),
+                "row_ids": [d["row_id"] for d in dates],
+                "dates": dates,
+                "date_as_written": " and ".join(str(d["date_as_written"]) for d in dates),
+                "read_as": dates[0]["read_as"] if len(dates) == 1 else None,
+                "readings": dates[0]["readings"] if len(dates) == 1 else None,
+                "ambiguous": any(d["ambiguous"] for d in dates),
                 "event_quote": _quote(r),
                 "event_line": None,
                 "document_name": r.get("document_name"),
@@ -108,7 +124,7 @@ def build_pack(case: Any, table: list[dict[str, Any]]) -> str:
     lines = [f"Matter {case.matter_id}. Document: {getattr(case, 'document_label', None) or 'a court document'}.", "", "FACTS:"]
     lines += [f"[{f.fact_id}] {f.text}" for f in case.facts] or ["(none ticked)"]
     lines += ["", "DATE ROWS (each is one sentence from a paper, with its date as written):"]
-    lines += [f"[{t['ref']}] {t['source']}, date as written '{t['date_as_written']}': {t['event_quote']}" for t in table] or [
+    lines += [f"[{t['ref']}] {t['source']}, dates as written '{t['date_as_written']}': {t['event_quote']}" for t in table] or [
         "(none)"
     ]
     return "\n".join(lines)
