@@ -10,6 +10,7 @@ reason and writes nothing.
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,35 @@ class UnconfiguredStore:
         return refuse
 
 
+_CACHE: dict[tuple[Any, ...], Any] = {}
+_CACHE_LOCK = threading.Lock()
+_ENV_KEYS = (DIR_ENV, "PRAVRUDHI_MATTER_OBJECT_ENDPOINT", "PRAVRUDHI_MATTER_OBJECT_BUCKET", "PRAVRUDHI_MATTER_OBJECT_PREFIX",
+             "PRAVRUDHI_MATTER_OBJECT_REGION")  # fmt: skip
+
+
 def open_store(
+    root: Path, cfg: MatterSpansConfig, environ: dict[str, str] | None = None, delete_only: bool = False
+) -> Any:
+    """ONE store per process for one (root, caps, location, mode): built on first use and reused, so an object-backed store keeps
+    its once-per-process conditional-write probe and its per-matter thread locks across requests instead of rebuilding them on
+    every read. The key holds the location settings (never a credential), so a changed location gives a fresh store."""
+    env = os.environ if environ is None else environ
+    folder_there = store_dir(root).is_dir() if delete_only else None
+    key = (str(root), cfg, delete_only, folder_there, *(env.get(k, "") for k in _ENV_KEYS))
+    with _CACHE_LOCK:
+        got = _CACHE.get(key)
+        if got is None:
+            got = _CACHE[key] = _build(root, cfg, environ, delete_only)
+        return got
+
+
+def clear_cache() -> None:
+    """For tests and for a deliberate re-read of the environment."""
+    with _CACHE_LOCK:
+        _CACHE.clear()
+
+
+def _build(
     root: Path, cfg: MatterSpansConfig, environ: dict[str, str] | None = None, delete_only: bool = False
 ) -> Any:
     """The matter store for this process: object-backed when an object store is named, the folder store when a folder is
