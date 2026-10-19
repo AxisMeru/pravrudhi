@@ -3,7 +3,7 @@
 
 Glue between the request and the drafting module (`bail_draft`, Track A's): consent, the deterministic referrals and the statute framing
 (`bail_draft_input`), the optional drafting completer built from the config, a per-day spend ceiling, and the response wrapper. The engine stores
-no matter and no fact; nothing of the request is logged or audited (the audit row carries the run id only). A draft is a PREVIEW for a lawyer
+no matter and no fact; nothing of the request is logged or audited (the audit row carries the run id only). A draft is a first draft for a lawyer
 to rewrite; the label, the referral strings and every other customer-visible string are pending R1 (see `bail_draft_input`).
 """
 
@@ -145,7 +145,7 @@ def draft_for_request(
     """The response for one request. Raises `DraftError` (400 consent_required); every other refusal is a 200 `referred` answer with no draft."""
     if req.consent is not True:
         raise DraftError(I.CONSENT_REQUIRED, "Consent is required before a draft is made.", 400)
-    base: dict[str, Any] = {"run_id": run_id, "client_data": True, "preview": True, "label": I.PREVIEW_LABEL}
+    base: dict[str, Any] = {"run_id": run_id, "client_data": True, "label": I.DRAFT_LABEL}
     case = I.parse_case(req, cfg.max_facts, matter_id=run_id)
     if isinstance(case, I.Referral):
         return {**base, "state": "referred", "referral": {"code": case.code, "text": case.text}, "draft": None}

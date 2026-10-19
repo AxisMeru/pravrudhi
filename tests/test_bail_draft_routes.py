@@ -180,7 +180,7 @@ def test_a_sensitive_matter_is_referred_with_the_fixed_text_no_draft_and_no_call
     r = _client(tmp_path).post(PATH, json={**BODY, "tags": ["pocso"]})
     b = r.json()
     assert r.status_code == 200 and b["state"] == "referred" and b["draft"] is None and stub.calls == []
-    assert b["referral"] == {"code": "sensitive_matter", "text": I.REFER_SENSITIVE} and b["preview"] is True and b["label"] == I.PREVIEW_LABEL
+    assert b["referral"] == {"code": "sensitive_matter", "text": I.REFER_SENSITIVE} and "preview" not in b and b["label"] == I.DRAFT_LABEL
     assert "marker-zq" not in r.text and b["run_id"].startswith("bail-")
 
 
@@ -206,7 +206,7 @@ def test_a_single_framing_hands_the_drafter_applicant_side_facts_only_and_wraps_
     assert case.drafting_kind == "regular" and case.parties == {"applicant": "Applicant-marker-zq"} and case.matter_id == call["run_id"] == b["run_id"]
     assert fr.status == "single" and fr.lines == ["Under Section 480 of the Bharatiya Nagarik Suraksha Sanhita, 2023 (BNSS)."]
     assert "informant-marker-zq" not in repr(call["case"]) and "informant-marker-zq" not in r.text  # the other-side fact never leaves the route
-    assert b["label"] == I.PREVIEW_LABEL and b["framing"]["options"][0]["section"] == "480" and b["facts_set_aside"] == 1
+    assert b["label"] == I.DRAFT_LABEL and b["framing"]["options"][0]["section"] == "480" and b["facts_set_aside"] == 1
     assert b["state"] == "template_only" and b["draft"]["framing_lines"] == fr.lines  # no endpoint configured: the template only (complete is None)
     assert call["complete"] is None and call["cfg"] == BailDraftConfig()
 
