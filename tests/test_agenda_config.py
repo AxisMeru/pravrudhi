@@ -39,5 +39,5 @@ def test_a_missing_or_broken_file_is_off(tmp_path: Path) -> None:
     assert load_agenda_config(tmp_path) is None
 
 
-def test_the_shipped_config_has_the_agenda_off() -> None:
-    assert load_agenda_config(REPO) is None
+def test_the_shipped_config_has_the_agenda_on() -> None:  # switched on in 0.6.23 (19 Oct 2026)
+    assert load_agenda_config(REPO) is not None

@@ -140,8 +140,8 @@ def test_with_the_flag_on_no_route_of_the_whole_app_is_unclassified_or_stale(mon
     assert not (classified - paths), sorted(classified - paths)
 
 
-def test_the_flag_in_the_shipped_config_is_off() -> None:
-    assert cc.load_chronology_config(REPO) is None
+def test_the_flag_in_the_shipped_config_is_on() -> None:  # on since 0.6.23 (19 Oct 2026)
+    assert cc.load_chronology_config(REPO) is not None
 
 
 def test_the_three_optional_routes_can_all_be_on_at_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

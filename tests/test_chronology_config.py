@@ -40,10 +40,10 @@ def test_valid_caps_are_applied() -> None:
     assert cfg is not None and (cfg.max_rows, cfg.max_seconds, cfg.max_concurrent) == (7, 5.0, 3)
 
 
-def test_the_shipped_configuration_is_off_and_an_unreadable_file_is_off(tmp_path: Path) -> None:
-    assert load_chronology_config(REPO) is None
+def test_the_shipped_configuration_is_on_and_an_unreadable_file_is_off(tmp_path: Path) -> None:  # on since 0.6.23 (19 Oct 2026)
+    assert load_chronology_config(REPO) is not None
     text = (REPO / "configs" / "partner_api.yaml").read_text()
-    assert "wf_a3_chronology" not in text or "wf_a3_chronology: false" in text
+    assert "\nwf_a3_chronology: true\n" in text
     assert load_chronology_config(tmp_path / "nowhere") is None
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs" / "partner_api.yaml").write_text("wf_a3_chronology: [unclosed")

@@ -115,3 +115,15 @@ judge_health_ttl_s: 5
 # nr_gate/runs/switchon_b3_4f27fff9/report.json sha12 87616d9255c1), R1 product_line_check 414fceaa631afe4e. The kill is
 # this key false (or removed): the route is then a framework 404 again. Only the boolean true turns it on.
 wf_b3_s138_checklist: true
+
+# 0.6.23 switch-ons (19 Oct 2026; Lead-2 ruling; each key's Track A flag-ON package ran on the exact tree, R2 signed). Only the boolean true turns a workflow on;
+# the kill for any one is its key false (or removed) in a new image or after a restart, because the packaged config is authoritative.
+wf_a2_span_index: true
+wf_a3_chronology: true
+wf_a5_ingredient_agenda: true
+wf_s1_matter_citation_sweep: true
+wf_b2_quashing_agenda: true
+wf_a6_cheque_case_check: true
+wf_a7_matter_hearing_pack: true
+wf_a8_synopsis_list_of_dates: true
+wf_a4_bail_drafting: true
