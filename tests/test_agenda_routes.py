@@ -239,3 +239,22 @@ def test_the_route_returns_a_file_name_raw_and_the_statute_words_with_their_foot
     assert b["papers_read"]["papers"][0]["name"] == 'a<b>&"c" cheque.pdf' and "&amp;" not in c.post(PATH, json={"matter_id": m}).text
     notice = next(i for i in b["ingredients"] if i["id"] == "notice")
     assert "[footnote 3:" in notice["statute_words"] and "3 [within thirty days]" in notice["statute_words_raw"]
+
+
+def test_the_agenda_points_each_ingredient_at_the_stored_passages_that_use_its_words_and_leaks_nothing_across_tenants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pravrudhi.application import agenda as G
+
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    m = c.post(f"{A2}/matters", json={}).json()["matter_id"]
+    text = "The cheque was presented on 3 June and returned unpaid. A legal notice dated 12.04.2021 was sent by registered post."
+    assert c.post(f"{A2}/documents", json={"matter_id": m, "text": text, "name": "complaint zq.pdf"}).status_code == 200
+    b = c.post(PATH, json={"matter_id": m}).json()
+    by = {i["id"]: i["where_mentioned"] for i in b["ingredients"]}
+    assert by["notice"]["line"] == G.POINTER_LINE and by["notice"]["pointers"][0]["name"] == "complaint zq.pdf"
+    assert by["returned_unpaid"]["pointers"][0]["cue"] == "returned unpaid" and text[by["notice"]["pointers"][0]["start"] : by["notice"]["pointers"][0]["end"]] == by["notice"]["pointers"][0]["quote"]
+    assert by["non_payment"]["line"] == G.NO_POINTER_LINE
+    other = _client(tmp_path, user=USER2).post(PATH, json={"matter_id": m})
+    assert other.status_code == 404 and "zq" not in other.text and "legal notice" not in other.text  # another tenant sees nothing of the papers

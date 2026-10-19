@@ -17,6 +17,7 @@ import pytest
 from pravrudhi.api import identity, partner, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.application import agenda_config as ac
+from pravrudhi.application import bail_draft_config as bdc
 from pravrudhi.application import chronology_config as cc
 from pravrudhi.application import draft_check_config as dcc
 from pravrudhi.application import matter_hearing_pack_config as hpc
@@ -37,6 +38,7 @@ READER_MODULES = (
     "pravrudhi.application.agenda_config",
     "pravrudhi.application.quashing_config",
     "pravrudhi.application.matter_sweep_config",
+    "pravrudhi.application.bail_draft_config",
     "pravrudhi.application.matter_hearing_pack_config",
     "pravrudhi.application.tabular_config",
 )
@@ -53,6 +55,9 @@ SLICE_MODULES = (
     "pravrudhi.application.quashing_gate",
     "pravrudhi.application.matter_sweep",
     "pravrudhi.application.matter_sweep_matter",
+    "pravrudhi.application.bail_draft_input",
+    "pravrudhi.application.bail_draft_route",
+    "pravrudhi.application.bail_draft",
     "pravrudhi.application.matter_hearing_pack",
     "pravrudhi.application.matter_hearing_pack_route",
     "pravrudhi.application.tabular",
@@ -86,7 +91,7 @@ def test_the_peek_is_one_mapping_read_and_never_raises(tmp_path: Path) -> None:
 
 
 def test_the_flag_keys_the_router_peeks_are_the_modules_own_flag_constants() -> None:
-    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, swc.FLAG, tbc.FLAG, scc.FLAG, hpc.FLAG}
+    assert set(ALL_FLAG_KEYS) == {dcc.FLAG, msc.FLAG, cc.FLAG, ac.FLAG, qc.FLAG, swc.FLAG, tbc.FLAG, scc.FLAG, bdc.FLAG, hpc.FLAG}
 
 
 def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,6 +153,7 @@ def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path:
         ("wf_a5_ingredient_agenda", ac, "load_agenda_config"),
         ("wf_b2_quashing_agenda", qc, "load_quashing_config"),
         ("wf_s1_matter_citation_sweep", swc, "load_sweep_config"),
+        ("wf_a4_bail_drafting", bdc, "load_bail_draft_config"),
         ("wf_a7_matter_hearing_pack", hpc, "load_matter_hearing_pack_config"),
         ("wf_s2_tabular_fact_table", tbc, "load_tabular_config"),
         ("wf_b3_s138_checklist", scc, "load_s138_checklist_config"),
@@ -164,6 +170,7 @@ def test_a_flag_that_reads_true_calls_only_its_own_reader(
         (ac, "load_agenda_config"),
         (qc, "load_quashing_config"),
         (swc, "load_sweep_config"),
+        (bdc, "load_bail_draft_config"),
         (hpc, "load_matter_hearing_pack_config"),
         (tbc, "load_tabular_config"),
         (scc, "load_s138_checklist_config"),
@@ -187,7 +194,7 @@ def test_a_flag_of_false_or_a_look_alike_calls_no_reader(tmp_path: Path, monkeyp
     monkeypatch.setattr(
         partner,
         "_peek_flags",
-        lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off", "n8"), strict=True)),
+        lambda _root: dict(zip(ALL_FLAG_KEYS, (False, "true", 1, None, "yes", "on", "no", "off", "n8", "n9"), strict=True)),
     )
     monkeypatch.setenv(msc.DIR_ENV, str(tmp_path / "no-such-store"))
     agent = _agent(tmp_path, _proof_script())
