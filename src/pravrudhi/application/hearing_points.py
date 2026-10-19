@@ -37,7 +37,7 @@ GAP_PROMPTS = {
     "accusation": "What is the accusation, and under which sections?",
     "custody": "How long has the applicant been in custody, and since which date?",
     "antecedents": "Are there any other cases against the applicant, or none?",
-    "flight": "Does the applicant have a fixed residence and ties here, and has he ever failed to attend?",
+    "flight": "Does the applicant have a fixed residence and ties here, and has the applicant ever failed to attend?",
     "tampering": "Is there any suggestion that the applicant could tamper with evidence or witnesses?",
     "co_accused": "Has any co-accused been granted bail, and on what footing is the applicant's role compared to theirs?",
     "stage": "Has the charge sheet been filed, and what is the stage of the investigation or trial?",
