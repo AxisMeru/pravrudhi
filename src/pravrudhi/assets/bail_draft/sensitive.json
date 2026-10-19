@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "confirmed_by_lawyer": false,
+  "note": "Sections that refer a bail-drafting request to a lawyer with no draft (trafficking, sexual offences, offences against a child). A lawyer confirms, strikes or adds entries. Section numbers are checked against the held India Code texts (BNS) and the held IPC asset; a request names its sections itself, the engine infers none.",
+  "acts": {
+    "IPC": [
+      "354", "354A", "354B", "354C", "354D", "363A", "366", "366A", "366B", "370", "370A", "372", "373", "375", "376", "376A", "376AB",
+      "376B", "376C", "376D", "376DA", "376DB", "376E", "509"
+    ],
+    "BNS": [
+      "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "74", "75", "76", "77", "78", "79", "95", "96", "98", "99", "141",
+      "143", "144"
+    ]
+  },
+  "aliases": {
+    "IPC": ["ipc", "indian penal code"],
+    "BNS": ["bns", "bharatiya nyaya sanhita"],
+    "POCSO": ["pocso", "protection of children from sexual offences"]
+  }
+}
