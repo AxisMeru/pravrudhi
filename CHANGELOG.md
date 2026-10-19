@@ -15,7 +15,7 @@ PATCH release on 0.6.22. Seven workflows are switched on in the shipped configur
 
 ### Added (not reachable until its flag is turned on)
 
-- **Section look-up (B1, flag `wf_b1_section_lookup`, off).** Finds the new BNS or BNSS section for an old IPC or CrPC section, and the reverse. When both texts are shown the answer says which texts are on screen; when only one is shown, it says which. If the look-up data cannot be read, the route answers 503 `lookup_unavailable` and the failure is kept until the engine restarts.
+- **Section look-up (B1, flag `wf_b1_section_lookup`, off).** Shows what the NCRB Corresponding Section Table lists for an old IPC or CrPC section, with the texts it holds. When both texts are shown the answer says which texts are on screen; when only one is shown, it says which. If the look-up data cannot be read, the route answers 503 `lookup_unavailable` and the failure is kept until the engine restarts.
 
 ### Notes
 
