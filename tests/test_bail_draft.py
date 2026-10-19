@@ -606,10 +606,34 @@ def test_a_non_sensitive_section_or_another_act_is_drafted(monkeypatch):
     assert run(c, Fake(ok))["state"] == "drafted"
 
 
-def test_without_the_table_the_section_backstop_is_a_no_op(monkeypatch):
+def test_without_the_table_a_named_section_is_referred_not_drafted(monkeypatch, caplog):
     monkeypatch.setattr(bd, "_sensitive_checker", lambda: None)
     c = Case(facts=[NS(fact_id="F1", text="The Applicant was arrested under Section 370 of the Indian Penal Code.")])
     ok = answer([("The Applicant was arrested under Section 370 of the Indian Penal Code [F1].", ["F1"])])
+    f = Fake(ok)
+    with caplog.at_level("ERROR"):
+        r = run(c, f)
+    assert (r["state"], r["refused"], r["calls"]) == ("refused", bd.SENSITIVE_REFUSAL, 0) and f.calls == []
+    assert any(x["name"] == "sensitive_section_table_missing" and x["passed"] is False for x in r["checks"])
+    assert "referred to a lawyer" in caplog.text
+
+
+def test_a_checker_that_raises_is_a_refusal_like_a_hit(monkeypatch):
+    def boom(_sections):
+        raise RuntimeError("table unreadable")
+
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: boom)
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant was arrested under Section 420 of the Indian Penal Code.")])
+    f = Fake(answer([("The Applicant was arrested [F1].", ["F1"])]))
+    r = run(c, f)
+    assert (r["state"], r["refused"], r["calls"]) == ("refused", bd.SENSITIVE_REFUSAL, 0) and f.calls == []
+    assert any(x["name"] == "sensitive_section_check_error" and x["passed"] is False for x in r["checks"])
+
+
+def test_no_section_named_needs_no_table(monkeypatch):
+    monkeypatch.setattr(bd, "_sensitive_checker", lambda: None)
+    c = Case(facts=[NS(fact_id="F1", text="The Applicant has no antecedents.")])
+    ok = answer([("The Applicant has no antecedents [F1].", ["F1"])])
     assert run(c, Fake(ok))["state"] == "drafted"
 
 
@@ -619,16 +643,6 @@ def test_role_flip_fails_the_paragraph(bad):
     paras = [(bad, ["F2"])]
     r = run(c, Fake(answer(paras), answer(paras)))
     assert any("role_flip" in x for fl in r["checks"][0]["failed"] for x in fl["reasons"])
-
-
-def test_a_missing_sensitive_table_is_not_silent(monkeypatch, caplog):
-    monkeypatch.setattr(bd, "_sensitive_checker", lambda: None)
-    c = Case(facts=[NS(fact_id="F1", text="The Applicant was arrested under Section 370 of the Indian Penal Code.")])
-    ok = answer([("The Applicant was arrested under Section 370 of the Indian Penal Code [F1].", ["F1"])])
-    with caplog.at_level("WARNING"):
-        r = run(c, Fake(ok))
-    assert any(x["name"] == "sensitive_section_table_missing" and x["info"] for x in r["checks"])
-    assert "section backstop is OFF" in caplog.text
 
 
 def test_the_real_table_is_found_when_the_route_layer_is_present():
