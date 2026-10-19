@@ -3270,7 +3270,7 @@ def build_partner_router(
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
                     _a4_state["slots"] = ConcurrencyLimiter(_a4_cfg.max_concurrent)
-                    _a4_state["ceiling"] = _a4.DayCeiling()
+                    _a4_state["ceiling"] = _a4.shared_ceiling()
                 return _a4_state["ip"], _a4_state["key"], _a4_state["slots"], _a4_state["ceiling"]
 
         def _a4_admit(

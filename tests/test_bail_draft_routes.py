@@ -245,6 +245,20 @@ def test_over_the_day_ceiling_the_next_draft_is_the_template_only(tmp_path: Path
     assert second["state"] == "template_only" and stub.calls[-1]["complete"] is None and len(stub.calls) == 2
 
 
+def test_the_bail_route_counts_against_the_one_shared_ceiling_with_the_synopsis_route(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import bail_draft_route as R
+
+    cfg = BailDraftConfig(base_url="https://llm.example.test/v1", model="m", api_key_env="A4_TEST_KEY", usd_per_mtok_in=1.0, usd_per_mtok_out=1.0, usd_per_day=0.05)
+    stub = _flags(monkeypatch, cfg)
+    stub.cost = 0.03
+    monkeypatch.setenv("A4_TEST_KEY", "k")
+    c = _client(tmp_path)
+    assert c.post(PATH, json=BODY).json()["state"] == "drafted"
+    assert not R.shared_ceiling().room(0.02)  # the bail draft's own spend (0.03) lands on the shared object, where the synopsis route counts too
+    R.shared_ceiling().add(1.0)  # the synopsis route spends the rest of the day
+    assert c.post(PATH, json=BODY).json()["state"] == "template_only" and stub.calls[-1]["complete"] is None
+
+
 def test_the_day_ceiling_rolls_over_at_the_utc_day() -> None:
     from pravrudhi.application.bail_draft_route import DayCeiling
 
