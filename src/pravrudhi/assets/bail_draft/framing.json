@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "confirmed_by_lawyer": false,
+  "note": "A lawyer confirms, strikes or edits this table (statute framing by date). It is read at request time; the engine infers no date and decides nothing outside it.",
+  "cutoff_date": "2024-07-01",
+  "deciding_dates": ["offence_date", "fir_date"],
+  "acts": {
+    "pre": {"id": "crpc", "name": "Code of Criminal Procedure, 1973", "short": "CrPC"},
+    "post": {"id": "bnss", "name": "Bharatiya Nagarik Suraksha Sanhita, 2023", "short": "BNSS"}
+  },
+  "sections": {
+    "bail:trial_court": {"pre": "437", "post": "480"},
+    "bail:sessions_or_high_court": {"pre": "439", "post": "483"},
+    "anticipatory_bail": {"pre": "438", "post": "482"}
+  },
+  "titles": {
+    "bail": "BAIL APPLICATION",
+    "anticipatory_bail": "APPLICATION FOR ANTICIPATORY BAIL"
+  }
+}

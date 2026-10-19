@@ -1,7 +1,8 @@
 """A5 route support: the review agenda for ONE A2 matter (flag `wf_a5_ingredient_agenda`). Imported only when the flag is on.
 
-This module touches A2's store only through `MatterStore.list_documents` (names and page counts: no passage is read or
-searched), tenant-checked exactly as every A2 read. The agenda needs A2 ON (`wf_a2_span_index` true in the config), not merely a
+This module touches A2's store through `MatterStore.list_documents` (names and page counts) and `MatterStore.read_passages`
+(the passages the ingredient pointers are looked up in: a pointer is a place to start reading, never a finding), both
+tenant-checked exactly as every A2 read. The agenda needs A2 ON (`wf_a2_span_index` true in the config), not merely a
 store folder: with A2 off the route refuses and reads nothing.
 """
 
@@ -46,9 +47,20 @@ def agenda_for_matter(
     docs = [d for d in listing["documents"] if d["ingest_done"]]
     if not docs:
         raise MatterError("no_papers", G.NO_PAPERS, 409)
+    _docs, spans = store.read_passages(tenant, req.matter_id)
+    names = {d["doc_id"]: d["name"] for d in docs}
+    passages = [
+        G.Passage(
+            sp["doc_id"], names.get(sp["doc_id"], ""), int(sp["page"]), int(sp["start"]), int(sp["end"]), sp["text"]
+        )
+        for sp in spans
+        if sp["doc_id"] in names
+    ]
     records = [G.Doc(d["doc_id"], d["name"], int(d["n_pages"]), tuple(int(p) for p in d["pages_without_text"])) for d in docs]
     try:
-        page = G.build_agenda(records, dict(req.paper_types), req.offence, ownership, list(req.papers_held_without_file))
+        page = G.build_agenda(
+            records, dict(req.paper_types), req.offence, ownership, list(req.papers_held_without_file), passages
+        )
         return {"run_id": run_id, "matter_id": req.matter_id, **page}
     except G.AssetChanged as e:
         raise MatterError("agenda_asset_changed", "The agenda is not available.", 500) from e

@@ -196,11 +196,23 @@ class PartnerApiConfig:
     #: `POST /intake`: the wall-clock budget of the whole intake (text processing and its citation lookups; the lookups alone are
     #: held to INTAKE_LOOKUP_BUDGET_S). An exceeded budget is a 503 `intake_timeout`; 0 turns the budget off.
     intake_timeout_s: float = 30.0
+    #: Per-client-IP requests per minute for the OPTIONAL workflow routes (A1-A5, B3, S1-S3 and the bail draft), each with its own
+    #: limiter. None = the same as `rate_limit_per_minute`. The shipped config sets 30: a preview user adding four papers and then
+    #: searching made more than 6 calls in a minute and was refused (Track B's quality pass). `rate_limit_per_minute` still guards
+    #: analyse-facts.
+    slice_rate_limit_per_minute: int | None = None
+
+    @property
+    def slice_ip_limit(self) -> int:
+        return self.slice_rate_limit_per_minute or self.rate_limit_per_minute
 
     def __post_init__(self) -> None:
         t = self.intake_timeout_s
         if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or t < 0:
             raise ValueError(f"intake_timeout_s must be a finite number of seconds, 0 or more (0 = off), got {t!r}"[:200])
+        sl = self.slice_rate_limit_per_minute
+        if sl is not None and (isinstance(sl, bool) or not isinstance(sl, int) or not 1 <= sl <= 600):
+            raise ValueError(f"slice_rate_limit_per_minute must be None or an integer from 1 to 600, got {sl!r}"[:200])
         b = self.bad_key_budget_per_minute
         if b is not None and (isinstance(b, bool) or not isinstance(b, int) or not 1 <= b <= MAX_BAD_KEY_BUDGET):
             raise ValueError(
@@ -308,6 +320,7 @@ def load_partner_api_config(root: Path) -> PartnerApiConfig:
         verify_max_concurrent=int(body.get("verify_max_concurrent", 2)),
         verify_timeout_s=float(body.get("verify_timeout_s", 5.0)),
         intake_timeout_s=_intake_timeout(body.get("intake_timeout_s", 30.0)),
+        slice_rate_limit_per_minute=body.get("slice_rate_limit_per_minute"),
     )
 
 
@@ -2342,7 +2355,7 @@ def build_partner_router(
             with _a1_lock:
                 if not _a1_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a1_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a1_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a1_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2453,7 +2466,7 @@ def build_partner_router(
             with _b3_lock:
                 if not _b3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _b3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _b3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _b3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2556,7 +2569,7 @@ def build_partner_router(
             with _a2_lock:
                 if not _a2_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a2_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a2_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a2_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2692,7 +2705,7 @@ def build_partner_router(
             with _a3_lock:
                 if not _a3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2806,7 +2819,7 @@ def build_partner_router(
             with _a5_lock:
                 if not _a5_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _a5_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a5_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _a5_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -2909,7 +2922,7 @@ def build_partner_router(
             with _s3_lock:
                 if not _s3_state:
                     clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
-                    _s3_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _s3_state["ip"] = RateLimiter(cfg.slice_ip_limit, max_keys=cfg.rate_limit_max_keys, **clock_kw)
                     _s3_state["key"] = (
                         tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
                     )
@@ -3227,6 +3240,105 @@ def build_partner_router(
             route_class_override=_s2.FixedValidationRoute,
         )
         _s2.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
+    # --- A4 bail drafting: registered ONLY when partner_api.yaml sets wf_a4_bail_drafting to true. It stores nothing and reads no
+    # stored paper: the lawyer's declared facts, dates and tick arrive in the request; the deterministic referrals and the statute
+    # framing run first, then at most the configured completer is called (none configured = the template only). Off (the default)
+    # adds nothing: no module import, no route, no limiter, no thread, no read. Own limiters and slots; audit mode "intake" with a
+    # "bail-" run id, nothing of the request in any row.
+    try:
+        _a4_cfg = None
+        if _flags.get("wf_a4_bail_drafting") is True:
+            from pravrudhi.application.bail_draft_config import load_bail_draft_config as _load_a4
+
+            _a4_cfg = _load_a4(engine_root)
+        if _a4_cfg is not None:
+            from pravrudhi.application import bail_draft_route as _a4
+    except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
+        _logger.warning("bail drafting unavailable; it stays off", exc_info=True)
+        _a4_cfg = None
+    if _a4_cfg is not None:
+        _a4_state: dict[str, Any] = {}
+        _a4_lock = threading.Lock()
+
+        def _a4_limits(cfg: PartnerApiConfig) -> tuple[RateLimiter, Any, ConcurrencyLimiter, Any]:
+            with _a4_lock:
+                if not _a4_state:
+                    clock_kw: dict[str, Any] = {} if rate_clock is None else {"now": rate_clock}
+                    _a4_state["ip"] = RateLimiter(cfg.rate_limit_per_minute, max_keys=cfg.rate_limit_max_keys, **clock_kw)
+                    _a4_state["key"] = (
+                        tenancy.KeyRateLimiter(now=rate_clock) if rate_clock is not None else tenancy.KeyRateLimiter()
+                    )
+                    _a4_state["slots"] = ConcurrencyLimiter(_a4_cfg.max_concurrent)
+                    _a4_state["ceiling"] = _a4.DayCeiling()
+                return _a4_state["ip"], _a4_state["key"], _a4_state["slots"], _a4_state["ceiling"]
+
+        def _a4_admit(
+            request: Request, user: User | None, metered: list[str]
+        ) -> tuple[PartnerApiConfig, ConcurrencyLimiter, Any] | JSONResponse:
+            try:
+                cfg = _get_state()[0]
+            except FileNotFoundError:
+                return JSONResponse(status_code=503, content={"error": "service_config_missing"})
+            closed = _window_closed(cfg)
+            if closed is not None:
+                return closed
+            principal, throttled = _principal_or_throttle(request, cfg)
+            if throttled is not None:
+                return throttled
+            if user is None and principal is None:
+                return JSONResponse(status_code=401, content={"detail": "Drafting is offered only to signed-in users"})
+            caller_key = f"key:{principal.key_id}" if principal is not None else f"user:{user.id}"  # type: ignore[union-attr]
+            ip = _client_ip(
+                request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies, caller_key=caller_key
+            )
+            ip_limiter, key_limiter, slots, ceiling = _a4_limits(cfg)
+            if not ip_limiter.allow(ip):
+                return rate_limited_response(
+                    limit=ip_limiter.per_minute, retry_after=ip_limiter.retry_after_seconds(), scope="caller"
+                )
+            if principal is not None:
+                key = tenancy.key_record(engine_root, principal.key_id, org_id=principal.org_id)
+                if key is None:
+                    _charge_bad_key(request, cfg)
+                    raise HTTPException(401, "Invalid or revoked API key")
+                if not key_limiter.allow(key.key_id, key.rate_limit_per_minute):
+                    return rate_limited_response(
+                        limit=key.rate_limit_per_minute, retry_after=key_limiter.retry_after_seconds(), scope="key"
+                    )
+                metered.append(key.key_id)
+            return cfg, slots, ceiling
+
+        def bail_draft_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+            metered: list[str] = []
+            admitted = _a4_admit(request, user, metered)
+            if isinstance(admitted, JSONResponse):
+                return admitted
+            _cfg, slots, ceiling = admitted
+            run = {"run_id": f"bail-{os.urandom(5).hex()}"}  # on EVERY audit row of this call, whatever the status
+            if not slots.acquire():
+                _intake_audit(metered, "intake", 503, run)
+                return coded_503(AGENT_AT_CAPACITY)
+            try:
+                out = _a4.draft_for_request(req, _a4_cfg, run["run_id"], ceiling)
+            except Exception as e:
+                status = getattr(e, "status_code", None)
+                if isinstance(status, int) and hasattr(e, "code"):
+                    _intake_audit(metered, "intake", status, run)
+                    return JSONResponse(status_code=status, content={"error": e.code})
+                _intake_audit(metered, "intake", 500, run)
+                raise
+            finally:
+                slots.release()
+            _intake_audit(metered, "intake", 200, run)
+            return out
+
+        bail_draft_ep.__annotations__["req"] = _a4.BailDraftRequest  # a local import is not visible to a string annotation
+        router.add_api_route(
+            "/bail-draft", bail_draft_ep, methods=["POST"], include_in_schema=False, response_model=None,
+            route_class_override=_a4.FixedValidationRoute,
+        )
+        _a4.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
 
     # --- A6 cheque-case check: registered ONLY when partner_api.yaml sets wf_a6_cheque_case_check to true. It reads A2's stored
     # papers (tenant-checked) and runs A3's chronology, A5's papers agenda and, when the request carries confirmed dates, B3's
