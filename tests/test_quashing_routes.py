@@ -553,3 +553,60 @@ def test_the_override_is_applied_to_no_other_route(tmp_path: Path, monkeypatch: 
 
     fixed = {r.path for r in routes(c.app.routes) if isinstance(r, FixedValidationRoute)}  # type: ignore[attr-defined]
     assert fixed == {PATH}
+
+
+def test_a_duplicate_row_for_the_pinned_case_has_its_own_reason_code_in_the_pin_and_on_the_health_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dup = _slim_index(tmp_path / "dup.sqlite3", rows=2)
+    assert G.pin_status(dup) == "case_duplicate" and "case_duplicate" in G.REASONS
+    gone = _slim_index(tmp_path / "gone.sqlite3", case_id="0" * 24)
+    assert G.pin_status(gone) == "case_missing"
+    _on(monkeypatch)
+    c = _client(tmp_path)
+    monkeypatch.setenv("PRAVRUDHI_CITATION_INDEX", str(dup))
+    G._PIN_CACHE.clear()
+    body = c.get(HEALTH).json()
+    assert body == {"state": "unavailable", "reason": "case_duplicate"}
+
+
+def test_the_pin_cache_is_bounded_and_a_changed_file_under_the_same_path_leaves_no_stale_entry(tmp_path: Path) -> None:
+    G._PIN_CACHE.clear()
+    idx = _slim_index(tmp_path / "x.sqlite3")
+    assert G.pin_status_cached(idx, now=0.0) is None and len(G._PIN_CACHE) == 1
+    idx.unlink()
+    _slim_index(idx, year=2015)  # a new file under the same path: new mtime/size key
+    assert G.pin_status_cached(idx, now=1.0) == "case_changed"
+    assert len([k for k in G._PIN_CACHE if k[0] == str(idx)]) == 1  # the old entry for that path was dropped
+    for n in range(G.PIN_CACHE_MAX + 10):  # many different paths: the dict never grows past its cap
+        p = _slim_index(tmp_path / f"p{n}.sqlite3")
+        G.pin_status_cached(p, now=float(10 + n))
+    assert len(G._PIN_CACHE) <= G.PIN_CACHE_MAX
+
+
+def test_concurrent_cache_misses_never_raise_and_the_cache_stays_within_its_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R2: the prune iterates and deletes from a shared dict; with threadpool routes it needs one lock (no RuntimeError, no KeyError)."""
+    import threading
+
+    G._PIN_CACHE.clear()
+    monkeypatch.setattr(G, "pin_status", lambda _p: None)
+    errors: list[BaseException] = []
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+
+    def worker(w: int) -> None:
+        try:
+            for i in range(500):
+                G.pin_status_cached(Path(f"/nonexistent/{w}/{i}"), now=float(i))
+        except BaseException as e:  # noqa: BLE001 - the test reports whatever a thread raised
+            errors.append(e)
+
+    try:
+        threads = [threading.Thread(target=worker, args=(w,)) for w in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old)
+    assert errors == [] and len(G._PIN_CACHE) <= G.PIN_CACHE_MAX
