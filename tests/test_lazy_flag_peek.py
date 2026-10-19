@@ -135,6 +135,10 @@ def test_the_mirrored_store_dir_equals_the_modules_store_dir(tmp_path: Path, mon
 # ---- flag OFF: nothing of the slices is imported (fresh interpreter, the real shipped config) -----------------------------------------
 
 
+# B3 ships ON in the shipped config (19 Oct 2026): its own two modules are the ONLY ones loaded by create_app on that config.
+B3_MODULES = ("pravrudhi.application.s138_checklist_config", "pravrudhi.application.s138_checklist")
+
+
 def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path: Path) -> None:
     code = (
         "import os, sys\n"
@@ -142,11 +146,15 @@ def test_with_every_flag_off_no_reader_and_no_slice_module_is_imported(tmp_path:
         f"os.environ['PRAVRUDHI_MATTER_SPANS_DIR'] = {str(tmp_path / 'no-such-store')!r}\n"
         "from pravrudhi.api.server import create_app\n"
         f"create_app({str(REPO)!r})\n"
-        f"mods = {list(READER_MODULES + SLICE_MODULES)!r}\n"
+        f"mods = {[m for m in READER_MODULES + SLICE_MODULES if m not in B3_MODULES]!r}\n"
+        f"b3 = {list(B3_MODULES)!r}\n"
         "print(','.join(m for m in mods if m in sys.modules))\n"
+        "print(','.join(m for m in b3 if m in sys.modules))\n"
     )
     out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, cwd=REPO, check=True)
-    assert out.stdout.strip() == "", out.stdout  # the names of any slice module found loaded would be printed
+    others, b3_loaded = (out.stdout.split("\n") + [""])[:2]
+    assert others.strip() == "", out.stdout  # the names of any other slice module found loaded would be printed
+    assert set(b3_loaded.strip().split(",")) == set(B3_MODULES), out.stdout  # B3 is ON in the shipped config
 
 
 # ---- one flag on: only that slice's reader is imported/called -----------------------------------------------------------------------

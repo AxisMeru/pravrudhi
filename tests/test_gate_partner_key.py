@@ -163,6 +163,7 @@ def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any
                 yield from walk(r.original_router.routes)
 
     key_listed = {(m, p) for m, p, _b in KEY_ROUTES} | {("GET", "/api/v1/orgs/acme/usage")}
+    key_listed.add(("POST", "/api/v1/s138-checklist"))  # B3 ships ON in the shipped config (19 Oct 2026)
     secret_listed = {(m, p) for m, p, _b in ORG_ROUTES}
     seen = 0
     for r in walk(c.app.routes):

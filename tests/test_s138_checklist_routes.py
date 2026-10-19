@@ -15,13 +15,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from pravrudhi.api import identity, roles
+from pravrudhi.api import identity, partner, roles
 from pravrudhi.api.partner import PartnerApiConfig, build_partner_router
 from pravrudhi.api.server import create_app
 from pravrudhi.application import audit, tenancy
 from pravrudhi.application import s138_checklist_config as scc
 from pravrudhi.application.s138_checklist_config import S138ChecklistConfig
-from tests.flag_peek_util import peek_all_true
+from tests.flag_peek_util import ALL_FLAG_KEYS, peek_all_true
 from tests.test_api_partner import _agent, _proof_script
 
 BODY = {
@@ -54,6 +54,17 @@ def _on(monkeypatch: pytest.MonkeyPatch, cfg: S138ChecklistConfig | None = None)
     peek_all_true(monkeypatch)
 
 
+def _off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The flag-OFF arm: the shipped config now carries B3 ON (19 Oct 2026), so the OFF tests turn it off explicitly."""
+    monkeypatch.setattr(scc, "load_s138_checklist_config", lambda _root: None)
+    monkeypatch.setattr(partner, "_peek_flags", lambda _root: dict.fromkeys(ALL_FLAG_KEYS, False))
+    # an earlier test in the same process may have built an app on the shipped (B3 ON) config, which adds the route to the
+    # process-wide gate and role lists; the OFF tests start from the released lists (restored after the test)
+    monkeypatch.setattr(identity, "PARTNER_KEY_ROUTES", identity.PARTNER_KEY_ROUTES - {("POST", PATH)})
+    monkeypatch.setattr(identity, "PARTNER_KEY_PATHS", identity.PARTNER_KEY_PATHS - {PATH})
+    monkeypatch.setattr(roles, "USER_FACING", roles.USER_FACING - {PATH})
+
+
 def _client(tmp_path: Path, *, user: Any = USER, cfg: PartnerApiConfig = CFG) -> TestClient:
     app = FastAPI()
     agent = _agent(tmp_path, _proof_script())
@@ -81,6 +92,7 @@ def _paths(client: TestClient) -> set[str]:
 
 
 def test_with_the_flag_off_the_route_is_absent_and_nothing_is_imported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _off(monkeypatch)
     monkeypatch.delitem(sys.modules, MODULE, raising=False)
     c = _client(tmp_path)
     assert PATH not in _paths(c)
@@ -88,7 +100,8 @@ def test_with_the_flag_off_the_route_is_absent_and_nothing_is_imported(tmp_path:
     assert MODULE not in sys.modules, "the checklist must not be imported while the flag is off"
 
 
-def test_with_the_flag_off_the_gate_lists_are_the_released_ones(tmp_path: Path) -> None:
+def test_with_the_flag_off_the_gate_lists_are_the_released_ones(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _off(monkeypatch)
     before = (identity.PARTNER_KEY_ROUTES, identity.PARTNER_KEY_PATHS)
     _client(tmp_path)
     assert before == (identity.PARTNER_KEY_ROUTES, identity.PARTNER_KEY_PATHS)
@@ -116,7 +129,8 @@ def test_with_the_flag_on_a_broken_module_turns_the_route_off(tmp_path: Path, mo
     assert c.get("/api/v1/status").status_code == 200 and PATH not in _paths(c)
 
 
-def test_with_the_flag_off_roles_is_the_released_list(tmp_path: Path) -> None:
+def test_with_the_flag_off_roles_is_the_released_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _off(monkeypatch)
     before = roles.USER_FACING
     _client(tmp_path)
     assert before == roles.USER_FACING and PATH not in roles.USER_FACING
@@ -152,10 +166,11 @@ def test_the_route_is_not_in_the_openapi_document(tmp_path: Path, monkeypatch: p
     assert PATH not in c.get("/openapi.json").text
 
 
-def test_the_flag_in_the_shipped_config_is_off() -> None:
-    assert scc.load_s138_checklist_config(REPO) is None
+def test_the_flag_in_the_shipped_config_is_on() -> None:
+    # 19 Oct 2026: B3 switched on (gate ALL_PASS, R1 product_line_check); the kill is the key false.
+    assert scc.load_s138_checklist_config(REPO) == scc.S138ChecklistConfig()
     text = (REPO / "configs" / "partner_api.yaml").read_text()
-    assert "wf_b3_s138_checklist" not in text or "wf_b3_s138_checklist: false" in text
+    assert "\nwf_b3_s138_checklist: true\n" in text
 
 
 # ---- sign-in and the answers ----------------------------------------------------------------------------------------------
