@@ -81,21 +81,18 @@ def _worker_argv(index: int, dpi: int) -> list[str]:
     return [sys.executable, "-I", "-c", WORKER_CODE, str(index), str(dpi), str(MAX_PIXELS)]
 
 
-def render_pdf_page(
-    pdf: bytes, index: int, dpi: int, timeout_s: float = 30.0, argv: list[str] | None = None
-) -> tuple[bytes, Iterator[tuple[int, int]]]:
-    """(PNG bytes, dark pixels) of page `index` (0-based), rendered by the isolated child. OcrUnavailable without pypdfium2 or on
-    any child failure; OcrTimeout when the page would exceed MAX_PIXELS or the child outlives `timeout_s` (its whole group is
-    killed)."""
+def _run_child(argv: list[str], data: bytes, timeout_s: float, what: str) -> tuple[bytes, Iterator[tuple[int, int]]]:
+    """Run one isolated rasteriser child (see above) and validate its raster. OcrUnavailable on any failure, OcrTimeout when the
+    child outlives `timeout_s` (its whole group is killed); OcrPageTooLarge when it reports a too-large page (exit 3)."""
     try:
         proc = subprocess.Popen(  # noqa: S603
-            argv or _worker_argv(index, dpi), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=child_env(), start_new_session=True, preexec_fn=_limits(timeout_s),  # noqa: PLW1509
         )  # fmt: skip
     except OSError as e:
         raise OcrUnavailable(type(e).__name__) from None
     try:
-        out, _ = proc.communicate(pdf, timeout=timeout_s)
+        out, _ = proc.communicate(data, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         raise OcrTimeout from None
     except OSError as e:
@@ -103,13 +100,59 @@ def render_pdf_page(
     finally:
         _kill_group(proc)
     if proc.returncode == 3:
-        raise OcrPageTooLarge  # the page is too large to render here: never tried, not a timeout
+        raise OcrPageTooLarge  # too large to render or decode here: never tried, not a timeout
     if proc.returncode == 2:
-        raise OcrUnavailable("pypdfium2 is not installed")
+        raise OcrUnavailable(f"{what} is not installed")
     if proc.returncode != 0 or len(out) < 8:
-        raise OcrUnavailable(f"the page renderer exited {proc.returncode}")
+        raise OcrUnavailable(f"the {what} child exited {proc.returncode}")
     width, height = struct.unpack(">II", out[:8])
     gray = out[8:]
     if width <= 0 or height <= 0 or width * height > MAX_PIXELS or len(gray) != width * height:
-        raise OcrUnavailable("the page renderer answered with an unexpected raster")
+        raise OcrUnavailable(f"the {what} child answered with an unexpected raster")
     return gray_to_png(width, height, gray), dark_pixels(width, height, gray)
+
+
+def render_pdf_page(
+    pdf: bytes, index: int, dpi: int, timeout_s: float = 30.0, argv: list[str] | None = None
+) -> tuple[bytes, Iterator[tuple[int, int]]]:
+    """(PNG bytes, dark pixels) of page `index` (0-based), rendered by the isolated child (pypdfium2)."""
+    return _run_child(argv or _worker_argv(index, dpi), pdf, timeout_s, "pypdfium2")
+
+
+# The image decoder (Pillow, the `scanned` extra) runs in the SAME kind of child. The decode-bomb guard: the header is read
+# first (`Image.open` is lazy) and width x height is refused over the pixel cap BEFORE any pixel is decoded (exit 3); only PNG,
+# JPEG and TIFF are accepted by FORMAT (not by the claimed mime alone); the first frame only; gray output. Exit codes as above.
+IMAGE_WORKER_CODE = r"""
+import struct, sys
+max_pixels = int(sys.argv[1])
+data = sys.stdin.buffer.read()
+try:
+    from PIL import Image
+except ImportError:
+    sys.exit(2)
+try:
+    import io
+    Image.MAX_IMAGE_PIXELS = max_pixels
+    img = Image.open(io.BytesIO(data), formats=["PNG", "JPEG", "TIFF"])
+    width, height = img.size
+    if width * height > max_pixels:
+        sys.exit(3)
+    img.seek(0)
+    gray = img.convert("L")
+    raw = gray.tobytes()
+except SystemExit:
+    raise
+except Image.DecompressionBombError:
+    sys.exit(3)
+except Exception:
+    sys.exit(4)
+sys.stdout.buffer.write(struct.pack(">II", width, height) + raw)
+"""
+
+
+def render_image(
+    data: bytes, timeout_s: float = 30.0, argv: list[str] | None = None
+) -> tuple[bytes, Iterator[tuple[int, int]]]:
+    """(PNG bytes, dark pixels) of an uploaded PNG, JPEG or TIFF image, decoded by the isolated child."""
+    worker = [sys.executable, "-I", "-c", IMAGE_WORKER_CODE, str(MAX_PIXELS)]
+    return _run_child(argv or worker, data, timeout_s, "the image decoder")
