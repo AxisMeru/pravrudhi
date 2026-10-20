@@ -36,7 +36,7 @@ sources:
     base_url: "https://judgments.ecourts.gov.in"
     authority_kind: judgment
     court_level: high_court
-    license_note: "Government of India public work; judgments are public record"
+    license_note: "Planned source. The High Court data we actually used is the Indian High Court Judgments data set on AWS Open Data (Dattam Labs, CC BY 4.0, sourced from the eCourts judgments portal); its attribution is on the NyayaSiddhi dataset card."
     fetch_method: http_html
     rate_limit_per_minute: 10
     # One entry per state HC would be added here as curation scope expands;

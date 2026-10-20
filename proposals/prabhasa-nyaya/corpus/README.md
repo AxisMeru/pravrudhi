@@ -69,8 +69,7 @@ where that copy came from.
 - **Supreme Court of India** judgments (main.sci.gov.in / judgments.ecourts.gov.in) — the
   planned source is the official judgment archive. Source of the copy actually held: not
   confirmed. Licence: not confirmed.
-- **High Court** judgment portals (per-state eCourts endpoints) — official archive per
-  jurisdiction.
+- **High Court** judgment portals (per-state eCourts endpoints) — the planned source is the official archive per jurisdiction. The High Court data we actually used came from the Indian High Court Judgments data set on AWS Open Data (Dattam Labs, CC BY 4.0, sourced from the eCourts judgments portal).
 - **Law Commission of India** (lawcommissionofindia.nic.in) — official reports archive.
 - **Indian Kanoon** (indiakanoon.org) — planned only as a *fallback fetch mirror* when the
   official portal's document is unreachable or malformed, never as the provenance-of-record;
