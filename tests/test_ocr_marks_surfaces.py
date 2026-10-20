@@ -269,8 +269,9 @@ def test_the_hearing_pack_citation_rows_say_where_a_citation_was_read_from_a_sca
 
 
 def unmarked_rows(tree: Any, path: str = "$") -> list[str]:
-    """R1's generic rule: in an answer for a matter with a scanned page, EVERY dict that names a page (page or pages) together with a
-    paper (doc_id or document_name) must carry from_ocr. Returns the paths of those that do not, so the next gap is found by a walk."""
+    """R1's generic rule: in an answer for a matter with a scanned page, EVERY dict that names a page (page or pages) together
+    with a paper (doc_id or document_name) must carry from_ocr. Returns the paths of those that do not (same rule as Track A's
+    marks probe, no inheritance), so the next gap is found by a walk."""
     out: list[str] = []
     if isinstance(tree, dict):
         names_page = (
@@ -304,9 +305,10 @@ def test_in_a_matter_with_a_scanned_page_no_row_of_any_surface_names_a_paper_and
     s = MatterStore(tmp_path / "s", MatterSpansConfig())
     m = s.create_matter(T)
     text = (
-        "The cheque dated 3 March 2024 was presented on 10 March 2024 and returned unpaid on 12 March 2024; the applicant relied on "
-        "(2011) 4 SCC 777. A statutory notice was sent on 20 March 2024.\fThe complaint was filed on 15 May 2024 under section 138 and "
-        "relied on (2087) 4 SCC 512. The case is listed for hearing on 2 September 2026."
+        "The cheque dated 3 March 2024 was presented on 10 March 2024 and returned unpaid on 12 March 2024; "
+        "the applicant relied on (2011) 4 SCC 777. A statutory notice was sent on 20 March 2024.\f"
+        "The complaint was filed on 15 May 2024 under section 138 and relied on (2087) 4 SCC 512. "
+        "The case is listed for hearing on 2 September 2026."
     )
     s.add_document(T, m, text, "scan.pdf", ocr_pages=[1])
     s.add_document(T, m, "The reply came on 1 July 2024; the cheque was returned unpaid; (2013) 6 SCC 999.", "typed.pdf")
