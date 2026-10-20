@@ -11,7 +11,14 @@ import sys
 import zlib
 from collections.abc import Iterator
 
-from pravrudhi.application.scanned_intake_engine import OcrTimeout, OcrUnavailable, _kill_group, _limits, child_env
+from pravrudhi.application.scanned_intake_engine import (
+    OcrPageTooLarge,
+    OcrTimeout,
+    OcrUnavailable,
+    _kill_group,
+    _limits,
+    child_env,
+)
 
 MAX_PIXELS = 50_000_000  # width x height cap before rendering (an A4 page at 300 dpi is about 8.7 million)
 DARK = 128  # a gray value below this is ink
@@ -96,7 +103,7 @@ def render_pdf_page(
     finally:
         _kill_group(proc)
     if proc.returncode == 3:
-        raise OcrTimeout  # the page is too large to render here
+        raise OcrPageTooLarge  # the page is too large to render here: never tried, not a timeout
     if proc.returncode == 2:
         raise OcrUnavailable("pypdfium2 is not installed")
     if proc.returncode != 0 or len(out) < 8:

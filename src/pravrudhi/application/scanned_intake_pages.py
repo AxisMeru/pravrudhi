@@ -41,6 +41,8 @@ def _ocr_page(page: int, cfg: ScannedIntakeConfig, render: Render, runner: E.Run
         png, dark = render(page - 1, cfg.dpi)
         words = E.parse_tsv(runner(png, cfg.page_timeout_s))
         coverage = E.ink_coverage(dark, words)
+    except E.OcrPageTooLarge:
+        return _unreadable(page, "page_too_large")
     except E.OcrTimeout:
         return _unreadable(page, "timeout")
     except E.OcrUnavailable:

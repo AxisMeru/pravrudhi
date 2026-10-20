@@ -10,6 +10,8 @@ REASON_LINES = {
     "timeout": "This page took too long to read.",
     "language_not_supported": "This page is in a language the tool does not read.",
     "ocr_unavailable": "Scanned pages cannot be read in this deployment.",
+    # R1 be4147060076bdfb: a page whose raster is over the size cap; never tried; no size or number in customer text
+    "page_too_large": "This page was not read because it is too large to read.",
     # R1 940c7c869c69f005: over the per-document OCR page cap; the cap number is never printed
     "page_limit": "This page was not read because the paper has more pages than the tool reads at once.",
     # R1 8de5818f97bb2088: the whole paper used up its reading time before this page (no number in customer text)

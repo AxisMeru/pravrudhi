@@ -63,7 +63,7 @@ def test_a_raster_the_child_returns_is_checked_and_turned_into_a_png_and_dark_pi
 
 
 def test_the_exit_codes_and_a_bad_raster_map_to_the_two_reasons(tmp_path):
-    for exit_code, exc in ((3, E.OcrTimeout), (2, E.OcrUnavailable), (4, E.OcrUnavailable), (1, E.OcrUnavailable)):
+    for exit_code, exc in ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable), (1, E.OcrUnavailable)):
         with pytest.raises(exc):
             code = f"import sys; sys.stdin.buffer.read(); sys.exit({exit_code})"
             R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, code))
