@@ -86,8 +86,11 @@ def process_pages(
 
 def assemble(results: list[PageResult]) -> str:
     """The document text for A2: page texts joined by form feed (the intake convention); an unreadable page is an empty page, so
-    A2 records it in `pages_without_text` and the document is `indexed_complete` only when every page is readable."""
-    return "\f".join(r.text for r in results)
+    A2 records it in `pages_without_text` and the document is `indexed_complete` only when every page is readable.
+    A2 reads a form feed at the very END as the end of the last page, so when the LAST page is empty one more form feed is
+    added: otherwise that page would be dropped (n_pages short by one, indexed_complete true: Track A's gate finding)."""
+    text = "\f".join(r.text for r in results)
+    return text + "\f" if results and not results[-1].text else text
 
 
 def summary(results: list[PageResult]) -> dict[str, object]:

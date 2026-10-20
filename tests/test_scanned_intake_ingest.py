@@ -84,5 +84,5 @@ def test_a_pdf_with_blank_pages_is_read_from_the_images_and_returns_the_page_fie
     assert [p["source"] for p in extra["pages"]] == ["ocr", "ocr"]
     bad_render, bad_runner = make(tsv([("a", 30.0, 0)]))
     text2, extra2 = I.ingest_document(req(pdf_base64=pdf), A2, SCAN, render=bad_render, runner=bad_runner)
-    assert text2 == "\f" and extra2["pages_unreadable"] == 2  # empty pages: A2 says the paper is not fully indexed
+    assert text2 == "\f\f" and extra2["pages_unreadable"] == 2  # empty pages: A2 says the paper is not fully indexed
     assert extra2["document_line"] == S.DOCUMENT_LINE.format(n=2)
