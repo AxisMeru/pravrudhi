@@ -216,3 +216,22 @@ def test_the_wiring_calls_the_helper_after_the_tool_has_built_its_answer(name: s
     import importlib
 
     assert "mark_tree" in inspect.getsource(importlib.import_module(f"pravrudhi.application.{name}"))
+
+
+def test_a_distinct_citation_is_marked_when_any_occurrence_is_from_a_scanned_page(tmp_path: Path) -> None:
+    s = MatterStore(tmp_path / "s", MatterSpansConfig())
+    m = s.create_matter(T)
+    both = f"Page one relies on {GOOD}.\fPage two relies on {GOOD} again and on (2086) 1 SCC 99."
+    s.add_document(T, m, both, "scan.pdf", ocr_pages=[1])
+    out = _sweep(s, m)
+    entries = {e["text"]: e for e in out["distinct_citations"]}
+    mixed = entries[GOOD]  # one occurrence on the scanned page, one on a text-layer page
+    assert [o["from_ocr"] for o in mixed["occurrences"]] == [True, False]
+    assert mixed["from_ocr"] is True and mixed["ocr_marker"] == MARKER
+    text_only = entries["(2086) 1 SCC 99"]  # only on page 2 (text layer)
+    assert text_only["from_ocr"] is False and "ocr_marker" not in text_only
+    assert assert_marked(out) >= 3
+    plain = MatterStore(tmp_path / "p", MatterSpansConfig())
+    pm = plain.create_matter(T)
+    plain.add_document(T, pm, both, "typed.pdf")
+    assert "from_ocr" not in str(_sweep(plain, pm))  # no scanned page: nothing added, entries included

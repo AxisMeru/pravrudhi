@@ -74,7 +74,15 @@ def sweep_for_matter(
         )  # the matter must still exist: a snapshot of a deleted matter is not returned (404)
         from pravrudhi.application.ocr_marks import mark_tree, ocr_page_map
 
-        mark_tree(out, ocr_page_map(docs))  # citation rows, occurrences and cut rows: say if the page was read from an image
+        pages = ocr_page_map(docs)
+        mark_tree(out, pages)  # citation rows, occurrences and cut rows: say if the page was read from an image
+        if pages:  # a distinct citation is marked when ANY of its occurrences is from a scanned page (R1 ADVISE on #605)
+            from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
+
+            for entry in out.get("distinct_citations", []):
+                entry["from_ocr"] = any(o.get("from_ocr") for o in entry.get("occurrences", []))
+                if entry["from_ocr"]:
+                    entry["ocr_marker"] = OCR_MARKER_LINE
         return {**out, "matter_id": req.matter_id}
     finally:
         with _inflight_lock:
