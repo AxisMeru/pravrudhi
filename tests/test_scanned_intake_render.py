@@ -134,3 +134,68 @@ def test_a_decoded_image_is_validated_and_the_exit_codes_map_like_the_pdf_worker
     for code, exc in ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable)):  # bomb, no Pillow, undecodable
         with pytest.raises(exc):
             R.render_image(b"x", argv=_child(tmp_path, f"import sys; sys.stdin.buffer.read(); sys.exit({code})"))
+
+
+def test_a_render_child_streaming_past_the_raster_cap_is_killed_and_the_page_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    import contextlib
+    import os
+    import time
+
+    monkeypatch.setattr(R, "MAX_PIXELS", 1000)
+    code = (
+        "import subprocess,sys; subprocess.Popen(['sleep','28.771']); sys.stdin.buffer.read()\n"
+        "while True: sys.stdout.buffer.write(b'x' * 65536); sys.stdout.buffer.flush()"
+    )
+    started = time.monotonic()
+    with pytest.raises(E.OcrUnavailable) as e:
+        R.render_pdf_page(b"%PDF", 0, 300, timeout_s=20.0, argv=_child(tmp_path, code))
+    assert time.monotonic() - started < 10 and "limit" in str(e.value)
+    time.sleep(0.3)
+    survivors = [d for d in os.listdir("/proc") if d.isdigit() and _cmdline(d) == "sleep\x0028.771\x00"]
+    for pid in survivors:
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), 9)
+    assert survivors == []
+    with pytest.raises(E.OcrUnavailable):  # the image decoder shares the same bounded read
+        R.render_image(
+            b"\x89PNG", timeout_s=20.0, argv=_child(tmp_path, "import sys; sys.stdin.buffer.read()\n" + code.split("\n", 1)[1])
+        )
+
+
+def test_a_raster_exactly_at_the_cap_is_read_whole_and_one_more_byte_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    monkeypatch.setattr(R, "MAX_PIXELS", 6)
+    ok = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',3,2)+bytes([255]*6))"
+    png, dark = R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, ok))
+    assert png.startswith(b"\x89PNG") and list(dark) == []
+    over = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',3,2)+bytes([255]*7))"
+    with pytest.raises(E.OcrUnavailable):  # 8 + 6 + 1 bytes: over the MAX_PIXELS + 8 limit
+        R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, over))
+
+
+def _fake_module_child(tmp_path, pkg: str, body: str, worker: str, args: list[str]) -> list[str]:
+    """The REAL worker script run in a child whose import path has a fake `pkg` that raises MemoryError."""
+    mod = tmp_path / "fakes"
+    mod.mkdir(exist_ok=True)
+    if pkg == "pypdfium2":
+        (mod / "pypdfium2.py").write_text(body)
+    else:
+        (mod / "PIL").mkdir(exist_ok=True)
+        (mod / "PIL" / "__init__.py").write_text("")
+        (mod / "PIL" / "Image.py").write_text(body)
+    wrapper = f"import sys; sys.path.insert(0, {str(mod)!r}); exec(compile({worker!r}, 'worker', 'exec'))"
+    return [sys.executable, "-I", "-c", wrapper, *args]
+
+
+def test_a_memory_error_in_the_worker_is_page_too_large_not_a_generic_failure(tmp_path):
+    pdf_fake = "class PdfDocument:\n    def __init__(self, data):\n        raise MemoryError\n"
+    argv = _fake_module_child(tmp_path, "pypdfium2", pdf_fake, R.WORKER_CODE, ["0", "300", str(R.MAX_PIXELS)])
+    with pytest.raises(E.OcrPageTooLarge):
+        R.render_pdf_page(b"%PDF", 0, 300, argv=argv)
+    img_fake = (
+        "MAX_IMAGE_PIXELS = None\nclass DecompressionBombError(Exception):\n    pass\ndef open(*a, **k):\n    raise MemoryError\n"
+    )
+    argv2 = _fake_module_child(tmp_path, "PIL", img_fake, R.IMAGE_WORKER_CODE, [str(R.MAX_PIXELS)])
+    with pytest.raises(E.OcrPageTooLarge):
+        R.render_image(b"\x89PNG", argv=argv2)

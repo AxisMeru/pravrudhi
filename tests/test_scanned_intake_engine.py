@@ -130,6 +130,7 @@ def _cmdline(pid: str) -> str:
 
 def _fake_version(monkeypatch: pytest.MonkeyPatch, tmp_path, out: str, data: bytes | None):
     E._VERIFIED.clear()  # the build check is remembered once per process: each case starts fresh
+
     class P:
         stdout, stderr, returncode = out.encode(), b"", 0
 
@@ -224,3 +225,32 @@ def test_kill_group_touches_only_a_live_child_and_always_closes_the_pipes(monkey
     assert killed == [] and reaped.stdin.closed and reaped.stdout.closed  # a reaped pid's group is never signalled
     E._kill_group(live)  # type: ignore[arg-type]
     assert killed == [4242] and live.waited and live.stdin.closed and live.stdout.closed
+
+
+def test_a_tesseract_child_streaming_past_the_output_cap_is_killed_and_the_page_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    import contextlib
+    import os
+    import time
+
+    monkeypatch.setattr(E, "MAX_TSV_BYTES", 10_000)
+    exe = _script(tmp_path, "sleep 29.771 &\nyes streaming-past-the-cap\n")  # endless stdout plus a grandchild
+    started = time.monotonic()
+    with pytest.raises(E.OcrUnavailable) as e:
+        E.tesseract_runner(exe)(b"png", 20.0)
+    assert time.monotonic() - started < 10  # killed on the cap, not at the 20 s timeout
+    assert "limit" in str(e.value)
+    time.sleep(0.3)
+    survivors = [d for d in os.listdir("/proc") if d.isdigit() and _cmdline(d) == "sleep\x0029.771\x00"]
+    for pid in survivors:
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), 9)
+    assert survivors == []  # the whole process group went, not only the child
+
+
+def test_normal_runner_paths_are_unchanged_by_the_bounded_read(tmp_path):
+    plain = _script(tmp_path, "cat >/dev/null\necho text-out\n")
+    assert E.tesseract_runner(plain)(b"x" * 1_000_000, 10.0).strip() == "text-out"  # a stdin larger than a pipe buffer
+    exe = _script(tmp_path, "cat >/dev/null\nhead -c 3000000 /dev/zero | tr '\\0' a\n")
+    assert len(E.tesseract_runner(exe)(b"png", 20.0)) == 3_000_000  # under the cap (4 MiB): read whole

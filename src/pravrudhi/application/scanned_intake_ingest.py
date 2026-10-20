@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import time
 from typing import Any
 
 from pravrudhi.application import scanned_intake_engine as E
@@ -62,8 +63,11 @@ def ingest_document(
     if render is None:
         from pravrudhi.application.scanned_intake_render import render_pdf_page
 
+        doc_started = time.monotonic()  # the document deadline starts with the first page, as in `process_pages`
+
         def render(i: int, dpi: int) -> Any:  # noqa: F811
-            return render_pdf_page(data, i, dpi, timeout_s=scan.page_timeout_s)
+            left = scan.document_deadline_s - (time.monotonic() - doc_started)  # the render child never outlives the paper's time
+            return render_pdf_page(data, i, dpi, timeout_s=max(0.001, min(scan.page_timeout_s, left)))
 
     results = PG.process_pages(layered.split("\f"), scan, render, runner or _lazy_runner(scan))
     return PG.assemble(results), PG.summary(results)

@@ -13,11 +13,12 @@ from collections.abc import Iterator
 
 from pravrudhi.application.scanned_intake_engine import (
     OcrPageTooLarge,
-    OcrTimeout,
     OcrUnavailable,
+    OutputOverLimit,
     _kill_group,
     _limits,
     child_env,
+    read_bounded,
 )
 
 MAX_PIXELS = 50_000_000  # width x height cap before rendering (an A4 page at 300 dpi is about 8.7 million)
@@ -49,7 +50,8 @@ def dark_pixels(width: int, height: int, gray: bytes) -> Iterator[tuple[int, int
 # The rasteriser runs in a CHILD process (own process group, the same resource limits and minimal environment as the
 # tesseract child): PDFium parses partner PDFs in native code, so a crash, a hang or a memory blow-up there must not take the
 # engine with it. The child reads the PDF on stdin and writes `>II` width, height and the raw gray bytes on stdout. Exit codes:
-# 2 no pypdfium2, 3 page too big, 4 any other failure. The script is a string so the child imports nothing of this project.
+# 2 no pypdfium2, 3 page too big (a MemoryError under the address-space cap counts as too big for this worker), 4 any other
+# failure. The script is a string so the child imports nothing of this project.
 WORKER_CODE = r"""
 import struct, sys
 index, dpi, max_pixels = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
@@ -70,6 +72,8 @@ try:
     buf = bytes(bitmap.buffer)
 except SystemExit:
     raise
+except MemoryError:
+    sys.exit(3)
 except Exception:
     sys.exit(4)
 rows = b"".join(buf[y * stride : y * stride + width] for y in range(height)) if stride != width else buf
@@ -92,9 +96,9 @@ def _run_child(argv: list[str], data: bytes, timeout_s: float, what: str) -> tup
     except OSError as e:
         raise OcrUnavailable(type(e).__name__) from None
     try:
-        out, _ = proc.communicate(data, timeout=timeout_s)
-    except subprocess.TimeoutExpired:
-        raise OcrTimeout from None
+        out = read_bounded(proc, data, timeout_s, MAX_PIXELS + 8)  # an 8-byte header and at most MAX_PIXELS gray bytes
+    except OutputOverLimit:
+        raise OcrUnavailable(f"the {what} child wrote more output than the limit") from None
     except OSError as e:
         raise OcrUnavailable(type(e).__name__) from None
     finally:
@@ -142,7 +146,7 @@ try:
     raw = gray.tobytes()
 except SystemExit:
     raise
-except Image.DecompressionBombError:
+except (Image.DecompressionBombError, MemoryError):
     sys.exit(3)
 except Exception:
     sys.exit(4)
@@ -150,9 +154,7 @@ sys.stdout.buffer.write(struct.pack(">II", width, height) + raw)
 """
 
 
-def render_image(
-    data: bytes, timeout_s: float = 30.0, argv: list[str] | None = None
-) -> tuple[bytes, Iterator[tuple[int, int]]]:
+def render_image(data: bytes, timeout_s: float = 30.0, argv: list[str] | None = None) -> tuple[bytes, Iterator[tuple[int, int]]]:
     """(PNG bytes, dark pixels) of an uploaded PNG, JPEG or TIFF image, decoded by the isolated child."""
     worker = [sys.executable, "-I", "-c", IMAGE_WORKER_CODE, str(MAX_PIXELS)]
     return _run_child(argv or worker, data, timeout_s, "the image decoder")
