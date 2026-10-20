@@ -1,5 +1,7 @@
 # Prabhasa-Nyaya corpus proposal
 
+> Proposal of 6 Sep 2026: the intended recipe, not the corpus actually held; the source of our Supreme Court copy is not confirmed.
+
 Step `corpus` (capability `corpus`) for the Prabhasa-Nyaya objective: a legal-reasoning
 assistant for Indian jurisprudence that cites the statute or precedent it relied on, says
 "I don't know" rather than inventing a citation, and reasons over a **typed Nyaya meaning
@@ -56,21 +58,23 @@ presenting an unmeasured number as if it were sized by evidence. `config/sources
 
 ## Source provenance
 
-All sources are primary or quasi-primary public legal sources, each recorded with the
-exact origin, access method, and license/reuse terms in `config/sources.yaml`:
+These are the planned sources, each to be recorded with the exact origin, access method, and
+license/reuse terms in `config/sources.yaml`. The source and licence of the Supreme Court copy
+actually held are **not confirmed**: the Supreme Court entry below is the plan, not a record of
+where that copy came from.
 
 - **India Code** (indiacode.nic.in) — official repository of Central Acts, published by
   the Legislative Department, Ministry of Law and Justice. Public domain / government
   work; used for statute text.
-- **Supreme Court of India** judgments (main.sci.gov.in / judgments.ecourts.gov.in) —
-  official judgment archive.
-- **High Court** judgment portals (per-state eCourts endpoints) — official archive per
-  jurisdiction.
+- **Supreme Court of India** judgments (main.sci.gov.in / judgments.ecourts.gov.in) — the
+  planned source is the official judgment archive. Source of the copy actually held: not
+  confirmed. Licence: not confirmed.
+- **High Court** judgment portals (per-state eCourts endpoints) — the planned source is the official archive per jurisdiction. The High Court data we actually used came from the Indian High Court Judgments data set on AWS Open Data (Dattam Labs, CC BY 4.0, sourced from the eCourts judgments portal).
 - **Law Commission of India** (lawcommissionofindia.nic.in) — official reports archive.
-- **Indian Kanoon** (indiakanoon.org) — used only as a *fallback fetch mirror* when the
+- **Indian Kanoon** (indiakanoon.org) — planned only as a *fallback fetch mirror* when the
   official portal's document is unreachable or malformed, never as the provenance-of-record;
-  every document's manifest entry still names the official court/act as the authority and
-  records Indian Kanoon only as `mirror_used: true`. Indian Kanoon's terms restrict bulk
+  a document's manifest entry would still name the official court/act as the authority and
+  record Indian Kanoon only as `mirror_used: true`. Indian Kanoon's terms restrict bulk
   scraping — see `config/sources.yaml: indian_kanoon.rate_limit_notice` — so this source is
   capped and rate-limited, and the recipe must not depend on it for coverage.
 

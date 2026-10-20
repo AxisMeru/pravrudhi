@@ -1,3 +1,4 @@
+# Proposal of 6 Sep 2026: the intended recipe, not the corpus actually held; the source of our Supreme Court copy is not confirmed.
 # Source provenance configuration for the Prabhasa-Nyaya corpus proposal.
 #
 # Every value under target_counts is a PROPOSED quantity for the first corpus
@@ -21,11 +22,12 @@ sources:
     rate_limit_per_minute: 20
 
   supreme_court_of_india:
-    description: "Supreme Court of India official judgment archive"
+    # The PLANNED source. The source and licence of the Supreme Court copy actually held are not confirmed.
+    description: "Supreme Court of India official judgment archive (planned source)"
     base_url: "https://main.sci.gov.in"
     authority_kind: judgment
     court_level: supreme_court
-    license_note: "Government of India public work; judgments are public record"
+    license_note: "Not confirmed."
     fetch_method: http_html
     rate_limit_per_minute: 10
 
@@ -34,7 +36,7 @@ sources:
     base_url: "https://judgments.ecourts.gov.in"
     authority_kind: judgment
     court_level: high_court
-    license_note: "Government of India public work; judgments are public record"
+    license_note: "Planned source. The High Court data we actually used is the Indian High Court Judgments data set on AWS Open Data (Dattam Labs, CC BY 4.0, sourced from the eCourts judgments portal); its attribution is on the NyayaSiddhi dataset card."
     fetch_method: http_html
     rate_limit_per_minute: 10
     # One entry per state HC would be added here as curation scope expands;
