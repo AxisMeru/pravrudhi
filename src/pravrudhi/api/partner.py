@@ -2573,6 +2573,13 @@ def build_partner_router(
     except Exception:  # noqa: BLE001 - an optional route must never stop the engine's own routes from starting
         _logger.warning("matter span-index unavailable; it stays off", exc_info=True)
         _a2_on = _a2_delete = False
+    # #1015 scanned and garbled-page intake: only with its own flag true AND every calibrated number valid; it acts only inside
+    # the A2 documents route, so it needs A2 on as well.
+    _a2_scan = None
+    if _flags.get("wf_c1_scanned_intake") is True:
+        from pravrudhi.application import scanned_intake_config as _c1c
+
+        _a2_scan = _c1c.load_scanned_intake_config(engine_root)
     if _a2_delete:
         _a2_cfg_eff = _a2_cfg or _a2c.MatterSpansConfig()
         from pravrudhi.application import matter_store_factory as _a2f
@@ -2681,6 +2688,11 @@ def build_partner_router(
 
             def a2_documents_ep(req: Any, request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
                 def op(store: Any, tenant: str) -> dict[str, Any]:
+                    if _a2_scan is not None:  # #1015: wf_c1_scanned_intake on: pages routed text layer / image, additive fields
+                        from pravrudhi.application import scanned_intake_ingest as _c1i
+
+                        text, extra = _c1i.ingest_document(req, _a2_cfg_eff, _a2_scan)
+                        return {**store.add_document(tenant, req.matter_id, text, req.name), **extra}
                     text = _a2.read_document(req, _a2_cfg_eff)
                     return store.add_document(tenant, req.matter_id, text, req.name)  # type: ignore[no-any-return]
 
