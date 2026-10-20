@@ -23,6 +23,7 @@ ALL_FLAG_KEYS = (
     "wf_a7_matter_hearing_pack",
     "wf_a8_synopsis_list_of_dates",
     "wf_b1_section_lookup",
+    "wf_c1_scanned_intake",
 )
 
 

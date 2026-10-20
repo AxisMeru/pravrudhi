@@ -10,13 +10,16 @@ REASON_LINES = {
     "timeout": "This page took too long to read.",
     "language_not_supported": "This page is in a language the tool does not read.",
     "ocr_unavailable": "Scanned pages cannot be read in this deployment.",
+    # R1 940c7c869c69f005: over the per-document OCR page cap; the cap number is never printed
+    "page_limit": "This page was not read because the paper has more pages than the tool reads at once.",
 }
 DOCUMENT_LINE = "{n} page(s) could not be read, so this paper is only partly searched."  # when pages_unreadable > 0
 OCR_LINE = "Pages read from page images may contain mistakes. Check each quote against the page image."  # ingest response
 FROM_OCR_DATE_LINE = "Read from a page image: check this date against the page image."  # rows with from_ocr: true
-# pages[].repaired
-REPAIRED_PAGE_LINE = "The text in the file for this page was damaged or missing, so the page was read from its image."
-PHOTO_LINE = "A photo taken with a phone may be read less well than a scan."  # beside a photo upload
+# pages[].repaired (R1 6d58ad2bbb36f4d0: only a flagged text layer that OCR replaced, never a missing layer)
+REPAIRED_PAGE_LINE = "The text in the file for this page was damaged, so the page was read from its image."
+# R1 b19d6f4a591bfdb7 (replaces the earlier photo line)
+PHOTO_LINE = "Photos and scans of other papers, such as an FIR or a chargesheet, may be read less well than a court order."
 HEIC_REFUSED = "This photo format is not supported. Save it as JPEG or PNG and add it again."  # by mime image/heic, image/heif
 # Web's line for pdf_too_large
 TOO_LARGE = "This file is too large. The limit is 8 MB. Make the file smaller, or split it, and add it again."

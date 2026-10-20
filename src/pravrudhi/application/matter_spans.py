@@ -48,7 +48,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, StrictStr, model_validator
 
@@ -116,12 +116,17 @@ class DocumentRequest(BaseModel):
     matter_id: StrictStr = Field(min_length=32, max_length=32)
     text: StrictStr | None = Field(default=None, max_length=10_000_000)
     pdf_base64: StrictStr | None = Field(default=None, max_length=11_000_000)
+    #: #1015: a photo or an image of a page (read only while wf_c1_scanned_intake is on; with the flag off the route refuses it).
+    image_base64: StrictStr | None = Field(default=None, max_length=11_000_000)
+    mime: Literal["image/png", "image/jpeg", "image/tiff", "image/heic", "image/heif"] | None = None
     name: StrictStr = Field(default="document", max_length=MAX_NAME_CHARS)
 
     @model_validator(mode="after")
     def _one_source(self) -> DocumentRequest:
-        if (self.text is None) == (self.pdf_base64 is None):
-            raise ValueError("send exactly one of text and pdf_base64")
+        if sum(v is not None for v in (self.text, self.pdf_base64, self.image_base64)) != 1:
+            raise ValueError("send exactly one of text, pdf_base64 and image_base64")
+        if (self.image_base64 is None) != (self.mime is None):
+            raise ValueError("mime goes with image_base64 and only with it")
         return self
 
 
@@ -745,6 +750,8 @@ def split_spans(text: str) -> list[tuple[int, int, int]]:
 
 
 def read_document(req: DocumentRequest, cfg: MatterSpansConfig) -> str:
+    if req.image_base64 is not None:  # flag off (the scanned-intake path never reaches here): a photo is not read
+        raise MatterError("image_not_enabled", "Photos cannot be added here.", 415)
     if req.pdf_base64 is None:
         return req.text or ""
     from pravrudhi.application.draft_check import DraftRefused, pdf_text
