@@ -21,11 +21,12 @@ sources:
     rate_limit_per_minute: 20
 
   supreme_court_of_india:
-    description: "Supreme Court of India official judgment archive"
+    # The PLANNED source. The source and licence of the Supreme Court copy actually held are not confirmed.
+    description: "Supreme Court of India official judgment archive (planned source)"
     base_url: "https://main.sci.gov.in"
     authority_kind: judgment
     court_level: supreme_court
-    license_note: "Government of India public work; judgments are public record"
+    license_note: "Not confirmed."
     fetch_method: http_html
     rate_limit_per_minute: 10
 
