@@ -199,3 +199,32 @@ def test_a_memory_error_in_the_worker_is_page_too_large_not_a_generic_failure(tm
     argv2 = _fake_module_child(tmp_path, "PIL", img_fake, R.IMAGE_WORKER_CODE, [str(R.MAX_PIXELS)])
     with pytest.raises(E.OcrPageTooLarge):
         R.render_image(b"\x89PNG", argv=argv2)
+
+
+def test_the_rasteriser_and_the_decoder_read_and_fail_closed_with_descriptors_above_1024(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    import os
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if hard != resource.RLIM_INFINITY and hard < 1400:
+        pytest.skip("the hard descriptor limit is too low for this test")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, 1400), hard))
+    held = [os.open("/dev/null", os.O_RDONLY) for _ in range(1300)]
+    try:
+        monkeypatch.setattr(R, "MAX_PIXELS", 6)
+        ok = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',3,2)+bytes([255]*6))"
+        png, _dark = R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, ok))
+        assert png.startswith(b"\x89PNG")
+        png2, _ = R.render_image(b"\x89PNG", argv=_child(tmp_path, ok))
+        assert png2.startswith(b"\x89PNG")
+        over = "import sys; sys.stdin.buffer.read()\nwhile True: sys.stdout.buffer.write(b'x' * 65536); sys.stdout.buffer.flush()"
+        with pytest.raises(E.OcrUnavailable):
+            R.render_pdf_page(b"%PDF", 0, 300, timeout_s=20.0, argv=_child(tmp_path, over))
+        with pytest.raises(E.OcrUnavailable):
+            R.render_image(b"\x89PNG", timeout_s=20.0, argv=_child(tmp_path, over))
+    finally:
+        for fd in held:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))

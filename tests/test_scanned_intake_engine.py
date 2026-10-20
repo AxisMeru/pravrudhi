@@ -254,3 +254,33 @@ def test_normal_runner_paths_are_unchanged_by_the_bounded_read(tmp_path):
     assert E.tesseract_runner(plain)(b"x" * 1_000_000, 10.0).strip() == "text-out"  # a stdin larger than a pipe buffer
     exe = _script(tmp_path, "cat >/dev/null\nhead -c 3000000 /dev/zero | tr '\\0' a\n")
     assert len(E.tesseract_runner(exe)(b"png", 20.0)) == 3_000_000  # under the cap (4 MiB): read whole
+
+
+@pytest.fixture
+def many_open_fds():
+    """Hold more than 1024 descriptors open so the pipes a child gets have fd numbers above 1024 (select() cannot watch those)."""
+    import os
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 1300
+    if hard != resource.RLIM_INFINITY and hard < want + 100:
+        pytest.skip("the hard descriptor limit is too low for this test")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want + 100), hard))
+    held = [os.open("/dev/null", os.O_RDONLY) for _ in range(want)]
+    try:
+        yield held
+    finally:
+        for fd in held:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_the_bounded_read_works_with_descriptors_above_1024(monkeypatch: pytest.MonkeyPatch, tmp_path, many_open_fds):
+    plain = _script(tmp_path, "cat >/dev/null\necho text-out\n")
+    assert E.tesseract_runner(plain)(b"png", 10.0).strip() == "text-out"  # a normal read still works
+    monkeypatch.setattr(E, "MAX_TSV_BYTES", 10_000)
+    with pytest.raises(E.OcrUnavailable):  # and the cap still fails closed (not a ValueError from select)
+        E.tesseract_runner(_script(tmp_path, "yes streaming-past-the-cap\n"))(b"png", 20.0)
+    with pytest.raises(E.OcrTimeout):  # and so does the timeout
+        E.tesseract_runner(_script(tmp_path, "sleep 20\n"))(b"png", 0.5)

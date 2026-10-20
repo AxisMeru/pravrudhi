@@ -10,7 +10,7 @@ import hashlib
 import os
 import re
 import resource
-import select
+import selectors
 import shutil
 import signal
 import subprocess
@@ -279,20 +279,21 @@ def read_bounded(proc: subprocess.Popen[bytes], data: bytes, timeout_s: float, m
     fd = proc.stdout.fileno()
     chunks: list[bytes] = []
     total = 0
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise OcrTimeout
-        ready, _, _ = select.select([fd], [], [], remaining)
-        if not ready:
-            raise OcrTimeout
-        block = os.read(fd, 65536)
-        if not block:
-            break
-        total += len(block)
-        if total > max_out:
-            raise OutputOverLimit
-        chunks.append(block)
+    # selectors (epoll on Linux), not select.select: select() raises ValueError for any fd >= 1024, and in a busy threaded
+    # server the pipe can get such an fd; a ValueError would escape as an internal error instead of the page failing closed
+    with selectors.DefaultSelector() as sel:
+        sel.register(fd, selectors.EVENT_READ)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not sel.select(remaining):
+                raise OcrTimeout
+            block = os.read(fd, 65536)
+            if not block:
+                break
+            total += len(block)
+            if total > max_out:
+                raise OutputOverLimit
+            chunks.append(block)
     try:
         proc.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
