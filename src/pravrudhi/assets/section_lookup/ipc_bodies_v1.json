@@ -10,7 +10,7 @@
   "pdf_created": "2007-01-17 (as printed in the PDF metadata)",
   "held_by": "Track C, trackc-seat3/ipc/ic/",
   "text_extraction": "pdftotext -layout; Track C parse_ipc_pdf.py (section start, footnote strip, amendment-marker strip) + a second pass for sections the parser missed; the printed amendment markers 'N*[...]' and footnotes are REMOVED from text (words inside brackets kept)",
-  "parse_limits": "see compare notes: ~20 sections differ in wording from the IL-TUR mirror, not yet reconciled; page refs are PDF page numbers",
+  "parse_limits": "see compare notes: about 20 sections differ in wording from a second copy of the Act text, not yet reconciled; page refs are PDF page numbers",
   "file_date": "January 2007 (PDF metadata 17 Jan 2007)",
   "last_amendment_shown": "Act 42 of 1997 (footnote in the text); no later year appears in the extracted text",
   "marks": "Amendment marks and footnotes are left out of this text."
