@@ -161,21 +161,11 @@ def test_the_runner_is_refused_unless_the_tesseract_build_and_english_data_are_t
     assert E.tesseract_identity.__name__ == "tesseract_identity"
 
 
-def test_an_unreadable_english_data_file_is_ocr_unavailable_and_a_failed_check_is_remembered(monkeypatch, tmp_path):
+def test_an_unreadable_data_file_is_ocr_unavailable_and_not_remembered_but_a_real_mismatch_is(monkeypatch, tmp_path):
     from dataclasses import replace
 
     cfg = replace(CFG, tesseract_version="5.5.3", eng_traineddata_sha256="0" * 64)
     _fake_version(monkeypatch, tmp_path, "tesseract 5.5.3\n", b"data")
-    real_open = open
-
-    def deny(path, *a, **k):
-        if str(path).endswith("eng.traineddata"):
-            raise PermissionError
-        return real_open(path, *a, **k)
-
-    monkeypatch.setattr("builtins.open", deny)
-    with pytest.raises(E.OcrUnavailable):  # not an internal error for the document
-        E.tesseract_runner("/opt/tesseract", cfg)
     calls = {"n": 0}
     real = E.tesseract_identity
 
@@ -184,7 +174,53 @@ def test_an_unreadable_english_data_file_is_ocr_unavailable_and_a_failed_check_i
         return real(exe, timeout_s)
 
     monkeypatch.setattr(E, "tesseract_identity", counting)
-    for _ in range(3):
+    real_open = open
+
+    def deny(path, *a, **k):
+        if str(path).endswith("eng.traineddata"):
+            raise PermissionError
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr("builtins.open", deny)
+    for _ in range(3):  # a transient failure (unreadable data) answers ocr_unavailable each time and is NOT cached
         with pytest.raises(E.OcrUnavailable):
             E.tesseract_runner("/opt/tesseract", cfg)
-    assert calls["n"] == 0  # the failure was remembered: later pages neither re-run --version nor re-hash the data
+    assert calls["n"] == 3
+    monkeypatch.setattr("builtins.open", real_open)
+    calls["n"] = 0
+    for _ in range(3):  # a REAL mismatch (other data) is remembered: checked once
+        with pytest.raises(E.IdentityMismatch):
+            E.tesseract_runner("/opt/tesseract", cfg)
+    assert calls["n"] == 1
+
+
+def test_kill_group_touches_only_a_live_child_and_always_closes_the_pipes(monkeypatch):
+    killed: list[int] = []
+    monkeypatch.setattr(E.os, "killpg", lambda pid, sig: killed.append(pid))
+
+    class Pipe:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class Proc:
+        pid = 4242
+
+        def __init__(self, rc):
+            self.rc, self.stdin, self.stdout, self.waited = rc, Pipe(), Pipe(), False
+
+        def poll(self):
+            return self.rc
+
+        def kill(self):
+            pass
+
+        def wait(self):
+            self.waited = True
+
+    reaped, live = Proc(0), Proc(None)
+    E._kill_group(reaped)  # type: ignore[arg-type]
+    assert killed == [] and reaped.stdin.closed and reaped.stdout.closed  # a reaped pid's group is never signalled
+    E._kill_group(live)  # type: ignore[arg-type]
+    assert killed == [4242] and live.waited and live.stdin.closed and live.stdout.closed

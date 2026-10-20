@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import os
 import re
+import resource
 import shutil
 import signal
 import subprocess
@@ -24,6 +25,10 @@ ARGS = ("--psm", "3", "-l", "eng", "tsv")  # stdin -> stdout; the same settings 
 
 class OcrUnavailable(Exception):
     """No tesseract binary, or it failed to start or exited non-zero: the page's reason is `ocr_unavailable`."""
+
+
+class IdentityMismatch(OcrUnavailable):
+    """A REAL mismatch of the tesseract build or English data (the only failure that is remembered per process)."""
 
 
 class OcrTimeout(Exception):
@@ -217,7 +222,7 @@ def verify_identity(exe: str, cfg: ScannedIntakeConfig) -> None:
     """Fail closed: the calibration (floor, detector) holds only for the engine and language data it was measured on."""
     version, digest = tesseract_identity(exe)
     if version != cfg.tesseract_version or digest != cfg.eng_traineddata_sha256:
-        raise OcrUnavailable("the tesseract build or its English data is not the calibrated one")
+        raise IdentityMismatch("the tesseract build or its English data is not the calibrated one")
 
 
 MAX_ADDRESS_BYTES = 2 << 30  # address space of the tesseract child (a 300 dpi A4 page needs well under 1 GiB)
@@ -227,8 +232,6 @@ _VERIFIED: dict[tuple[str, str, str], str | None] = {}
 
 def _limits(timeout_s: float) -> Callable[[], None]:
     def apply() -> None:  # runs in the child between fork and exec: setrlimit calls only
-        import resource
-
         for which, value in (
             (resource.RLIMIT_AS, MAX_ADDRESS_BYTES),
             (resource.RLIMIT_CPU, int(timeout_s) + 5),
@@ -242,11 +245,18 @@ def _limits(timeout_s: float) -> Callable[[], None]:
 
 
 def _kill_group(proc: subprocess.Popen[bytes]) -> None:
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(proc.pid, signal.SIGKILL)  # the child leads its own process group: its children die with it
-    with contextlib.suppress(OSError):
-        proc.kill()
-    proc.wait()
+    """Only while the child is still unreaped (a reaped pid's group id may already belong to someone else): SIGKILL its whole
+    process group, reap it, and close its pipes."""
+    if proc.poll() is None:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)  # the child leads its own process group: its children die with it
+        with contextlib.suppress(OSError):
+            proc.kill()
+        proc.wait()
+    for pipe in (proc.stdin, proc.stdout):
+        if pipe is not None:
+            with contextlib.suppress(OSError):
+                pipe.close()
 
 
 def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None = None) -> Runner:
@@ -262,10 +272,10 @@ def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None 
             try:
                 verify_identity(exe, cfg)
                 _VERIFIED[key] = None
-            except OcrUnavailable as e:
-                _VERIFIED[key] = str(e)
+            except IdentityMismatch as e:
+                _VERIFIED[key] = str(e)  # a real mismatch is remembered; a transient failure (timeout, OSError) is not
         if _VERIFIED[key] is not None:
-            raise OcrUnavailable(_VERIFIED[key] or "unverified")  # a failure is remembered: no re-hash per page
+            raise IdentityMismatch(_VERIFIED[key] or "unverified")  # a failure is remembered: no re-hash per page
 
     def run(png: bytes, timeout_s: float) -> str:
         try:
