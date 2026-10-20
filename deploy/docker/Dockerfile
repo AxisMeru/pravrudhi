@@ -21,6 +21,11 @@ RUN test -n "$PRAVRUDHI_VERSION" || (echo "PRAVRUDHI_VERSION is required" >&2 &&
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates tesseract-ocr tesseract-ocr-eng > /dev/null \
     && rm -rf /var/lib/apt/lists/*
 
+# #575: the identity check of scanned intake hashes `<TESSDATA_PREFIX>/eng.traineddata`, and this image sets no TESSDATA_PREFIX, so without
+# it every scanned page read as ocr_unavailable even though tesseract's compiled-in data path is right. Pinned explicitly to the Debian
+# package's data directory (the exact file whose sha256 `ocr_eng_traineddata_sha256` names); the child's own environment takes it from here.
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+
 # The two wheels every AxisMeru/pravrudhi release publishes. The kernel's own version is read from the release
 # assets rather than assumed, so a kernel release does not need this file changed. The asset list comes from
 # the release's own assets_url: the by-tag view has been seen listing no assets long after they were published.
