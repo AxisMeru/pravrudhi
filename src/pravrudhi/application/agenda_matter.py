@@ -61,6 +61,9 @@ def agenda_for_matter(
         page = G.build_agenda(
             records, dict(req.paper_types), req.offence, ownership, list(req.papers_held_without_file), passages
         )
+        from pravrudhi.application.ocr_marks import mark_tree, ocr_page_map
+
+        mark_tree(page, ocr_page_map(listing["documents"]))  # a pointer quotes a passage: say if its page was read from an image
         return {"run_id": run_id, "matter_id": req.matter_id, **page}
     except G.AssetChanged as e:
         raise MatterError("agenda_asset_changed", "The agenda is not available.", 500) from e
