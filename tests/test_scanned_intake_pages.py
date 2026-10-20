@@ -167,3 +167,20 @@ def test_the_document_deadline_stops_ocr_before_the_next_page_and_shortens_the_p
     assert [r.source for r in out2] == ["ocr", "ocr", "unreadable", "unreadable"]
     assert out2[2].reason == "document_time" and out2[3].reason == "document_time"
     assert seen == [60.0, 50.0]  # the second page got what was left of the document deadline
+
+
+def test_each_never_or_slowly_read_page_maps_to_its_own_line_and_all_count_as_unreadable():
+    """R1: timeout, page_limit and document_time have DISTINCT lines; a never-tried page never carries the per-page timeout line;
+    document_time pages are counted in pages_unreadable and the document line; no number appears in any of them."""
+    res = [
+        PG.PageResult(1, "unreadable", "", None, "timeout"),
+        PG.PageResult(2, "unreadable", "", None, "page_limit"),
+        PG.PageResult(3, "unreadable", "", None, "document_time"),
+        PG.PageResult(4, "text_layer", CLEAN),
+    ]
+    s = PG.summary(res)
+    lines = [p.get("reason_line") for p in s["pages"]]  # type: ignore[union-attr]
+    assert lines[:3] == [S.REASON_LINES["timeout"], S.REASON_LINES["page_limit"], S.REASON_LINES["document_time"]]
+    assert len(set(lines[:3])) == 3 and lines[3] is None
+    assert s["pages_unreadable"] == 3 and s["document_line"] == S.DOCUMENT_LINE.format(n=3)
+    assert not any(ch.isdigit() for ch in "".join(str(x) for x in lines[:3]))  # no number (not 120 s, not the cap) in the text
