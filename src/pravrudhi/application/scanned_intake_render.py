@@ -6,10 +6,12 @@ a generator, and the PNG that tesseract reads encoded with the standard library 
 from __future__ import annotations
 
 import struct
+import subprocess
+import sys
 import zlib
 from collections.abc import Iterator
 
-from pravrudhi.application.scanned_intake_engine import OcrTimeout, OcrUnavailable
+from pravrudhi.application.scanned_intake_engine import OcrTimeout, OcrUnavailable, _kill_group, _limits, child_env
 
 MAX_PIXELS = 50_000_000  # width x height cap before rendering (an A4 page at 300 dpi is about 8.7 million)
 DARK = 128  # a gray value below this is ink
@@ -37,26 +39,70 @@ def dark_pixels(width: int, height: int, gray: bytes) -> Iterator[tuple[int, int
                 yield x, y
 
 
-def render_pdf_page(pdf: bytes, index: int, dpi: int) -> tuple[bytes, Iterator[tuple[int, int]]]:
-    """(PNG bytes, dark pixels) of page `index` (0-based). OcrUnavailable without pypdfium2; OcrTimeout when the raster would
-    exceed MAX_PIXELS (refused before it is allocated)."""
+# The rasteriser runs in a CHILD process (own process group, the same resource limits and minimal environment as the
+# tesseract child): PDFium parses partner PDFs in native code, so a crash, a hang or a memory blow-up there must not take the
+# engine with it. The child reads the PDF on stdin and writes `>II` width, height and the raw gray bytes on stdout. Exit codes:
+# 2 no pypdfium2, 3 page too big, 4 any other failure. The script is a string so the child imports nothing of this project.
+WORKER_CODE = r"""
+import struct, sys
+index, dpi, max_pixels = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
+data = sys.stdin.buffer.read()
+try:
+    import pypdfium2 as pdfium
+except ImportError:
+    sys.exit(2)
+try:
+    doc = pdfium.PdfDocument(data)
+    page = doc[index]
+    w_pt, h_pt = page.get_size()
+    scale = dpi / 72.0
+    if int(w_pt * scale) * int(h_pt * scale) > max_pixels:
+        sys.exit(3)
+    bitmap = page.render(scale=scale, grayscale=True)
+    width, height, stride = bitmap.width, bitmap.height, bitmap.stride
+    buf = bytes(bitmap.buffer)
+except SystemExit:
+    raise
+except Exception:
+    sys.exit(4)
+rows = b"".join(buf[y * stride : y * stride + width] for y in range(height)) if stride != width else buf
+sys.stdout.buffer.write(struct.pack(">II", width, height) + rows)
+"""
+
+
+def _worker_argv(index: int, dpi: int) -> list[str]:
+    return [sys.executable, "-I", "-c", WORKER_CODE, str(index), str(dpi), str(MAX_PIXELS)]
+
+
+def render_pdf_page(
+    pdf: bytes, index: int, dpi: int, timeout_s: float = 30.0, argv: list[str] | None = None
+) -> tuple[bytes, Iterator[tuple[int, int]]]:
+    """(PNG bytes, dark pixels) of page `index` (0-based), rendered by the isolated child. OcrUnavailable without pypdfium2 or on
+    any child failure; OcrTimeout when the page would exceed MAX_PIXELS or the child outlives `timeout_s` (its whole group is
+    killed)."""
     try:
-        import pypdfium2 as pdfium  # type: ignore[import-not-found,unused-ignore]
-    except ImportError:
-        raise OcrUnavailable("pypdfium2 is not installed") from None
-    try:
-        doc = pdfium.PdfDocument(pdf)
-        page = doc[index]
-        w_pt, h_pt = page.get_size()
-        scale = dpi / 72.0
-        if int(w_pt * scale) * int(h_pt * scale) > MAX_PIXELS:
-            raise OcrTimeout
-        bitmap = page.render(scale=scale, grayscale=True)
-        width, height, stride = bitmap.width, bitmap.height, bitmap.stride
-        buf = bytes(bitmap.buffer)
-    except (OcrTimeout, OcrUnavailable):
-        raise
-    except Exception as e:  # noqa: BLE001 - any renderer failure is "this page cannot be rendered here"
+        proc = subprocess.Popen(  # noqa: S603
+            argv or _worker_argv(index, dpi), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=child_env(), start_new_session=True, preexec_fn=_limits(timeout_s),  # noqa: PLW1509
+        )  # fmt: skip
+    except OSError as e:
         raise OcrUnavailable(type(e).__name__) from None
-    gray = b"".join(buf[y * stride : y * stride + width] for y in range(height)) if stride != width else buf
+    try:
+        out, _ = proc.communicate(pdf, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        raise OcrTimeout from None
+    except OSError as e:
+        raise OcrUnavailable(type(e).__name__) from None
+    finally:
+        _kill_group(proc)
+    if proc.returncode == 3:
+        raise OcrTimeout  # the page is too large to render here
+    if proc.returncode == 2:
+        raise OcrUnavailable("pypdfium2 is not installed")
+    if proc.returncode != 0 or len(out) < 8:
+        raise OcrUnavailable(f"the page renderer exited {proc.returncode}")
+    width, height = struct.unpack(">II", out[:8])
+    gray = out[8:]
+    if width <= 0 or height <= 0 or width * height > MAX_PIXELS or len(gray) != width * height:
+        raise OcrUnavailable("the page renderer answered with an unexpected raster")
     return gray_to_png(width, height, gray), dark_pixels(width, height, gray)

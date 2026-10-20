@@ -63,7 +63,7 @@ def ingest_document(
         from pravrudhi.application.scanned_intake_render import render_pdf_page
 
         def render(i: int, dpi: int) -> Any:  # noqa: F811
-            return render_pdf_page(data, i, dpi)
+            return render_pdf_page(data, i, dpi, timeout_s=scan.page_timeout_s)
 
     results = PG.process_pages(layered.split("\f"), scan, render, runner or _lazy_runner(scan))
     return PG.assemble(results), PG.summary(results)
