@@ -5,10 +5,12 @@ only). A page below the floor is NEVER guessed: it has no text."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 from bisect import bisect_right
 from collections.abc import Callable, Iterable
@@ -202,9 +204,12 @@ def tesseract_identity(exe: str, timeout_s: float = 10.0) -> tuple[str, str | No
     digest = None
     if prefix:
         path = os.path.join(prefix, "eng.traineddata")
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                digest = hashlib.sha256(f.read()).hexdigest()
+        try:
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    digest = hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            raise OcrUnavailable("the English data cannot be read") from None
     return (m.group(1) if m else ""), digest
 
 
@@ -215,26 +220,72 @@ def verify_identity(exe: str, cfg: ScannedIntakeConfig) -> None:
         raise OcrUnavailable("the tesseract build or its English data is not the calibrated one")
 
 
+MAX_ADDRESS_BYTES = 2 << 30  # address space of the tesseract child (a 300 dpi A4 page needs well under 1 GiB)
+# (exe, version pin, data pin) -> None (ok) or the refusal text, once per process
+_VERIFIED: dict[tuple[str, str, str], str | None] = {}
+
+
+def _limits(timeout_s: float) -> Callable[[], None]:
+    def apply() -> None:  # runs in the child between fork and exec: setrlimit calls only
+        import resource
+
+        for which, value in (
+            (resource.RLIMIT_AS, MAX_ADDRESS_BYTES),
+            (resource.RLIMIT_CPU, int(timeout_s) + 5),
+            (resource.RLIMIT_NOFILE, 64),
+            (resource.RLIMIT_FSIZE, 0),  # the child writes no file: any attempt kills it
+            (resource.RLIMIT_CORE, 0),
+        ):
+            resource.setrlimit(which, (value, value))
+
+    return apply
+
+
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(proc.pid, signal.SIGKILL)  # the child leads its own process group: its children die with it
+    with contextlib.suppress(OSError):
+        proc.kill()
+    proc.wait()
+
+
 def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None = None) -> Runner:
-    """The real runner: argv list (no shell), the PNG on stdin, a hard timeout. Raises OcrUnavailable / OcrTimeout."""
+    """The real runner: argv list (no shell), the PNG on stdin and the text on stdout (no temp file), a minimal environment,
+    resource limits, its OWN process group (a timeout kills the whole group, not only the child) and a hard timeout. The
+    calibrated build is verified once per process. Raises OcrUnavailable / OcrTimeout."""
     exe = binary or os.environ.get(TESSERACT_ENV) or shutil.which("tesseract")
     if not exe:
         raise OcrUnavailable("no tesseract binary")
     if cfg is not None:
-        verify_identity(exe, cfg)
+        key = (exe, cfg.tesseract_version, cfg.eng_traineddata_sha256)
+        if key not in _VERIFIED:
+            try:
+                verify_identity(exe, cfg)
+                _VERIFIED[key] = None
+            except OcrUnavailable as e:
+                _VERIFIED[key] = str(e)
+        if _VERIFIED[key] is not None:
+            raise OcrUnavailable(_VERIFIED[key] or "unverified")  # a failure is remembered: no re-hash per page
 
     def run(png: bytes, timeout_s: float) -> str:
         try:
-            p = subprocess.run(  # noqa: S603
-                [exe, "stdin", "stdout", *ARGS], input=png, capture_output=True, timeout=timeout_s, check=False, env=child_env()
-            )
+            proc = subprocess.Popen(  # noqa: S603
+                [exe, "stdin", "stdout", *ARGS], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=child_env(), start_new_session=True, preexec_fn=_limits(timeout_s),  # noqa: PLW1509
+            )  # fmt: skip
+        except OSError as e:
+            raise OcrUnavailable(type(e).__name__) from None
+        try:
+            out, _ = proc.communicate(png, timeout=timeout_s)
         except subprocess.TimeoutExpired:
             raise OcrTimeout from None
         except OSError as e:
             raise OcrUnavailable(type(e).__name__) from None
-        if p.returncode != 0:
-            raise OcrUnavailable(f"tesseract exited {p.returncode}")
-        return p.stdout.decode("utf-8", "replace")
+        finally:
+            _kill_group(proc)
+        if proc.returncode != 0:
+            raise OcrUnavailable(f"tesseract exited {proc.returncode}")
+        return out.decode("utf-8", "replace")
 
     return run
 

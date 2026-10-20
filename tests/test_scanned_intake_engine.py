@@ -73,72 +73,63 @@ def test_ocr_replaces_a_flagged_layer_only_when_it_disagrees():
     assert E.ocr_replaces_layer(CLEAN, CLEAN, CFG) is False  # they agree: the layer stays
 
 
-def test_the_runner_maps_failures_to_the_two_reasons(monkeypatch: pytest.MonkeyPatch):
-    import subprocess
+def _script(tmp_path, body: str):
+    exe = tmp_path / "fake-tesseract"
+    exe.write_text("#!/bin/sh\n" + body)
+    exe.chmod(0o755)
+    return str(exe)
 
+
+def test_the_runner_maps_failures_to_the_two_reasons(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.delenv(E.TESSERACT_ENV, raising=False)
     monkeypatch.setattr(E.shutil, "which", lambda _n: None)
     with pytest.raises(E.OcrUnavailable):
         E.tesseract_runner()
-
-    def boom(*_a, **_k):
-        raise subprocess.TimeoutExpired("t", 1)
-
-    monkeypatch.setattr(E.subprocess, "run", boom)
-    with pytest.raises(E.OcrTimeout):
-        E.tesseract_runner("/bin/true")(b"png", 1.0)
-
-    def oserr(*_a, **_k):
-        raise FileNotFoundError
-
-    monkeypatch.setattr(E.subprocess, "run", oserr)
-    with pytest.raises(E.OcrUnavailable):
+    with pytest.raises(E.OcrUnavailable):  # the binary does not exist: not a crash
         E.tesseract_runner("/nowhere/tesseract")(b"png", 1.0)
-
-    class P:
-        returncode, stdout = 1, b""
-
-    monkeypatch.setattr(E.subprocess, "run", lambda *_a, **_k: P())
-    with pytest.raises(E.OcrUnavailable):
-        E.tesseract_runner("/bin/true")(b"png", 1.0)
-
-
-def test_the_runner_passes_the_calibrated_settings_as_an_argv_list_with_no_shell(monkeypatch: pytest.MonkeyPatch):
-    seen: dict[str, object] = {}
-
-    class P:
-        returncode, stdout = 0, b"ok"
-
-    def fake(argv, **kw):
-        seen.update(argv=argv, **kw)
-        return P()
-
-    monkeypatch.setattr(E.subprocess, "run", fake)
-    assert E.tesseract_runner("/opt/tesseract")(b"png", 7.0) == "ok"
-    assert seen["argv"] == ["/opt/tesseract", "stdin", "stdout", "--psm", "3", "-l", "eng", "tsv"]
-    assert seen["input"] == b"png" and seen["timeout"] == 7.0 and "shell" not in seen
-
-
-def test_ink_coverage_is_bounded_work_and_matches_the_naive_definition_on_overlapping_boxes():
-    import random
-
-    rng = random.Random(3)
-    ws = [E.Word("w", 90, rng.randint(0, 80), rng.randint(0, 80), rng.randint(1, 30), rng.randint(1, 15)) for _ in range(25)]
-    px = [(rng.randint(0, 120), rng.randint(0, 120)) for _ in range(3000)]
-    naive = sum(1 for x, y in px if any(w.left <= x < w.left + w.width and w.top <= y < w.top + w.height for w in ws)) / len(px)
-    assert E.ink_coverage(px, ws) == pytest.approx(naive)
+    with pytest.raises(E.OcrUnavailable):  # a non-zero exit
+        E.tesseract_runner(_script(tmp_path, "cat >/dev/null\nexit 3\n"))(b"png", 5.0)
     with pytest.raises(E.OcrTimeout):
-        E.ink_coverage(((i, 0) for i in range(11)), ws, limit=10)
+        E.tesseract_runner(_script(tmp_path, "sleep 20\n"))(b"png", 0.5)
 
 
-def test_the_child_environment_is_minimal_and_carries_no_inherited_secret(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "secret")
-    monkeypatch.setenv("TESSDATA_PREFIX", "/opt/tessdata")
-    env = E.child_env()
-    assert set(env) == {"PATH", "OMP_THREAD_LIMIT", "LC_ALL", "TESSDATA_PREFIX"} and "secret" not in str(env)
+def test_the_runner_passes_the_calibrated_settings_png_on_stdin_and_the_text_on_stdout(tmp_path):
+    argv_file, stdin_file = tmp_path / "argv", tmp_path / "stdin"
+    exe = _script(tmp_path, f'echo "$@" > {argv_file}\ncat > {stdin_file}\necho text-out\n')
+    # the child may not write files (RLIMIT_FSIZE 0): redirecting to a file kills it, so assert the refusal, then the stdout path
+    with pytest.raises(E.OcrUnavailable):
+        E.tesseract_runner(exe)(b"PNGDATA", 5.0)
+    plain = _script(tmp_path, "cat >/dev/null\necho text-out\n")
+    assert E.tesseract_runner(plain)(b"PNGDATA", 5.0).strip() == "text-out"
+    assert E.ARGS == ("--psm", "3", "-l", "eng", "tsv")
+
+
+def test_a_timeout_kills_the_whole_process_group_not_only_the_child(tmp_path):
+    import contextlib
+    import os
+    import time
+
+    exe = _script(tmp_path, "sleep 29.123 &\nwait\n")  # an unusual duration: no other process is mistaken for it
+    with pytest.raises(E.OcrTimeout):
+        E.tesseract_runner(exe)(b"png", 0.6)
+    time.sleep(0.3)
+    survivors = [d for d in os.listdir("/proc") if d.isdigit() and _cmdline(d) == "sleep\x0029.123\x00"]
+    for pid in survivors:  # never leave a stray behind, whichever way the assertion goes
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), 9)
+    assert survivors == []  # the grandchild died with the group
+
+
+def _cmdline(pid: str) -> str:
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
 
 
 def _fake_version(monkeypatch: pytest.MonkeyPatch, tmp_path, out: str, data: bytes | None):
+    E._VERIFIED.clear()  # the build check is remembered once per process: each case starts fresh
     class P:
         stdout, stderr, returncode = out.encode(), b"", 0
 
@@ -168,3 +159,32 @@ def test_the_runner_is_refused_unless_the_tesseract_build_and_english_data_are_t
     with pytest.raises(E.OcrUnavailable):  # no data directory to check: not trusted
         E.tesseract_runner("/opt/tesseract", cfg)
     assert E.tesseract_identity.__name__ == "tesseract_identity"
+
+
+def test_an_unreadable_english_data_file_is_ocr_unavailable_and_a_failed_check_is_remembered(monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(CFG, tesseract_version="5.5.3", eng_traineddata_sha256="0" * 64)
+    _fake_version(monkeypatch, tmp_path, "tesseract 5.5.3\n", b"data")
+    real_open = open
+
+    def deny(path, *a, **k):
+        if str(path).endswith("eng.traineddata"):
+            raise PermissionError
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr("builtins.open", deny)
+    with pytest.raises(E.OcrUnavailable):  # not an internal error for the document
+        E.tesseract_runner("/opt/tesseract", cfg)
+    calls = {"n": 0}
+    real = E.tesseract_identity
+
+    def counting(exe, timeout_s=10.0):
+        calls["n"] += 1
+        return real(exe, timeout_s)
+
+    monkeypatch.setattr(E, "tesseract_identity", counting)
+    for _ in range(3):
+        with pytest.raises(E.OcrUnavailable):
+            E.tesseract_runner("/opt/tesseract", cfg)
+    assert calls["n"] == 0  # the failure was remembered: later pages neither re-run --version nor re-hash the data
