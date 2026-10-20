@@ -573,7 +573,7 @@ def test_the_work_grows_linearly_on_dense_text_of_every_shape(unit: str) -> None
         return best
 
     small, big = took(100_000), took(400_000)
-    # Quadratic code fails BOTH signals (ratio near 16 and big above 5 s); load noise on one measurement fails at most one of them,
+    # Quadratic code fails BOTH signals (ratio near 16 and big above 5 s); load noise on one measurement fails at most one,
     # so a pass needs either a linear ratio or an absolute time well inside the quadratic one (linear is about 0.5 s).
     assert big / max(small, 1e-4) < 9.0 or big < 1.5, (unit, small, big)
     assert big < 6.0, (unit, big)
