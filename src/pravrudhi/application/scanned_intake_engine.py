@@ -35,6 +35,9 @@ class Word:
     top: int
     width: int
     height: int
+    block: int = 0
+    par: int = 0
+    line: int = 0
 
 
 Runner = Callable[[bytes, float], str]  # (png bytes, timeout seconds) -> the tsv text
@@ -55,7 +58,7 @@ def parse_tsv(tsv: str) -> list[Word]:
         text = cols[11].strip()
         if conf < 0 or not text:
             continue
-        words.append(Word(text, conf, *box))
+        words.append(Word(text, conf, *box, block=int(cols[2]), par=int(cols[3]), line=int(cols[4])))
     return words
 
 
@@ -206,3 +209,21 @@ def tesseract_runner(binary: str | None = None) -> Runner:
         return p.stdout.decode("utf-8", "replace")
 
     return run
+
+
+def words_to_text(words: list[Word]) -> str:
+    """The page text: words of a line joined by a space, lines by a newline, paragraphs by a blank line (A2 cuts spans there)."""
+    out: list[str] = []
+    prev: tuple[int, int, int] | None = None
+    for w in words:
+        key = (w.block, w.par, w.line)
+        if prev is None:
+            out.append(w.text)
+        elif key[:2] != prev[:2]:
+            out.append("\n\n" + w.text)
+        elif key != prev:
+            out.append("\n" + w.text)
+        else:
+            out.append(" " + w.text)
+        prev = key
+    return "".join(out)
