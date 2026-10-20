@@ -18,13 +18,13 @@ from pravrudhi.application.scanned_intake_config import ScannedIntakeConfig
 IMAGE_NOT_SUPPORTED_YET = "Photos cannot be added here. Add the paper as a PDF."  # R1 b7857975b161bd99 (no promise)
 
 
-def _lazy_runner() -> E.Runner:
+def _lazy_runner(scan: ScannedIntakeConfig | None = None) -> E.Runner:
     """The real tesseract runner, created at the first page that needs it (a missing binary is that page's `ocr_unavailable`)."""
     box: list[E.Runner] = []
 
     def run(png: bytes, timeout_s: float) -> str:
         if not box:
-            box.append(E.tesseract_runner())
+            box.append(E.tesseract_runner(cfg=scan))
         return box[0](png, timeout_s)
 
     return run
@@ -65,5 +65,5 @@ def ingest_document(
         def render(i: int, dpi: int) -> Any:  # noqa: F811
             return render_pdf_page(data, i, dpi)
 
-    results = PG.process_pages(layered.split("\f"), scan, render, runner or _lazy_runner())
+    results = PG.process_pages(layered.split("\f"), scan, render, runner or _lazy_runner(scan))
     return PG.assemble(results), PG.summary(results)

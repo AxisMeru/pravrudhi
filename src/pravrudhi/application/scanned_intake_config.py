@@ -8,6 +8,7 @@ or the slice stays OFF (no hard-coded floor: Track A's calibration record sets t
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,8 @@ class ScannedIntakeConfig:
     page_timeout_s: float
     document_deadline_s: float  # all OCR pages of ONE document together (one request holds a shared A2 slot)
     dpi: int
+    tesseract_version: str = ""  # the calibrated engine: an image whose tesseract differs is NOT used (fail closed)
+    eng_traineddata_sha256: str = ""
     languages: str = "eng"
 
 
@@ -67,6 +70,13 @@ def parse_scanned_intake_config(body: Any) -> ScannedIntakeConfig | None:
             _logger.warning("%s must be a number from %s to %s (and is required): scanned intake stays OFF", key, lo, hi)
             return None
         values[field] = kind(raw)
+    for key, field in (("ocr_tesseract_version", "tesseract_version"), ("ocr_eng_traineddata_sha256", "eng_traineddata_sha256")):
+        raw = body.get(key)
+        bad_hash = field == "eng_traineddata_sha256" and not re.fullmatch(r"[0-9a-f]{64}", str(raw))
+        if not isinstance(raw, str) or not raw.strip() or bad_hash:
+            _logger.warning("%s must be a non-empty string (the sha256 as 64 lowercase hex): scanned intake stays OFF", key)
+            return None
+        values[field] = raw.strip()
     langs = body.get("ocr_languages", "eng")
     if langs != "eng":  # English only until Hindi ships: any other value is a typo that must not silently change the engine
         _logger.warning("ocr_languages must be \"eng\": scanned intake stays OFF")
