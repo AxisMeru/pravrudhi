@@ -11,7 +11,14 @@ import sys
 import zlib
 from collections.abc import Iterator
 
-from pravrudhi.application.scanned_intake_engine import OcrPageTooLarge, OcrTimeout, OcrUnavailable, _kill_group, _limits, child_env
+from pravrudhi.application.scanned_intake_engine import (
+    OcrPageTooLarge,
+    OcrTimeout,
+    OcrUnavailable,
+    _kill_group,
+    _limits,
+    child_env,
+)
 
 MAX_PIXELS = 50_000_000  # width x height cap before rendering (an A4 page at 300 dpi is about 8.7 million)
 DARK = 128  # a gray value below this is ink

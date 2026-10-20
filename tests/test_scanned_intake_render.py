@@ -131,6 +131,6 @@ def test_a_decoded_image_is_validated_and_the_exit_codes_map_like_the_pdf_worker
     ok = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',2,2)+bytes([0,255,255,0]))"
     png, dark = R.render_image(b"x", argv=_child(tmp_path, ok))
     assert png.startswith(b"\x89PNG") and list(dark) == [(0, 0), (1, 1)]
-    for code, exc in ((3, E.OcrTimeout), (2, E.OcrUnavailable), (4, E.OcrUnavailable)):  # bomb, no Pillow, undecodable
+    for code, exc in ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable)):  # bomb, no Pillow, undecodable
         with pytest.raises(exc):
             R.render_image(b"x", argv=_child(tmp_path, f"import sys; sys.stdin.buffer.read(); sys.exit({code})"))
