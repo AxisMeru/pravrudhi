@@ -38,6 +38,8 @@ class MatterSpansConfig:
     max_matters_per_tenant: int = 200
     max_tenant_bytes: int = 5_000_000_000  # everything one tenant holds on disk (bytes)
     max_spans_per_doc: int = 100_000
+    max_list_matters: int = 50  # matters one my-matters listing opens and returns (the rest are reported as truncated)
+    list_budget_s: int = 30  # seconds one listing may spend opening matters; kept well under the ~100 s edge limit
     min_free_bytes: int = 500_000_000  # an ingest is refused (503) if it would leave less free space than this
 
 
@@ -52,6 +54,8 @@ _CAPS = {
     "matter_spans_max_matters_per_tenant": ("max_matters_per_tenant", 1, 10_000),
     "matter_spans_max_tenant_bytes": ("max_tenant_bytes", 1_000_000, 10_000_000_000_000),
     "matter_spans_max_spans_per_doc": ("max_spans_per_doc", 1, 1_000_000),
+    "matter_spans_max_list_matters": ("max_list_matters", 1, 1_000),
+    "matter_spans_list_budget_s": ("list_budget_s", 1, 90),
     "matter_spans_min_free_bytes": ("min_free_bytes", 0, 10_000_000_000_000),
 }
 

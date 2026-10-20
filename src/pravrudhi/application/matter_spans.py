@@ -42,6 +42,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import time
 import unicodedata
 import uuid
 from collections.abc import Iterator
@@ -329,13 +330,20 @@ class MatterStore:
         except (MatterNotFound, sqlite3.Error):
             return None
 
-    def _listing(self, tenant: str, ids: list[str]) -> dict[str, Any]:
-        out = []
-        for matter_id in ids:
+    def _listing(self, tenant: str, ids: list[str], started: float | None = None) -> dict[str, Any]:
+        """Count the papers of at most `max_list_matters` matters within `list_budget_s` (from `started`); what is not
+        opened is reported as `truncated`, never guessed. A bound, not a page: the caller sees the first matters it can see."""
+        t0 = time.monotonic() if started is None else started
+        out: list[dict[str, Any]] = []
+        truncated = len(ids) > self.cfg.max_list_matters
+        for matter_id in ids[: self.cfg.max_list_matters]:
+            if time.monotonic() - t0 > self.cfg.list_budget_s:
+                truncated = True
+                break
             n = self._paper_count(tenant, matter_id)
             if n is not None:
                 out.append({"matter_id": matter_id, "papers": n})
-        return {"matters": out}
+        return {"matters": out, "truncated": truncated}
 
     def list_matters(self, tenant: str) -> dict[str, Any]:
         """The caller's OWN matters, newest activity first: matter id and the number of fully indexed papers. Read-only; the
@@ -343,7 +351,7 @@ class MatterStore:
         empty list, never a refusal that would tell the caller anything. Nothing is created for a tenant with no folder."""
         tdir = self._tenant_dir(tenant)
         if not tdir.is_dir():
-            return {"matters": []}
+            return {"matters": [], "truncated": False}
         found: list[tuple[float, str]] = []
         for p in tdir.iterdir():
             db = p / DB_NAME
