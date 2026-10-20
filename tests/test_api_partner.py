@@ -1456,7 +1456,7 @@ class TestSetVersions:
         assert body["contract_set_version"] is None or len(body["contract_set_version"]) == 64
 
 
-def test_the_public_status_route_reports_every_wf_flag_as_a_boolean_and_nothing_else(tmp_path, monkeypatch):
+def test_the_public_status_route_lists_only_the_wf_flags_that_are_on_and_nothing_else(tmp_path, monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -1470,7 +1470,7 @@ def test_the_public_status_route_reports_every_wf_flag_as_a_boolean_and_nothing_
     app.include_router(P.build_partner_router(tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg))
     r = TestClient(app).get("/api/v1/status")
     assert r.status_code == 200
-    want = {"wf_a3_chronology": True, "wf_a4_bail_drafting": False, "wf_n": False, "wf_x_odd": False}
-    assert r.json()["workflows"] == want  # only wf_* keys; only a real true is true
+    assert r.json()["workflows"] == {"wf_a3_chronology": True}  # only wf_* keys that are a real true; an absent key is off
+    assert "wf_a4_bail_drafting" not in r.text and "wf_x_odd" not in r.text and "wf_n" not in r.text  # off names never published
     assert "Asia/Kolkata" not in r.text and "secret_key" not in r.text and "rate_limit_per_minute" not in r.text
     assert set(r.json()) == {"engine_version", "service_window", "judge", "workflows"}  # the existing fields are unchanged
