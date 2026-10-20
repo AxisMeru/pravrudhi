@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.25 (2026-10-20)
+
+PATCH release on 0.6.24. Nothing is switched on: this release carries the code for reading scanned and garbled pages, shipped dark, and changes no live route.
+
+### Changed
+
+- **Scanned and garbled-page intake ships off.** The new `wf_c1_scanned_intake` key is `false` in the shipped configuration and no other key changes. While it is off, every route answers exactly as in 0.6.24 and no page is rendered or read by the new code. The scanned routes are not served.
+- **The engine image carries the OCR tooling.** The image now includes the Tesseract engine with English data and the PDF page renderer (`pypdfium2`, pinned exactly). Nothing starts them while the key is off. The image is larger than 0.6.24's.
+- **The new code runs its helpers in isolated child processes** with their own process group, resource limits, a hard time limit and bounded output; a platform without the resource-limit module refuses the work and does not fall back. This is inactive while the key is off.
+
+### Notes
+
+- Switching the key on later is a configuration change and needs no new image, once the calibrated Tesseract build and English data are checked against the image (tracked in the project issue #575).
+- The optional `scanned` extra of the Python package pins `pypdfium2==4.30.0` and `pillow==11.3.0`; the image installs the former only. Neither is imported unless the key is on.
+
 ## 0.6.24 (2026-10-20)
 
 PATCH release on 0.6.23. Bail drafting and the synopsis and list of dates are switched on in the shipped configuration. Both now require the caller to declare whether the matter is sensitive.
