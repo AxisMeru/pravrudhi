@@ -227,6 +227,65 @@ def test_kill_group_touches_only_a_live_child_and_always_closes_the_pipes(monkey
     assert killed == [4242] and live.waited and live.stdin.closed and live.stdout.closed
 
 
+def test_a_tesseract_child_streaming_past_the_output_cap_is_killed_and_the_page_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    import contextlib
+    import os
+    import time
+
+    monkeypatch.setattr(E, "MAX_TSV_BYTES", 10_000)
+    exe = _script(tmp_path, "sleep 29.771 &\nyes streaming-past-the-cap\n")  # endless stdout plus a grandchild
+    started = time.monotonic()
+    with pytest.raises(E.OcrUnavailable) as e:
+        E.tesseract_runner(exe)(b"png", 20.0)
+    assert time.monotonic() - started < 10  # killed on the cap, not at the 20 s timeout
+    assert "limit" in str(e.value)
+    time.sleep(0.3)
+    survivors = [d for d in os.listdir("/proc") if d.isdigit() and _cmdline(d) == "sleep\x0029.771\x00"]
+    for pid in survivors:
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), 9)
+    assert survivors == []  # the whole process group went, not only the child
+
+
+def test_normal_runner_paths_are_unchanged_by_the_bounded_read(tmp_path):
+    plain = _script(tmp_path, "cat >/dev/null\necho text-out\n")
+    assert E.tesseract_runner(plain)(b"x" * 1_000_000, 10.0).strip() == "text-out"  # a stdin larger than a pipe buffer
+    exe = _script(tmp_path, "cat >/dev/null\nhead -c 3000000 /dev/zero | tr '\\0' a\n")
+    assert len(E.tesseract_runner(exe)(b"png", 20.0)) == 3_000_000  # under the cap (4 MiB): read whole
+
+
+@pytest.fixture
+def many_open_fds():
+    """Hold more than 1024 descriptors open so the pipes a child gets have fd numbers above 1024 (select() cannot watch those)."""
+    import os
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 1300
+    if hard != resource.RLIM_INFINITY and hard < want + 100:
+        pytest.skip("the hard descriptor limit is too low for this test")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, want + 100), hard))
+    held = [os.open("/dev/null", os.O_RDONLY) for _ in range(want)]
+    try:
+        yield held
+    finally:
+        for fd in held:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_the_bounded_read_works_with_descriptors_above_1024(monkeypatch: pytest.MonkeyPatch, tmp_path, many_open_fds):
+    plain = _script(tmp_path, "cat >/dev/null\necho text-out\n")
+    assert E.tesseract_runner(plain)(b"png", 10.0).strip() == "text-out"  # a normal read still works
+    monkeypatch.setattr(E, "MAX_TSV_BYTES", 10_000)
+    with pytest.raises(E.OcrUnavailable):  # and the cap still fails closed (not a ValueError from select)
+        E.tesseract_runner(_script(tmp_path, "yes streaming-past-the-cap\n"))(b"png", 20.0)
+    with pytest.raises(E.OcrTimeout):  # and so does the timeout
+        E.tesseract_runner(_script(tmp_path, "sleep 20\n"))(b"png", 0.5)
+
+
 def test_the_child_limits_fail_closed_where_resource_is_missing_and_the_module_still_imports(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):

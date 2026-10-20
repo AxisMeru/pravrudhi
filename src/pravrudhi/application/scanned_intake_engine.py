@@ -9,9 +9,12 @@ import contextlib
 import hashlib
 import os
 import re
+import selectors
 import shutil
 import signal
 import subprocess
+import threading
+import time
 from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -254,6 +257,56 @@ def _limits(timeout_s: float) -> Callable[[], None]:
     return apply
 
 
+# a tesseract TSV for one page is tens of KB; over this the child is killed and the page fails closed
+MAX_TSV_BYTES = 4 * 1024 * 1024
+
+
+class OutputOverLimit(Exception):
+    """A child wrote more stdout than its limit allows (internal: the callers turn it into `OcrUnavailable`)."""
+
+
+def read_bounded(proc: subprocess.Popen[bytes], data: bytes, timeout_s: float, max_out: int) -> bytes:
+    """`communicate()` with a ceiling: feed `data` on stdin from a thread, read stdout in chunks and stop at `max_out` bytes.
+    Raises OutputOverLimit when the child writes more, OcrTimeout when it outlives `timeout_s` (also while waiting for its exit).
+    It never kills anything itself: the caller's `finally: _kill_group(proc)` takes down the whole process group, which is what
+    stops a child that is still streaming."""
+    deadline = time.monotonic() + timeout_s
+
+    def feed() -> None:
+        with contextlib.suppress(OSError, ValueError):  # the child may exit or be killed before reading it all
+            if proc.stdin is not None:
+                proc.stdin.write(data)
+        with contextlib.suppress(OSError, ValueError):
+            if proc.stdin is not None:
+                proc.stdin.close()
+
+    threading.Thread(target=feed, daemon=True).start()
+    assert proc.stdout is not None  # noqa: S101 - Popen(stdout=PIPE)
+    fd = proc.stdout.fileno()
+    chunks: list[bytes] = []
+    total = 0
+    # selectors (epoll on Linux), not select.select: select() raises ValueError for any fd >= 1024, and in a busy threaded
+    # server the pipe can get such an fd; a ValueError would escape as an internal error instead of the page failing closed
+    with selectors.DefaultSelector() as sel:
+        sel.register(fd, selectors.EVENT_READ)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not sel.select(remaining):
+                raise OcrTimeout
+            block = os.read(fd, 65536)
+            if not block:
+                break
+            total += len(block)
+            if total > max_out:
+                raise OutputOverLimit
+            chunks.append(block)
+    try:
+        proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        raise OcrTimeout from None
+    return b"".join(chunks)
+
+
 def _kill_group(proc: subprocess.Popen[bytes]) -> None:
     """Only while the child is still unreaped (a reaped pid's group id may already belong to someone else): SIGKILL its whole
     process group, reap it, and close its pipes."""
@@ -296,9 +349,9 @@ def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None 
         except OSError as e:
             raise OcrUnavailable(type(e).__name__) from None
         try:
-            out, _ = proc.communicate(png, timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            raise OcrTimeout from None
+            out = read_bounded(proc, png, timeout_s, MAX_TSV_BYTES)
+        except OutputOverLimit:
+            raise OcrUnavailable("tesseract wrote more output than the limit") from None
         except OSError as e:
             raise OcrUnavailable(type(e).__name__) from None
         finally:

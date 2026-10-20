@@ -86,3 +86,26 @@ def test_a_pdf_with_blank_pages_is_read_from_the_images_and_returns_the_page_fie
     text2, extra2 = I.ingest_document(req(pdf_base64=pdf), A2, SCAN, render=bad_render, runner=bad_runner)
     assert text2 == "\f\f" and extra2["pages_unreadable"] == 2  # empty pages: A2 says the paper is not fully indexed
     assert extra2["document_line"] == S.DOCUMENT_LINE.format(n=2)
+
+
+def test_the_render_child_never_outlives_the_documents_remaining_time(monkeypatch: pytest.MonkeyPatch):
+    from dataclasses import replace
+
+    from pravrudhi.application import scanned_intake_render as R
+
+    seen: list[float] = []
+
+    def fake_render(data: bytes, i: int, dpi: int, timeout_s: float = 30.0, argv=None):
+        seen.append(timeout_s)
+        return b"png", iter(())
+
+    monkeypatch.setattr(R, "render_pdf_page", fake_render)
+    scan = replace(SCAN, page_timeout_s=30.0, document_deadline_s=4.0)
+    render, runner = make(tsv(GOOD_WORDS))
+    I.ingest_document(req(pdf_base64=base64.b64encode(blank_pdf(2)).decode()), A2, scan, runner=runner)
+    assert len(seen) == 2 and all(0 < t <= 4.0 for t in seen)  # min(page timeout 30, the document's 4 s left)
+    assert seen[1] <= seen[0]  # the second page has less time left than the first
+    roomy = replace(SCAN, page_timeout_s=3.0, document_deadline_s=900.0)
+    seen.clear()
+    I.ingest_document(req(pdf_base64=base64.b64encode(blank_pdf(1)).decode()), A2, roomy, runner=runner)
+    assert seen == [pytest.approx(3.0, abs=0.5)] or all(t <= 3.0 for t in seen)  # the page timeout still caps a roomy document
