@@ -40,7 +40,12 @@ def chronology_for_matter(
     docs, spans = store.read_passages(tenant, matter_id)
     if not docs:
         raise MatterError("no_papers", C.NO_PAPERS, 409)
-    metas = [C.DocMeta(d["doc_id"], d["name"], d["n_pages"], tuple(d["pages_without_text"]), d["n_pages"] > 1) for d in docs]
+    metas = [
+        C.DocMeta(
+            d["doc_id"], d["name"], d["n_pages"], tuple(d["pages_without_text"]), d["n_pages"] > 1, tuple(d.get("ocr_pages", ()))
+        )
+        for d in docs
+    ]
     names = {d["doc_id"]: d["name"] for d in docs}
     recs = [
         C.SpanRec(

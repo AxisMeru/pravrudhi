@@ -104,6 +104,13 @@ def load_asset() -> dict[str, Any]:
     return asset
 
 
+def _ocr_marker_line() -> str:
+    """R1's one marker for a row read from a scanned page; the strings module is imported only for such a matter."""
+    from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
+
+    return OCR_MARKER_LINE
+
+
 # ---- inputs -----------------------------------------------------------------------------------
 
 
@@ -128,6 +135,8 @@ class DocMeta:
     pages_without_text: tuple[int, ...] = ()
     #: False for a source with no page marks (pasted text): the page line then says so
     pages_known: bool = True
+    #: 1-based pages whose text was read from a page image (scanned intake); empty for every other document
+    ocr_pages: tuple[int, ...] = ()
 
 
 # ---- phrases ----------------------------------------------------------------------------------
@@ -494,6 +503,8 @@ def build_chronology(
     found = len(rows)
     assert found == sum(len(v) for v in cats.values())
 
+    any_ocr = any(m.ocr_pages for m in docs)  # a matter with no page read from an image keeps its rows exactly as before
+
     def row_out(r: _Row) -> dict[str, Any]:
         meta, sc, _l = scans[r.scan_doc]
         u = sc.units[r.unit]
@@ -559,6 +570,10 @@ def build_chronology(
             "span_sha256": hashlib.sha256(u.text.encode("utf-8", "surrogatepass")).hexdigest(),
             "group_id": r.group,
         }
+        if any_ocr:
+            out["from_ocr"] = u.page in meta.ocr_pages  # true: the sentence is on a page read from its image
+            if out["from_ocr"]:
+                out["ocr_marker"] = _ocr_marker_line()  # R1: the same words wherever from_ocr is true
         return out
 
     shown = {c: [row_out(r) for r in v[: cfg.max_rows]] for c, v in cats.items()}
@@ -595,7 +610,7 @@ def build_chronology(
     one_date = _one_date_papers(rows, scans)
     toks_all = {t for m in docs for t in re.split(r"[^a-z0-9]+", m.name.lower()) if t}
     not_added = [p for p in asset["standard_papers"] if p.split()[0].lower().rstrip("s") not in toks_all]
-    return {
+    result: dict[str, Any] = {
         "statement": DATA_STATEMENT,
         "standing_line": STANDING_LINE,
         "scope_line": SCOPE_LINE,
@@ -643,6 +658,7 @@ def build_chronology(
         "custody_days": "cannot say yet",
         "stopped": stopped,
     }
+    return result
 
 
 def _day_key(h: Hit) -> tuple[int, int, int] | None:

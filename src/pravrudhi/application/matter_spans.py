@@ -370,7 +370,11 @@ class MatterStore:
         return docs, spans
 
     # -- documents
-    def add_document(self, tenant: str, matter_id: str, text: str, name: str) -> dict[str, Any]:
+    def add_document(
+        self, tenant: str, matter_id: str, text: str, name: str, ocr_pages: list[int] | None = None
+    ) -> dict[str, Any]:
+        """`ocr_pages`: the 1-based pages whose text was read from a page image (scanned intake). Kept with the document so the
+        tools that quote its passages can say so; None or empty (every flag-off path) stores nothing extra."""
         if not text.strip():
             raise MatterError("no_text", "The document has no text to index (a scanned PDF has no text layer)")
         if len(text) > self.cfg.max_chars:
@@ -385,11 +389,11 @@ class MatterStore:
         if len(spans) > self.cfg.max_spans_per_doc:
             raise MatterError("too_many_spans", f"A document may hold at most {self.cfg.max_spans_per_doc} passages", 413)
         with self._tenant_lock(tenant):
-            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans)
+            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans, ocr_pages)
 
     def _ingest(
         self, tenant: str, matter_id: str, text: str, name: str, pages: list[str], without_text: list[int],
-        spans: list[tuple[int, int, int]],
+        spans: list[tuple[int, int, int]], ocr_pages: list[int] | None = None,
     ) -> dict[str, Any]:
         """The write, under the tenant lock: the tenant-bytes check and the bytes it spends are one step, so two ingests of one
         tenant cannot both pass the cap."""
@@ -433,6 +437,10 @@ class MatterStore:
                         "INSERT INTO span_fts (rowid, text, joined) VALUES (?, ?, ?)",
                         (cur.lastrowid, *_fts_columns(text[start:end])),
                     )
+                if ocr_pages:
+                    _ensure_ocr_column(conn)  # the column appears only when a scanned page is first stored
+                    pages_json = json.dumps(sorted(set(ocr_pages)))
+                    conn.execute("UPDATE document SET ocr_pages = ? WHERE doc_id = ?", (pages_json, doc_id))
                 conn.execute("UPDATE document SET ingest_done = 1 WHERE doc_id = ?", (doc_id,))
                 conn.execute("COMMIT")
             except BaseException:
@@ -479,6 +487,15 @@ class MatterStore:
         spans = [
             {"span_id": r[0], "doc_id": r[1], "name": r[2], "page": r[3], "start": r[4], "end": r[5], "text": r[6]} for r in rows
         ]
+        ocr = {d["doc_id"]: d["ocr_pages"] for d in docs if "ocr_pages" in d}
+        if any("from_ocr" in d for d in docs):  # a matter with an image-read page: each passage says where its text came from
+            from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
+
+            for sp in spans:
+                sp["from_ocr"] = sp["page"] in ocr.get(sp["doc_id"], ())
+                sp["source"] = "ocr" if sp["from_ocr"] else "text_layer"
+                if sp["from_ocr"]:
+                    sp["ocr_marker"] = OCR_MARKER_LINE
         truncated = total > len(spans)
         head = (
             f"Showing {len(spans)} of {total} passages found in the papers you added"
@@ -573,6 +590,27 @@ class MatterStore:
 # ---- internals ------------------------------------------------------------------------------------------------------------
 
 
+def _has_ocr_column(conn: sqlite3.Connection) -> bool:
+    return any(r[1] == "ocr_pages" for r in conn.execute("PRAGMA table_info(document)"))
+
+
+def _ensure_ocr_column(conn: sqlite3.Connection) -> None:
+    """Inside the caller's transaction: add `ocr_pages` to the matter file when a page read from an image is first stored. Matter
+    files are created without it, so a matter that never holds such a page keeps exactly its released schema."""
+    if not _has_ocr_column(conn):
+        conn.execute("ALTER TABLE document ADD COLUMN ocr_pages TEXT NOT NULL DEFAULT '[]'")
+
+
+def _ocr_pages_by_doc(conn: sqlite3.Connection) -> dict[str, list[int]]:
+    """doc id -> the pages read from an image, only for documents that have some (a file without the column has none)."""
+    if not _has_ocr_column(conn):
+        return {}
+    out: dict[str, list[int]] = {}
+    for doc_id, raw in conn.execute("SELECT doc_id, ocr_pages FROM document WHERE ocr_pages != '[]'"):
+        out[doc_id] = [int(p) for p in json.loads(raw or "[]")]
+    return out
+
+
 def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     out = []
     for r in conn.execute(
@@ -581,6 +619,15 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         unread = json.loads(r[6] or "[]")
         out.append({"doc_id": r[0], "name": r[1], "n_pages": r[2], "n_spans": r[3], "n_chars": r[4], "ingest_done": bool(r[5]),
                     "pages_without_text": unread, "indexed_complete": bool(r[5]) and not unread})
+    ocr = _ocr_pages_by_doc(conn)
+    if ocr:  # only a matter that holds a page read from an image says which papers did; any other matter is unchanged
+        from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
+
+        for d in out:
+            d["from_ocr"] = d["doc_id"] in ocr
+            if d["from_ocr"]:
+                d["ocr_pages"] = ocr[d["doc_id"]]
+                d["ocr_marker"] = OCR_MARKER_LINE  # R1: the same words wherever from_ocr is true
     return out
 
 

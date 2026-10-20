@@ -146,6 +146,7 @@ def _candidate(row: dict[str, Any], role: str, alts: list[str]) -> dict[str, Any
         "quote": " ".join(str(row.get("quote") or "").split())[:MAX_QUOTE],
         "row_id": row.get("id"),
         "also_near_words_of": alts,
+        **{k: row[k] for k in ("from_ocr", "ocr_marker") if k in row},  # only for a matter with a page read from an image
     }
 
 
