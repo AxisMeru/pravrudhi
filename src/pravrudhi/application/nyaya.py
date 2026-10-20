@@ -676,8 +676,8 @@ def recent_asks(root: Path, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def registry_contract_ids() -> list[str]:
-    """The twenty-one BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (the Lean binary knows 23,
-    but two BNSS 187 contracts are excluded due to Lean-side defects), sorted for a stable UI listing.
+    """The BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (the list and its count live in the registry, not here),
+    sorted for a stable UI listing.
     A DIFFERENT family from `nyaya_lean.KNOWN_CONTRACT_IDS` (the citation-shaped "0"/"5" ids
     `checker="lean"` uses) -- disjoint id spaces, disjoint input shapes; see `nyaya_lean_registry`'s
     own module doc for why."""
