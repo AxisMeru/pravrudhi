@@ -101,7 +101,8 @@ def test_assemble_and_summary_use_r1s_lines_and_never_say_garbled():
     render, runner = make(tsv(GOOD_WORDS))
     res = PG.process_pages([CLEAN, "", SOUP], CFG, render, runner)
     res.append(PG.PageResult(4, "unreadable", "", 52.3, "low_confidence"))
-    assert PG.assemble(res).split("\f") == [CLEAN, OCR_TEXT, OCR_TEXT, ""]
+    # the extra form feed keeps the empty LAST page for A2
+    assert PG.assemble(res).split("\f") == [CLEAN, OCR_TEXT, OCR_TEXT, "", ""]
     s = PG.summary(res)
     assert s["pages_unreadable"] == 1 and s["ocr_line"] == S.OCR_LINE and s["document_line"] == S.DOCUMENT_LINE.format(n=1)
     pages = s["pages"]
@@ -122,3 +123,20 @@ def test_words_to_text_joins_lines_and_paragraphs():
         == "a b\nc\n\nd\n\ne"
     )
     assert E.words_to_text([]) == ""
+
+
+def test_an_unreadable_last_page_is_kept_as_an_empty_page_in_a2_and_the_paper_is_not_fully_indexed(tmp_path):
+    """Track A's gate finding on #574: the trailing empty page was dropped by A2 (n_pages short, indexed_complete true)."""
+    from pravrudhi.application.matter_spans import MatterStore
+    from pravrudhi.application.matter_spans_config import MatterSpansConfig
+
+    store = MatterStore(tmp_path / "s", MatterSpansConfig())
+    for pages, bad in (([CLEAN, CLEAN, ""], [3]), ([CLEAN, "", CLEAN], [2]), ([CLEAN, CLEAN], []), ([CLEAN, "", ""], [2, 3])):
+        results = [
+            PG.PageResult(i, "text_layer", t) if t else PG.PageResult(i, "unreadable", "", 40.0, "low_confidence")
+            for i, t in enumerate(pages, 1)
+        ]
+        m = store.create_matter("org:t")
+        out = store.add_document("org:t", m, PG.assemble(results), "paper")
+        assert out["pages_without_text"] == bad and out["indexed_complete"] is (not bad), pages
+        assert store.list_documents("org:t", m)["documents"][0]["n_pages"] == len(pages)
