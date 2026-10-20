@@ -128,7 +128,10 @@ wf_s1_matter_citation_sweep: true
 wf_b2_quashing_agenda: true
 wf_a6_cheque_case_check: true
 wf_a7_matter_hearing_pack: true
-# A8 HELD OFF with A4 (19 Oct): it uses the same too-narrow sensitive-wording regex (Track B, AxisMeru/pravrudhi#556). True only with the shared-regex fix merged and Track A's A8 gate re-run on that tree.
-wf_a8_synopsis_list_of_dates: false
-# A4 HELD OFF (19 Oct, Track B's rerun: no draft refusal for sexual-offence/minor/trafficking wordings without a declared tag or section; Track C fix pending). True only with the fix merged and Track A's A4 gate re-run on that tree.
-wf_a4_bail_drafting: false
+# 0.6.24 switch-on of bail drafting (A4) and the synopsis and list of dates (A8). Both now require `sensitive_declaration` ("none" | "sensitive", no default):
+# a request without it answers 422 before consent, before any matter is read and before any model call. The fact-wording check behind the declaration is
+# best effort. Gate records: Track A's gate on the release tree, R2's read-back, R1's lines, Track B's built-engine rerun on this tree (record sha12 in the
+# release notes); the app's NEXT_PUBLIC_SENSITIVE_DECLARATION flag deploys before this key does. The kill for either is its key false (or removed) in a new
+# image or after a restart, because the packaged config is authoritative. A8 also needs A2 on and a store location (409 store_off / 503 store_unavailable otherwise).
+wf_a8_synopsis_list_of_dates: true
+wf_a4_bail_drafting: true

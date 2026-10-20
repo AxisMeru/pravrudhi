@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.24 (date set at release)
+
+PATCH release on 0.6.23. Bail drafting and the synopsis and list of dates are switched on in the shipped configuration. Both now require the caller to declare whether the matter is sensitive.
+
+### Changed
+
+- **Bail drafting (A4, `wf_a4_bail_drafting`) and the synopsis and list of dates (A8, `wf_a8_synopsis_list_of_dates`) are on in the shipped configuration.** Setting a key to `false` (or removing it) and restarting the engine turns that workflow off again.
+- **A sensitive-matter declaration is required.** `POST /api/v1/bail-draft` and `POST /api/v1/synopsis-dates` take a new field, `sensitive_declaration`, which must be exactly `"none"` or `"sensitive"`; there is no default and no other value is accepted. A request without a valid value is refused with HTTP 422 `sensitive_declaration_required`, before consent is checked, before any matter is read and before any model call. A request declared `"sensitive"` gets a referral and no draft. A request declared `"none"` still goes through the tags and the charged sections the request lists, and through a best-effort check of the fact wording; a hit on any of them refers the matter, and the declaration never overrides a hit. The wording check is best effort and does not claim to catch every case: the declaration is the gate, and the lawyer remains responsible for it.
+- **The two sensitive referral lines no longer end "Refer it to a lawyer."**, because the caller is the lawyer, and the refusal text for sensitive fact wording now names trafficking.
+
+### Notes
+
+- Callers, including API-key callers, must send `sensitive_declaration` once these workflows are on; until they do every call answers 422. The contract note for callers is in the Partner Kit.
+- A8 reads the matter span index, so it needs the index on and a store location, as in 0.6.23. With the index off, A8 answers 409 `store_off` before it looks at the declaration.
+
 ## 0.6.23 (2026-10-19)
 
 PATCH release on 0.6.22. Seven workflows are switched on in the shipped configuration; two more, bail drafting and the synopsis and list of dates, stay **off** and now sit behind a mandatory sensitive-matter declaration; one new workflow, the section look-up (B1), is added and ships **disabled**.
