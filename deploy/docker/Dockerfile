@@ -48,8 +48,12 @@ RUN --mount=type=secret,id=github_token set -eu; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
     [ -n "$engine" ] || { echo "FATAL: no pravrudhi wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
-    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist,scanned] @ $engine"; \
+    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"; \
     command -v pravrudhi >/dev/null || { echo "FATAL: pravrudhi not on PATH after install" >&2; exit 1; }
+
+# #1015: the page rasteriser of scanned/garbled-page intake (the `scanned` extra of pyproject, pinned exactly; imported lazily, only
+# with wf_c1_scanned_intake on). A separate step so the release-wheel install line above stays byte-identical.
+RUN pip install --no-cache-dir --quiet "pypdfium2==4.30.0"
 
 # prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --
 # every Lean-checker route 500'd in production). Optional at build time: `nyaya/` in the build context

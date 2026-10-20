@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 assist = ["pg8000==1.31.5"]     # A0 spend store (Supabase Postgres); imported lazily, never a core dependency
-scanned = ["pypdfium2>=4.30,<5"]  # #1015 page rasteriser (Apache-2.0 / BSD-3); imported lazily, never a core dependency
+scanned = ["pypdfium2==4.30.0"]  # #1015 page rasteriser (Apache-2.0 / BSD-3); imported lazily, never a core dependency
 
 [project.scripts]
 pravrudhi = "pravrudhi.cli.app:main"
