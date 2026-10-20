@@ -25,6 +25,14 @@ still answers where the deployment allows anonymous use, limited per client IP.
 `POST /api/v1/analyse-facts` takes 1-8 facts (at most 4000 characters each), an optional narrative, and 1-5
 `contract_ids`.
 
+The `contract_ids` are checked against the registry of checkable contracts. Today those 37 ids are:
+
+<!-- contract-ids:start -->
+`bns108`, `bns217_abuse_of_power`, `bns217_misdirected_act`, `bns316_misappropriation`, `bns316_use_or_disposal`, `bns316_wilfully_suffers`, `bns318_damaging_act`, `bns318_property`, `bns46_conspiracy`, `bns46_instigation`, `bns46_intentional_aid`, `bns47`, `bns69`, `bns80`, `bns85`, `bnss187_extended_other`, `bnss187_extended_serious`, `bnss528`, `bsa63`, `contract56_compensation`, `contract56_initial_impossibility`, `contract56_supervening`, `contract73`, `contract74`, `ibc7_admission`, `ibc7_application`, `ibc9_admission`, `ibc9_application`, `ipc182_abuse_of_power`, `ipc182_misdirected_act`, `ipc405_misappropriation`, `ipc405_use_or_disposal`, `ipc405_wilfully_suffers`, `ipc415_damaging_act`, `ipc415_property`, `ipc416`, `ni138`
+<!-- contract-ids:end -->
+
+An id that is not in this list is refused with a 422 (unknown contract), before anything is checked.
+
 ```json example:analyse-facts-proof
 {
   "headers": {

@@ -163,8 +163,8 @@ class NyayaRegistryContractEntry(BaseModel):
 
 
 class NyayaRegistryContractsResponse(BaseModel):
-    #: The twenty-one BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (two BNSS 187 contracts
-    #: excluded due to Lean-side defects) -- a DIFFERENT family from `AskRequest.contract_id`/
+    #: The BNS/IPC registry contract ids in KNOWN_CONTRACT_IDS (the count lives in the registry, not here;
+    #: two BNSS 187 contracts are excluded due to Lean-side defects) -- a DIFFERENT family from `AskRequest.contract_id`/
     #: `AuditRequest.contract_id` above (those are the citation-shaped "0"/"5" ids `checker="lean"` uses).
     #: Deliberately not folded into `AskRequest` or `AuditRequest`: these contracts score explicit
     #: per-element assertions, never free text, so they cannot be a `checker` value on the existing
