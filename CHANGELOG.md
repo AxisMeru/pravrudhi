@@ -3,6 +3,21 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.26 (2026-10-20)
+
+PATCH release on 0.6.25. Nothing is switched on, and no request answers differently from 0.6.25.
+
+### Changed
+
+- **The engine image sets one new environment variable, `TESSDATA_PREFIX`.** It is a path (the folder of the Tesseract English data in the image), not a secret. This is a new image, not a configuration-only change.
+- **The packaged configuration now names the Tesseract version the image carries, 5.5.0** (it named 5.5.3). The English data file is the same file (same sha256).
+- **Scanned and garbled-page intake stays off.** `wf_c1_scanned_intake` is still `false`; an image sent to the matter route is still refused.
+
+### Notes
+
+- Switching scanned intake on later is a configuration-only release (a new image with the key set to `true` and no code change), once the checks tracked in the project issue #575 pass.
+- The image installs Tesseract from its Debian package; the exact package version is recorded when the key is switched on.
+
 ## 0.6.25 (2026-10-20)
 
 PATCH release on 0.6.24. Nothing is switched on: this release carries the code for reading scanned and garbled pages, shipped dark, and changes no live route.
