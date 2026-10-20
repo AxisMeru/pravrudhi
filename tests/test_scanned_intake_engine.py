@@ -117,3 +117,22 @@ def test_the_runner_passes_the_calibrated_settings_as_an_argv_list_with_no_shell
     assert E.tesseract_runner("/opt/tesseract")(b"png", 7.0) == "ok"
     assert seen["argv"] == ["/opt/tesseract", "stdin", "stdout", "--psm", "3", "-l", "eng", "tsv"]
     assert seen["input"] == b"png" and seen["timeout"] == 7.0 and "shell" not in seen
+
+
+def test_ink_coverage_is_bounded_work_and_matches_the_naive_definition_on_overlapping_boxes():
+    import random
+
+    rng = random.Random(3)
+    ws = [E.Word("w", 90, rng.randint(0, 80), rng.randint(0, 80), rng.randint(1, 30), rng.randint(1, 15)) for _ in range(25)]
+    px = [(rng.randint(0, 120), rng.randint(0, 120)) for _ in range(3000)]
+    naive = sum(1 for x, y in px if any(w.left <= x < w.left + w.width and w.top <= y < w.top + w.height for w in ws)) / len(px)
+    assert E.ink_coverage(px, ws) == pytest.approx(naive)
+    with pytest.raises(E.OcrTimeout):
+        E.ink_coverage(((i, 0) for i in range(11)), ws, limit=10)
+
+
+def test_the_child_environment_is_minimal_and_carries_no_inherited_secret(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "secret")
+    monkeypatch.setenv("TESSDATA_PREFIX", "/opt/tessdata")
+    env = E.child_env()
+    assert set(env) == {"PATH", "OMP_THREAD_LIMIT", "LC_ALL", "TESSDATA_PREFIX"} and "secret" not in str(env)

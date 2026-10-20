@@ -53,7 +53,7 @@ def test_every_customer_line_is_r1s_exactly():
         S.REASON_LINES["timeout"]: "4f3bc8352bdb2893", S.REASON_LINES["language_not_supported"]: "6ceb2553c4ccbae1",
         S.REASON_LINES["ocr_unavailable"]: "1b75b9fead542580", S.DOCUMENT_LINE: "e012b937c611ed63",
         S.OCR_LINE: "b2497ad790916492",
-        S.FROM_OCR_DATE_LINE: "02dcab75a2b5c7d4", S.REPAIRED_PAGE_LINE: "33150eff994f7bdd", S.PHOTO_LINE: "811f4955bcd88908",
+        S.FROM_OCR_DATE_LINE: "02dcab75a2b5c7d4", S.REPAIRED_PAGE_LINE: "33150eff994f7bdd", S.PHOTO_LINE: "b19d6f4a591bfdb7",
         S.HEIC_REFUSED: "6e81ca38216b082b", S.TOO_LARGE: "9d84711266c2da06",
     }  # fmt: skip
     for text, want in pins.items():

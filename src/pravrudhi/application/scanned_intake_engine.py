@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
@@ -66,14 +67,43 @@ class PageStats:
     ink_coverage: float
 
 
-def ink_coverage(dark_pixels: Iterable[tuple[int, int]], words: list[Word]) -> float:
+# a page with more dark pixels than this is refused as too heavy (reason `timeout`), never scanned at length
+MAX_DARK_PIXELS = 4_000_000
+
+
+def _row_intervals(words: list[Word]) -> dict[int, list[tuple[int, int]]]:
+    """Per pixel row, the merged x intervals covered by word boxes (so a pixel is tested by one bisect, not by every box)."""
+    raw: dict[int, list[tuple[int, int]]] = {}
+    for w in words:
+        for y in range(w.top, w.top + w.height):
+            raw.setdefault(y, []).append((w.left, w.left + w.width))
+    merged: dict[int, list[tuple[int, int]]] = {}
+    for y, ivs in raw.items():
+        ivs.sort()
+        out: list[tuple[int, int]] = []
+        for a, b in ivs:
+            if out and a <= out[-1][1]:
+                out[-1] = (out[-1][0], max(out[-1][1], b))
+            else:
+                out.append((a, b))
+        merged[y] = out
+    return merged
+
+
+def ink_coverage(dark_pixels: Iterable[tuple[int, int]], words: list[Word], limit: int = MAX_DARK_PIXELS) -> float:
     """Share of the page's dark pixels that lie inside a recognised word's box. 0.0 when the page has no dark pixel
     (nothing to read)."""
+    rows = _row_intervals(words)
     total = inside = 0
     for x, y in dark_pixels:
         total += 1
-        if any(w.left <= x < w.left + w.width and w.top <= y < w.top + w.height for w in words):
-            inside += 1
+        if total > limit:
+            raise OcrTimeout  # bounded work: a page this heavy is refused, not scanned for minutes
+        ivs = rows.get(y)
+        if ivs:
+            i = bisect_right(ivs, (x, 1 << 60)) - 1
+            if i >= 0 and ivs[i][0] <= x < ivs[i][1]:
+                inside += 1
     return inside / total if total else 0.0
 
 
@@ -148,6 +178,14 @@ def ocr_replaces_layer(layer_text: str, ocr_text: str, cfg: ScannedIntakeConfig)
     return similarity(layer_text, ocr_text) < cfg.agreement_min_similarity
 
 
+def child_env() -> dict[str, str]:
+    """A minimal environment for the tesseract child: no inherited secrets, one thread, a fixed locale."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "OMP_THREAD_LIMIT": "1", "LC_ALL": "C"}
+    if os.environ.get("TESSDATA_PREFIX"):
+        env["TESSDATA_PREFIX"] = os.environ["TESSDATA_PREFIX"]
+    return env
+
+
 def tesseract_runner(binary: str | None = None) -> Runner:
     """The real runner: argv list (no shell), the PNG on stdin, a hard timeout. Raises OcrUnavailable / OcrTimeout."""
     exe = binary or os.environ.get(TESSERACT_ENV) or shutil.which("tesseract")
@@ -156,7 +194,9 @@ def tesseract_runner(binary: str | None = None) -> Runner:
 
     def run(png: bytes, timeout_s: float) -> str:
         try:
-            p = subprocess.run([exe, "stdin", "stdout", *ARGS], input=png, capture_output=True, timeout=timeout_s, check=False)  # noqa: S603
+            p = subprocess.run(  # noqa: S603
+                [exe, "stdin", "stdout", *ARGS], input=png, capture_output=True, timeout=timeout_s, check=False, env=child_env()
+            )
         except subprocess.TimeoutExpired:
             raise OcrTimeout from None
         except OSError as e:
