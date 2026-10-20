@@ -54,14 +54,15 @@ def test_plain_text_passes_through_with_no_extra_fields():
     assert I.ingest_document(req(text="A paper."), A2, SCAN) == ("A paper.", {})
 
 
-def test_images_are_refused_heic_with_r1s_line_and_the_rest_until_a_decoder_is_chosen():
-    for mime in ("image/heic", "image/heif"):
+def test_every_image_gets_the_same_no_promise_refusal_while_images_are_refused():
+    import hashlib
+
+    assert hashlib.sha256(I.IMAGE_NOT_SUPPORTED_YET.encode()).hexdigest()[:16] == "b7857975b161bd99"  # R1
+    for mime in ("image/heic", "image/heif", "image/jpeg", "image/png", "image/tiff"):
         with pytest.raises(MatterError) as e:
             I.ingest_document(req(image_base64="QQ==", mime=mime), A2, SCAN)
-        assert str(e.value) == S.HEIC_REFUSED and e.value.code == "image_format_not_supported"
-    with pytest.raises(MatterError) as e2:
-        I.ingest_document(req(image_base64="QQ==", mime="image/jpeg"), A2, SCAN)
-    assert e2.value.code == "image_not_supported_yet" and str(e2.value) == I.IMAGE_NOT_SUPPORTED_YET
+        assert (e.value.code, str(e.value), e.value.status_code) == ("image_not_supported_yet", I.IMAGE_NOT_SUPPORTED_YET, 415)
+        assert "JPEG or PNG" not in str(e.value)  # never send the user to a format this build also refuses
 
 
 def test_pdf_size_and_encoding_rules_and_the_reworded_too_large_line():

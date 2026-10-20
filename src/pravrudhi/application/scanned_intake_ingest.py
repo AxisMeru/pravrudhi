@@ -11,13 +11,11 @@ from typing import Any
 
 from pravrudhi.application import scanned_intake_engine as E
 from pravrudhi.application import scanned_intake_pages as PG
-from pravrudhi.application import scanned_intake_strings as S
 from pravrudhi.application.matter_spans import DocumentRequest, MatterError
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
 from pravrudhi.application.scanned_intake_config import ScannedIntakeConfig
 
-IMAGE_NOT_SUPPORTED_YET = "Photos cannot be added yet. Add the paper as a PDF."  # PENDING R1's wording (engine proposal)
-_HEIC = ("image/heic", "image/heif")
+IMAGE_NOT_SUPPORTED_YET = "Photos cannot be added here. Add the paper as a PDF."  # R1 b7857975b161bd99 (no promise)
 
 
 def _lazy_runner() -> E.Runner:
@@ -42,8 +40,8 @@ def ingest_document(
 ) -> tuple[str, dict[str, Any]]:
     """(text for A2, extra response fields). Plain text passes through unchanged with no extra fields."""
     if req.image_base64 is not None:
-        if req.mime in _HEIC:
-            raise MatterError("image_format_not_supported", S.HEIC_REFUSED, 415)  # refused by mime, nothing promised
+        # While images are refused, HEIC gets the SAME answer as any other image: R1's HEIC line ("save it as JPEG or PNG")
+        # would send the user to formats this build also refuses. It returns the day JPEG, PNG and TIFF are accepted.
         raise MatterError("image_not_supported_yet", IMAGE_NOT_SUPPORTED_YET, 415)
     if req.pdf_base64 is None:
         return req.text or "", {}
