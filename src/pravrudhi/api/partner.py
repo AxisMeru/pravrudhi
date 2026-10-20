@@ -2692,7 +2692,8 @@ def build_partner_router(
                         from pravrudhi.application import scanned_intake_ingest as _c1i
 
                         text, extra = _c1i.ingest_document(req, _a2_cfg_eff, _a2_scan)
-                        return {**store.add_document(tenant, req.matter_id, text, req.name), **extra}
+                        ocr = [int(p["page"]) for p in extra.get("pages", []) if p.get("source") == "ocr"]  # kept: from_ocr
+                        return {**store.add_document(tenant, req.matter_id, text, req.name, ocr or None), **extra}
                     text = _a2.read_document(req, _a2_cfg_eff)
                     return store.add_document(tenant, req.matter_id, text, req.name)  # type: ignore[no-any-return]
 

@@ -59,6 +59,7 @@ def _row(r: dict[str, Any]) -> dict[str, Any]:
         "page": r.get("page"),
         "source": f"{r.get('document_name')} p.{r.get('page')}",
         "quote": " ".join(str(r.get("quote") or "").split())[:200],
+        **{k: r[k] for k in ("from_ocr", "ocr_marker") if k in r},  # only for a matter with a page read from an image
     }
 
 

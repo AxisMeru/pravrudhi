@@ -58,7 +58,7 @@ def test_every_customer_line_is_r1s_exactly():
         S.UNREADABLE_PAGE: "27d902d9a913ef3a", S.REASON_LINES["low_confidence"]: "c83d9723e60da83d",
         S.REASON_LINES["timeout"]: "4f3bc8352bdb2893", S.REASON_LINES["language_not_supported"]: "6ceb2553c4ccbae1",
         S.REASON_LINES["ocr_unavailable"]: "1b75b9fead542580", S.DOCUMENT_LINE: "e012b937c611ed63",
-        S.OCR_LINE: "b2497ad790916492",
+        S.OCR_LINE: "b2497ad790916492", S.OCR_MARKER_LINE: "00e62215531c5b12",
         S.FROM_OCR_DATE_LINE: "02dcab75a2b5c7d4", S.REPAIRED_PAGE_LINE: "6d58ad2bbb36f4d0", S.PHOTO_LINE: "b19d6f4a591bfdb7",
         S.REASON_LINES["page_limit"]: "940c7c869c69f005",
         S.REASON_LINES["page_too_large"]: "be4147060076bdfb",
@@ -69,7 +69,7 @@ def test_every_customer_line_is_r1s_exactly():
 
 
 def test_no_customer_line_says_garbled_or_claims_completeness():
-    lines = [S.UNREADABLE_PAGE, *S.REASON_LINES.values(), S.DOCUMENT_LINE, S.OCR_LINE, S.FROM_OCR_DATE_LINE]
+    lines = [S.UNREADABLE_PAGE, *S.REASON_LINES.values(), S.DOCUMENT_LINE, S.OCR_LINE, S.FROM_OCR_DATE_LINE, S.OCR_MARKER_LINE]
     lines += [S.REPAIRED_PAGE_LINE, S.PHOTO_LINE]
     for line in lines:
         low = line.lower()

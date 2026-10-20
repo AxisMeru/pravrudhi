@@ -19,7 +19,9 @@ REASON_LINES = {
 }
 DOCUMENT_LINE = "{n} page(s) could not be read, so this paper is only partly searched."  # when pages_unreadable > 0
 OCR_LINE = "Pages read from page images may contain mistakes. Check each quote against the page image."  # ingest response
-FROM_OCR_DATE_LINE = "Read from a page image: check this date against the page image."  # rows with from_ocr: true
+FROM_OCR_DATE_LINE = "Read from a page image: check this date against the page image."  # superseded by OCR_MARKER_LINE; unused
+# R1 00e62215531c5b12: the one row-level marker, the same words on every span, paper-list entry and date row with from_ocr true
+OCR_MARKER_LINE = "Read from a scanned page: check this against the paper."
 # pages[].repaired (R1 6d58ad2bbb36f4d0: only a flagged text layer that OCR replaced, never a missing layer)
 REPAIRED_PAGE_LINE = "The text in the file for this page was damaged, so the page was read from its image."
 # R1 b19d6f4a591bfdb7 (replaces the earlier photo line)
