@@ -41,41 +41,68 @@ def test_dark_pixels_are_those_below_the_threshold():
     assert list(R.dark_pixels(3, 2, gray)) == [(1, 0), (2, 0), (2, 1)]
 
 
-def test_a_missing_pypdfium2_is_ocr_unavailable(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setitem(sys.modules, "pypdfium2", None)  # an import of None raises ImportError
-    with pytest.raises(E.OcrUnavailable):
-        R.render_pdf_page(b"%PDF", 0, 300)
+def _child(tmp_path, code: str) -> list[str]:
+    return [sys.executable, "-I", "-c", code]
 
 
-def test_an_oversize_raster_is_refused_before_it_is_allocated(monkeypatch: pytest.MonkeyPatch):
-    class Page:
-        def get_size(self):
-            return (100000.0, 100000.0)
+def test_the_real_worker_without_pypdfium2_is_ocr_unavailable():
+    try:
+        import pypdfium2  # noqa: F401
+    except ImportError:
+        with pytest.raises(E.OcrUnavailable):  # exit code 2 from the isolated child
+            R.render_pdf_page(b"%PDF", 0, 300)
+    else:
+        pytest.skip("pypdfium2 is installed: the real render runs in the image gate")
 
-        def render(self, **_k):  # would be called only after the cap check
-            raise AssertionError("rendered an oversize page")
 
-    class Doc:
-        def __init__(self, _d):
-            pass
+def test_a_raster_the_child_returns_is_checked_and_turned_into_a_png_and_dark_pixels(tmp_path):
+    code = "import struct,sys; sys.stdin.buffer.read(); "
+    code += "sys.stdout.buffer.write(struct.pack('>II',3,2)+bytes([255,0,255,0,255,9]))"
+    png, dark = R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, code))
+    assert png.startswith(b"\x89PNG") and list(dark) == [(1, 0), (0, 1), (2, 1)]
 
-        def __getitem__(self, _i):
-            return Page()
 
-    fake = type(sys)("pypdfium2")
-    fake.PdfDocument = Doc  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "pypdfium2", fake)
+def test_the_exit_codes_and_a_bad_raster_map_to_the_two_reasons(tmp_path):
+    for exit_code, exc in ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable), (1, E.OcrUnavailable)):
+        with pytest.raises(exc):
+            code = f"import sys; sys.stdin.buffer.read(); sys.exit({exit_code})"
+            R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, code))
+    bad = [
+        "import sys; sys.stdout.buffer.write(b'x')",  # shorter than the header
+        "import struct,sys; sys.stdout.buffer.write(struct.pack('>II',3,2)+b'ab')",  # too few bytes
+        "import struct,sys; sys.stdout.buffer.write(struct.pack('>II',0,2))",  # zero width
+        "import struct,sys; sys.stdout.buffer.write(struct.pack('>II',99999,99999))",  # over the pixel cap
+    ]
+    for code in bad:
+        with pytest.raises(E.OcrUnavailable):
+            R.render_pdf_page(b"%PDF", 0, 300, argv=_child(tmp_path, "import sys; sys.stdin.buffer.read()\n" + code))
+
+
+def test_a_hung_renderer_is_killed_with_its_whole_group_after_the_timeout(tmp_path):
+    import contextlib
+    import os
+    import time
+
+    code = "import subprocess,sys,time; subprocess.Popen(['sleep','28.456']); time.sleep(60)"
     with pytest.raises(E.OcrTimeout):
-        R.render_pdf_page(b"%PDF", 0, 300)
+        R.render_pdf_page(b"%PDF", 0, 300, timeout_s=0.8, argv=_child(tmp_path, code))
+    time.sleep(0.3)
+    survivors = [d for d in os.listdir("/proc") if d.isdigit() and _cmdline(d) == "sleep\x0028.456\x00"]
+    for pid in survivors:
+        with contextlib.suppress(OSError):
+            os.kill(int(pid), 9)
+    assert survivors == []
 
 
-def test_a_renderer_failure_is_ocr_unavailable(monkeypatch: pytest.MonkeyPatch):
-    fake = type(sys)("pypdfium2")
+def _cmdline(pid: str) -> str:
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
 
-    def boom(_d):
-        raise RuntimeError("bad pdf")
 
-    fake.PdfDocument = boom  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "pypdfium2", fake)
-    with pytest.raises(E.OcrUnavailable):
-        R.render_pdf_page(b"%PDF", 0, 300)
+def test_the_worker_script_is_self_contained_and_takes_the_page_cap_from_the_parent():
+    assert "pravrudhi" not in R.WORKER_CODE and "import pypdfium2" in R.WORKER_CODE
+    argv = R._worker_argv(4, 300)
+    assert argv[1] == "-I" and argv[-3:] == ["4", "300", str(R.MAX_PIXELS)]

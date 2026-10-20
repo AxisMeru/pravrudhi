@@ -170,17 +170,21 @@ def test_the_document_deadline_stops_ocr_before_the_next_page_and_shortens_the_p
 
 
 def test_each_never_or_slowly_read_page_maps_to_its_own_line_and_all_count_as_unreadable():
-    """R1: timeout, page_limit and document_time have DISTINCT lines; a never-tried page never carries the per-page timeout line;
-    document_time pages are counted in pages_unreadable and the document line; no number appears in any of them."""
-    res = [
-        PG.PageResult(1, "unreadable", "", None, "timeout"),
-        PG.PageResult(2, "unreadable", "", None, "page_limit"),
-        PG.PageResult(3, "unreadable", "", None, "document_time"),
-        PG.PageResult(4, "text_layer", CLEAN),
-    ]
+    """R1: timeout, page_limit, document_time and page_too_large have DISTINCT lines; a never-tried page never carries the
+    per-page timeout line; all are counted in pages_unreadable and the document line; no number appears in any of them."""
+    reasons = ("timeout", "page_limit", "document_time", "page_too_large")
+    res = [PG.PageResult(i, "unreadable", "", None, r) for i, r in enumerate(reasons, 1)]
+    res.append(PG.PageResult(5, "text_layer", CLEAN))
     s = PG.summary(res)
     lines = [p.get("reason_line") for p in s["pages"]]  # type: ignore[union-attr]
-    assert lines[:3] == [S.REASON_LINES["timeout"], S.REASON_LINES["page_limit"], S.REASON_LINES["document_time"]]
-    assert len(set(lines[:3])) == 3 and lines[3] is None
-    assert s["pages_unreadable"] == 3 and s["document_line"] == S.DOCUMENT_LINE.format(n=3)
-    assert not any(ch.isdigit() for ch in "".join(str(x) for x in lines[:3]))  # no number (not 120 s, not the cap) in the text
+    assert lines[:4] == [S.REASON_LINES[r] for r in reasons] and len(set(lines[:4])) == 4 and lines[4] is None
+    assert s["pages_unreadable"] == 4 and s["document_line"] == S.DOCUMENT_LINE.format(n=4)
+    assert not any(ch.isdigit() for ch in "".join(str(x) for x in lines[:4]))  # no number (not 120 s, not the cap) in the text
+
+
+def test_a_page_the_renderer_calls_too_large_is_page_too_large_and_never_a_timeout():
+    def too_big(_i: int, _d: int):
+        raise E.OcrPageTooLarge
+
+    r = PG.process_pages([""], CFG, too_big, lambda _p, _t: "")[0]
+    assert (r.source, r.text, r.reason) == ("unreadable", "", "page_too_large")

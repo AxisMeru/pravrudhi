@@ -30,6 +30,10 @@ class IdentityMismatch(OcrUnavailable):
     """A REAL mismatch of the tesseract build or English data (the only failure that is remembered per process)."""
 
 
+class OcrPageTooLarge(Exception):
+    """The page is too large to render or scan here (raster over the pixel cap, or too many dark pixels): never tried."""
+
+
 class OcrTimeout(Exception):
     """The page took longer than the configured timeout: the page's reason is `timeout`."""
 
@@ -77,7 +81,7 @@ class PageStats:
     ink_coverage: float
 
 
-# a page with more dark pixels than this is refused as too heavy (reason `timeout`), never scanned at length
+# a page with more dark pixels than this is refused as too heavy (reason `page_too_large`), never scanned at length
 MAX_DARK_PIXELS = 4_000_000
 
 
@@ -108,7 +112,7 @@ def ink_coverage(dark_pixels: Iterable[tuple[int, int]], words: list[Word], limi
     for x, y in dark_pixels:
         total += 1
         if total > limit:
-            raise OcrTimeout  # bounded work: a page this heavy is refused, not scanned for minutes
+            raise OcrPageTooLarge  # bounded work: a page this heavy is refused, not scanned for minutes
         ivs = rows.get(y)
         if ivs:
             i = bisect_right(ivs, (x, 1 << 60)) - 1
