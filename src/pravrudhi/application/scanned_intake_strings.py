@@ -12,6 +12,8 @@ REASON_LINES = {
     "ocr_unavailable": "Scanned pages cannot be read in this deployment.",
     # R1 940c7c869c69f005: over the per-document OCR page cap; the cap number is never printed
     "page_limit": "This page was not read because the paper has more pages than the tool reads at once.",
+    # R1 8de5818f97bb2088: the whole paper used up its reading time before this page (no number in customer text)
+    "document_time": "This page was not read because reading the paper took too long.",
 }
 DOCUMENT_LINE = "{n} page(s) could not be read, so this paper is only partly searched."  # when pages_unreadable > 0
 OCR_LINE = "Pages read from page images may contain mistakes. Check each quote against the page image."  # ingest response

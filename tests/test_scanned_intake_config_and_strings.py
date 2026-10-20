@@ -13,6 +13,7 @@ GOOD = {
     "wf_c1_scanned_intake": True, "ocr_min_page_confidence": 80, "ocr_min_ink_coverage": 0.90, "ocr_max_low_word_share": 0.10,
     "ocr_low_word_confidence": 50, "ocr_garbled_min_chars": 120, "ocr_garbled_max_odd_token_share": 0.15,
     "ocr_garbled_min_letter_share": 0.5, "ocr_agreement_min_similarity": 0.80, "ocr_max_pages": 60, "ocr_page_timeout_s": 30,
+    "ocr_document_deadline_s": 120,
     "ocr_dpi": 300,
 }  # fmt: skip
 
@@ -54,7 +55,8 @@ def test_every_customer_line_is_r1s_exactly():
         S.REASON_LINES["ocr_unavailable"]: "1b75b9fead542580", S.DOCUMENT_LINE: "e012b937c611ed63",
         S.OCR_LINE: "b2497ad790916492",
         S.FROM_OCR_DATE_LINE: "02dcab75a2b5c7d4", S.REPAIRED_PAGE_LINE: "6d58ad2bbb36f4d0", S.PHOTO_LINE: "b19d6f4a591bfdb7",
-        S.REASON_LINES["page_limit"]: "940c7c869c69f005", S.HEIC_REFUSED: "6e81ca38216b082b", S.TOO_LARGE: "9d84711266c2da06",
+        S.REASON_LINES["page_limit"]: "940c7c869c69f005",
+        S.REASON_LINES["document_time"]: "8de5818f97bb2088", S.HEIC_REFUSED: "6e81ca38216b082b", S.TOO_LARGE: "9d84711266c2da06",
     }  # fmt: skip
     for text, want in pins.items():
         assert h(text) == want, text

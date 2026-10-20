@@ -150,5 +150,6 @@ ocr_garbled_min_letter_share: 0.5
 ocr_agreement_min_similarity: 0.80
 ocr_max_pages: 60
 ocr_page_timeout_s: 30
+ocr_document_deadline_s: 120
 ocr_dpi: 300
 ocr_languages: eng
