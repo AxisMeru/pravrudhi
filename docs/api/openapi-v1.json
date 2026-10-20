@@ -1118,6 +1118,14 @@
                 "type": "null"
               }
             ]
+          },
+          "workflows": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "The workflow switches that ARE ON ({key: true}). An absent key means off or not released: off names are never published.",
+            "title": "Workflows",
+            "type": "object"
           }
         },
         "required": [
