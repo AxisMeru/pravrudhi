@@ -601,7 +601,11 @@ class ObjectBackedMatterStore(MatterStore):
         """The tenant's matters as the object store knows them (a cold worker may hold no local copy): every matter with a HEAD
         pointer, each brought to its current snapshot, then counted. Bounded like the folder listing (`max_list_matters`, and
         `list_budget_s` for the pulls): a cold tenant would download every snapshot in one request. What is not reached is
-        reported as `truncated`. A matter that is mid-delete or unreadable is left out."""
+        reported as `truncated`. A matter that is mid-delete or unreadable is left out.
+
+        ORDER: by matter id, which says nothing about age (the folder store lists newest activity first). The object listing
+        carries no modification time, so a cut list here is an arbitrary but stable first N, not the newest N: until the object
+        interface returns a time, do not rely on this listing for a tenant that can exceed `max_list_matters` (R2, #597)."""
         started = time.monotonic()
         with self._wrap():
             self._ready()

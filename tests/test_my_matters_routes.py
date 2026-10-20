@@ -228,3 +228,13 @@ def test_the_listing_limits_are_config_keys_with_bounds() -> None:
     assert parse_matter_spans_config(base) == MatterSpansConfig() and MatterSpansConfig().list_budget_s < 100
     for bad in ({"matter_spans_max_list_matters": 0}, {"matter_spans_list_budget_s": 91}, {"matter_spans_list_budget_s": True}):
         assert parse_matter_spans_config({**base, **bad}) is None  # a bad cap keeps A2 off, like every other cap
+
+
+def test_the_object_backed_listing_order_is_by_matter_id_and_says_so(tmp_path: Path) -> None:
+    objects = O.MemoryObjects()
+    w = O.ObjectBackedMatterStore(tmp_path / "w", MatterSpansConfig(), objects, "pfx")
+    made = [w.create_matter("org:acme") for _ in range(4)]
+    cold = O.ObjectBackedMatterStore(tmp_path / "c", MatterSpansConfig(), objects, "pfx")
+    got = [m["matter_id"] for m in cold.list_matters("org:acme")["matters"]]
+    assert got == sorted(made)  # by id, not by age: the documented order
+    assert "ORDER: by matter id" in (O.ObjectBackedMatterStore.list_matters.__doc__ or "")
