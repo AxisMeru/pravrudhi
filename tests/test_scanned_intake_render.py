@@ -122,7 +122,8 @@ def test_the_image_worker_is_self_contained_guards_the_header_before_decoding_an
     code = R.IMAGE_WORKER_CODE
     assert "pravrudhi" not in code and 'formats=["PNG", "JPEG", "TIFF"]' in code
     assert "Image.MAX_IMAGE_PIXELS = max_pixels" in code
-    assert code.index("width * height > max_pixels") < code.index('convert("L")')  # the size is refused before any pixel is decoded
+    # the size is refused before any pixel is decoded
+    assert code.index("width * height > max_pixels") < code.index('convert("L")')
     assert code.index("sys.exit(3)") < code.index("img.seek(0)")
 
 
