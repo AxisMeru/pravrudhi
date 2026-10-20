@@ -87,7 +87,8 @@ def test_the_route_lists_own_matters_with_paper_counts_and_nothing_else(monkeypa
     r = c.post(MINE, json={}, headers=h)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert set(body) == {"matters"} and {m["matter_id"]: m["papers"] for m in body["matters"]} == {empty: 0, full: 1}
+    assert set(body) == {"matters", "truncated"} and body["truncated"] is False
+    assert {m["matter_id"]: m["papers"] for m in body["matters"]} == {empty: 0, full: 1}
     assert all(set(m) == {"matter_id", "papers"} for m in body["matters"])  # no names, no text, no tenant
     assert "NEEDLEWORD" not in r.text and "p.pdf" not in r.text and "acme" not in r.text
 
@@ -112,17 +113,17 @@ def test_another_organisation_sees_an_empty_list_not_a_refusal_and_cannot_delete
     ours, theirs = _key(root, "acme"), _key(root, "zorb")
     mine = _matter(c, ours, paper=True)
     r = c.post(MINE, json={}, headers=theirs)
-    assert r.status_code == 200 and r.json() == {"matters": []} and mine not in r.text
+    assert r.status_code == 200 and r.json() == {"matters": [], "truncated": False} and mine not in r.text
     assert c.post(f"{A2}/delete", json={"matter_id": mine}, headers=theirs).status_code == 404
     assert [x["matter_id"] for x in c.post(MINE, json={}, headers=ours).json()["matters"]] == [mine]  # still there
     a = c.post(MINE, json={}, headers=theirs)
     b = c.post(MINE, json={}, headers=_key(root, "zorb"))
-    assert a.json() == b.json() == {"matters": []}  # no difference between "never had any" and "someone else has some"
+    assert a.json() == b.json() == {"matters": [], "truncated": False}  # "never had any" == "someone else has some"
 
 
 def test_listing_creates_nothing_for_a_tenant_with_no_matters(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     c, root = _app(monkeypatch, tmp_path)
-    assert c.post(MINE, json={}, headers=_key(root, "zorb")).json() == {"matters": []}
+    assert c.post(MINE, json={}, headers=_key(root, "zorb")).json() == {"matters": [], "truncated": False}
     assert not (tmp_path / "store").exists() or not any((tmp_path / "store").iterdir())
 
 
@@ -150,7 +151,7 @@ def test_the_folder_store_lists_only_the_tenants_own_matters_newest_first(tmp_pa
     other = s.create_matter("org:zorb")
     got = s.list_matters("org:acme")["matters"]
     assert {m["matter_id"]: m["papers"] for m in got} == {a: 1, b: 0} and other not in str(got)
-    assert s.list_matters("org:nobody") == {"matters": []} and not (tmp_path / "s" / "org-nobody").exists()
+    assert s.list_matters("org:nobody") == {"matters": [], "truncated": False} and not (tmp_path / "s" / "org-nobody").exists()
     s.delete_matter("org:acme", a)
     assert [m["matter_id"] for m in s.list_matters("org:acme")["matters"]] == [b]
     with pytest.raises(MatterNotFound):
@@ -181,6 +182,49 @@ def test_the_object_backed_store_lists_from_the_objects_on_a_cold_worker(tmp_pat
     w1.create_matter("org:zorb")
     cold = worker("w2")  # a fresh worker: its local copy is empty
     got = {m["matter_id"]: m["papers"] for m in cold.list_matters("org:acme")["matters"]}
-    assert got == {a: 1, b: 0} and cold.list_matters("org:nobody") == {"matters": []}
+    assert got == {a: 1, b: 0} and cold.list_matters("org:nobody") == {"matters": [], "truncated": False}
     cold.delete_matter("org:acme", a)
     assert [m["matter_id"] for m in w1.list_matters("org:acme")["matters"]] == [b]
+
+
+# ---- the listing's own limit -------------------------------------------------------------------------------------------
+
+
+def test_the_listing_opens_at_most_max_list_matters_and_says_it_was_cut(tmp_path: Path) -> None:
+    s = MatterStore(tmp_path / "s", MatterSpansConfig(max_list_matters=3))
+    made = [s.create_matter("org:acme") for _ in range(5)]
+    out = s.list_matters("org:acme")
+    assert len(out["matters"]) == 3 and out["truncated"] is True and {m["matter_id"] for m in out["matters"]} <= set(made)
+    assert MatterStore(tmp_path / "s", MatterSpansConfig(max_list_matters=5)).list_matters("org:acme")["truncated"] is False
+
+
+def test_the_object_backed_listing_pulls_at_most_the_limit_and_a_spent_budget_stops_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = O.MemoryObjects()
+    w1 = O.ObjectBackedMatterStore(tmp_path / "w1", MatterSpansConfig(), objects, "pfx")
+    for _ in range(4):
+        w1.create_matter("org:acme")
+    cold = O.ObjectBackedMatterStore(tmp_path / "w2", MatterSpansConfig(max_list_matters=2), objects, "pfx")
+    pulled: list[str] = []
+    real = cold._current
+    monkeypatch.setattr(cold, "_current", lambda t, m: (pulled.append(m), real(t, m))[1])
+    out = cold.list_matters("org:acme")
+    assert len(pulled) == 2 and len(out["matters"]) == 2 and out["truncated"] is True  # the other two snapshots were never pulled
+    # a spent time budget: the clock jumps past it after the first matter
+    ticks = iter([0.0, 0.0, 99.0, 99.0, 99.0, 99.0, 99.0])
+    monkeypatch.setattr(O.time, "monotonic", lambda: next(ticks, 99.0))
+    slow = O.ObjectBackedMatterStore(tmp_path / "w3", MatterSpansConfig(list_budget_s=30), objects, "pfx")
+    got = slow.list_matters("org:acme")
+    assert got["truncated"] is True and len(got["matters"]) < 4
+
+
+def test_the_listing_limits_are_config_keys_with_bounds() -> None:
+    from pravrudhi.application.matter_spans_config import parse_matter_spans_config
+
+    base = {"wf_a2_span_index": True}
+    cfg = parse_matter_spans_config({**base, "matter_spans_max_list_matters": 7, "matter_spans_list_budget_s": 12})
+    assert cfg is not None and (cfg.max_list_matters, cfg.list_budget_s) == (7, 12)
+    assert parse_matter_spans_config(base) == MatterSpansConfig() and MatterSpansConfig().list_budget_s < 100
+    for bad in ({"matter_spans_max_list_matters": 0}, {"matter_spans_list_budget_s": 91}, {"matter_spans_list_budget_s": True}):
+        assert parse_matter_spans_config({**base, **bad}) is None  # a bad cap keeps A2 off, like every other cap

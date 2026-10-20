@@ -599,20 +599,29 @@ class ObjectBackedMatterStore(MatterStore):
 
     def list_matters(self, tenant: str) -> dict[str, Any]:
         """The tenant's matters as the object store knows them (a cold worker may hold no local copy): every matter with a HEAD
-        pointer, each brought to its current snapshot, then counted. A matter that is mid-delete or unreadable is left out."""
+        pointer, each brought to its current snapshot, then counted. Bounded like the folder listing (`max_list_matters`, and
+        `list_budget_s` for the pulls): a cold tenant would download every snapshot in one request. What is not reached is
+        reported as `truncated`. A matter that is mid-delete or unreadable is left out."""
+        started = time.monotonic()
         with self._wrap():
             self._ready()
             tp = self._tprefix(tenant)
             ids = sorted({k[len(tp) :].split("/", 1)[0] for k, _ in self.objects.list(tp) if k.endswith("/HEAD")})
             ids = [m for m in ids if _MATTER_ID.fullmatch(m)]
             ready: list[str] = []
-            for matter_id in ids:
+            truncated = len(ids) > self.cfg.max_list_matters
+            for matter_id in ids[: self.cfg.max_list_matters]:
+                if time.monotonic() - started > self.cfg.list_budget_s:
+                    truncated = True
+                    break
                 try:
                     self._current(tenant, matter_id)
                 except MatterNotFound:
                     continue
                 ready.append(matter_id)
-            return self._listing(tenant, ready)
+            out = self._listing(tenant, ready, started)
+            out["truncated"] = bool(out["truncated"] or truncated)
+            return out
 
     def read_passages(self, tenant: str, matter_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         with self._wrap():
