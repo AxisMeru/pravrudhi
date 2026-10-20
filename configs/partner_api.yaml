@@ -128,10 +128,14 @@ wf_s1_matter_citation_sweep: true
 wf_b2_quashing_agenda: true
 wf_a6_cheque_case_check: true
 wf_a7_matter_hearing_pack: true
-# A8 HELD OFF with A4 (19 Oct): it uses the same too-narrow sensitive-wording regex (Track B, AxisMeru/pravrudhi#556). True only with the shared-regex fix merged and Track A's A8 gate re-run on that tree.
-wf_a8_synopsis_list_of_dates: false
-# A4 HELD OFF (19 Oct, Track B's rerun: no draft refusal for sexual-offence/minor/trafficking wordings without a declared tag or section; Track C fix pending). True only with the fix merged and Track A's A4 gate re-run on that tree.
-wf_a4_bail_drafting: false
+# 0.6.24 switch-on of bail drafting (A4) and the synopsis and list of dates (A8). Both now require `sensitive_declaration` ("none" | "sensitive", no default):
+# a request without it answers 422 after authentication, rate limits and the request-shape check, before consent, before any matter is read and before any
+# model call. The fact-wording check behind the declaration is best effort. Both run template-only here (no drafting model is configured below). The gate,
+# read and rerun records for this switch-on are on the release pull request; the app's drafting cards (NEXT_PUBLIC_DRAFTING_CARDS and
+# NEXT_PUBLIC_SENSITIVE_DECLARATION, build-time) are deployed before these keys. The kill for either is its key false (or removed) in a new image or after a
+# restart, because the packaged config is authoritative. A8 also needs A2 on and a store location (409 store_off / 503 store_unavailable otherwise).
+wf_a8_synopsis_list_of_dates: true
+wf_a4_bail_drafting: true
 # #1015 scanned and garbled-page intake (OFF; the route wiring is a later PR). Calibrated by Track A on real Punjab and Haryana orders
 # (record OCR_FLOOR_AND_GARBLED_RECORD v3 fe4253e57206; pinned tesseract 5.5.3, 300 dpi gray, --psm 3 tsv, English only): provisional,
 # born-digital court PDFs with broken text layers, NOT partner phone photos. EVERY ocr_* key is required when the flag is true.

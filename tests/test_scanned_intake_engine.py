@@ -130,6 +130,7 @@ def _cmdline(pid: str) -> str:
 
 def _fake_version(monkeypatch: pytest.MonkeyPatch, tmp_path, out: str, data: bytes | None):
     E._VERIFIED.clear()  # the build check is remembered once per process: each case starts fresh
+
     class P:
         stdout, stderr, returncode = out.encode(), b"", 0
 
@@ -224,3 +225,17 @@ def test_kill_group_touches_only_a_live_child_and_always_closes_the_pipes(monkey
     assert killed == [] and reaped.stdin.closed and reaped.stdout.closed  # a reaped pid's group is never signalled
     E._kill_group(live)  # type: ignore[arg-type]
     assert killed == [4242] and live.waited and live.stdin.closed and live.stdout.closed
+
+
+def test_the_child_limits_fail_closed_where_resource_is_missing_and_the_module_still_imports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """`resource` is POSIX-only: it is imported inside `_limits` (the parent), never at module level, and a platform without it
+    gets `OcrUnavailable` (the page reads ocr_unavailable) instead of an internal error."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "resource", None)  # `import resource` now raises ImportError
+    with pytest.raises(E.OcrUnavailable):
+        E._limits(5.0)
+    with pytest.raises(E.OcrUnavailable):  # and a runner built on it fails closed the same way
+        E.tesseract_runner(_script(tmp_path, "cat >/dev/null\n"))(b"png", 5.0)
