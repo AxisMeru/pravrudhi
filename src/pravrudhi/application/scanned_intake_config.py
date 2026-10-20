@@ -1,4 +1,5 @@
-"""#1015: the switch and the numbers of scanned/garbled-page intake (flag `wf_c1_scanned_intake`), read once from partner_api.yaml.
+"""#1015: the switch and the numbers of scanned/garbled-page intake (flag `wf_c1_scanned_intake`), read once from
+partner_api.yaml.
 
 Flag-off (the packaged default) imports nothing of the slice. With the flag on, EVERY number below must be present and valid
 or the slice stays OFF (no hard-coded floor: Track A's calibration record sets them, in config only). Never raises.
