@@ -14,12 +14,16 @@ import pytest
 from pravrudhi.application import agenda_matter as AM
 from pravrudhi.application import matter_sweep_matter as SM
 from pravrudhi.application import ocr_marks, synopsis_dates
+from pravrudhi.application import quashing as QG
+from pravrudhi.application import quashing_matter as QM
 from pravrudhi.application import s138_checklist as B3
+from pravrudhi.application import tabular_matter as TM
 from pravrudhi.application.chronology_config import ChronologyConfig
 from pravrudhi.application.chronology_matter import chronology_for_matter
 from pravrudhi.application.matter_spans import MatterStore
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
 from pravrudhi.application.matter_sweep_config import SweepConfig
+from pravrudhi.application.tabular_config import TabularConfig
 from tests.test_ocr_marks import MARKER, assert_marked
 
 T = "org:acme"
@@ -142,12 +146,69 @@ def test_the_helper_marks_only_rows_that_name_a_known_paper_and_page() -> None:
     assert ocr_marks.ocr_page_map([{"doc_id": "d1", "from_ocr": False}]) == {}
 
 
-def test_b3_reads_only_what_the_user_types_and_b2_lists_only_paper_names() -> None:
+def test_b3_reads_only_what_the_user_types() -> None:
     src = inspect.getsource(B3)
     assert "matter_spans" not in src and "read_passages" not in src and "MatterStore" not in src  # not an OCR surface
-    from pravrudhi.application import quashing_matter
 
-    assert "read_passages" not in inspect.getsource(quashing_matter)  # it lists names and counts only, never passage text
+
+def test_the_tabular_route_marks_every_mention_and_not_read_row_by_its_paper_and_page(tmp_path: Path) -> None:
+    s = MatterStore(tmp_path / "s", MatterSpansConfig())
+    m = s.create_matter(T)
+    text = (
+        "The FIR was registered at P.S. Karol Bagh, Delhi under sections 323, 324 and 34 IPC.\f"
+        "Second page: FIR under section 420 IPC at P.S. Saket."
+    )
+    s.add_document(T, m, text, "scan.pdf", ocr_pages=[1])
+    out = TM.table_for_matter(s, T, TM.TabularRequest(matter_id=m), "run-1", TabularConfig())
+    items: list[dict[str, Any]] = []
+
+    def collect(n: Any) -> None:
+        if isinstance(n, dict):
+            if isinstance(n.get("page"), int):
+                items.append(n)
+            for v in n.values():
+                collect(v)
+        elif isinstance(n, list):
+            for v in n:
+                collect(v)
+
+    collect(out)
+    assert items and all("from_ocr" in x for x in items)  # EVERY row that names a page says whether it was read from an image
+    assert all(x["from_ocr"] is (x["page"] == 1) and ("ocr_marker" in x) is (x["page"] == 1) for x in items)
+    assert assert_marked(out) >= 3
+
+
+def test_b2_quashing_page_lists_paper_names_only_so_it_has_no_item_to_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(QG, "pin_status_cached", lambda _p: None)
+    s, m = _matter(tmp_path, [1])
+    out = QM.agenda_for_matter(s, T, QM.QuashingRequest(matter_id=m), "run-1", None)
+    assert assert_marked(out) == 0 and "ocr_marker" not in str(out)
+    for sentence in PAGES:  # none of the scanned paper's own words is on the page
+        assert sentence[3:30] not in str(out)
+
+
+def test_every_consumer_of_read_passages_is_counted_so_the_question_needs_no_reading(tmp_path: Path) -> None:
+    """The consumers of `read_passages` (chronology, A5, S1, tabular; A8 through the chronology) each show a marked item
+    for a matter with a scanned page; B2 reads no passage and shows none."""
+    import subprocess
+
+    out = subprocess.run(
+        ["git", "grep", "-l", "read_passages(", "--", "src"], capture_output=True, text=True, cwd=Path(__file__).parent.parent
+    )
+    users = {Path(x).stem for x in out.stdout.split() if x.endswith(".py")} - {"matter_spans", "matter_objectstore"}
+    assert users == {"agenda_matter", "chronology_matter", "matter_sweep_matter", "tabular_matter"}, (
+        users
+    )  # a new consumer fails here
+    s, m = _matter(tmp_path, [1, 2])
+    counts = {
+        "chronology": assert_marked(chronology_for_matter(s, T, m, ChronologyConfig(), "r")),
+        "agenda": assert_marked(_agenda(s, m)),
+        "sweep": assert_marked(_sweep(s, m)),
+        "tabular": assert_marked(TM.table_for_matter(s, T, TM.TabularRequest(matter_id=m), "r", TabularConfig())),
+    }
+    assert all(n >= 1 for n in counts.values()), counts
 
 
 @pytest.mark.parametrize("name", ["agenda_matter", "matter_sweep_matter"])

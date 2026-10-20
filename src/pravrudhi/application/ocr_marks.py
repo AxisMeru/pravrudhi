@@ -2,7 +2,8 @@
 
 A2 records which pages of a paper were read from an image (`ocr_pages`, only for a matter that holds one). A tool whose rows
 name a paper and a page (`doc_id` with `page`, or with `pages`) calls `mark_tree` on its finished answer: each such row gets
-`from_ocr` and, when true, R1's one `ocr_marker` line. A matter with no scanned page is returned untouched (no key, and the
+`from_ocr` and, when true, R1's one `ocr_marker` line; a row inside a paper's entry (no `doc_id` of its own) takes the paper's.
+A matter with no scanned page is returned untouched (no key, and the
 strings module is not imported).
 """
 
@@ -23,21 +24,21 @@ def mark_tree(tree: Any, pages: dict[str, tuple[int, ...]]) -> Any:
         return tree
     from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
 
-    def walk(node: Any) -> None:
+    def walk(node: Any, inherited: str | None = None) -> None:
         if isinstance(node, dict):
-            doc = node.get("doc_id")
+            doc = node.get("doc_id") if isinstance(node.get("doc_id"), str) else inherited  # a row inside a paper's entry
             where = [node["page"]] if isinstance(node.get("page"), int) else node.get("pages")
-            if isinstance(doc, str) and doc in pages and isinstance(where, list) and where:
+            if doc in pages and isinstance(where, list) and where:
                 node["from_ocr"] = any(p in pages[doc] for p in where)
                 if node["from_ocr"]:
                     node["ocr_marker"] = OCR_MARKER_LINE
                 else:
                     node.pop("ocr_marker", None)
             for v in node.values():
-                walk(v)
+                walk(v, doc)
         elif isinstance(node, list):
             for v in node:
-                walk(v)
+                walk(v, inherited)
 
     walk(tree)
     return tree

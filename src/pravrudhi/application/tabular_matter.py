@@ -108,6 +108,9 @@ def table_for_matter(
         except T.TableRefused as e:
             raise MatterError(e.code, str(e), e.status_code) from e
         store.list_documents(tenant, req.matter_id)  # the matter must still exist at the end (404 otherwise, nothing returned)
+        from pravrudhi.application.ocr_marks import mark_tree, ocr_page_map
+
+        mark_tree(out, ocr_page_map(docs))  # mentions and not-read rows quote passages: say if the page was read from an image
         return {**out, "matter_id": req.matter_id}
     finally:
         with _inflight_lock:
