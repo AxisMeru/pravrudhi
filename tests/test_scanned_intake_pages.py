@@ -89,7 +89,7 @@ def test_a_timeout_the_page_cap_and_a_slow_page_are_unreadable_with_reason_timeo
     assert PG.process_pages([""], CFG, render, slow_runner)[0].reason == "timeout"
     r2, run2 = make(tsv(GOOD_WORDS))
     capped = PG.process_pages(["", ""], replace(CFG, max_pages=1), r2, run2)
-    assert [x.source for x in capped] == ["ocr", "unreadable"] and capped[1].reason == "timeout"
+    assert [x.source for x in capped] == ["ocr", "unreadable"] and capped[1].reason == "page_limit"  # never tried: not "timeout"
     ticks = iter([0.0, 100.0, 200.0])
     r3, run3 = make(tsv(GOOD_WORDS))
     assert (

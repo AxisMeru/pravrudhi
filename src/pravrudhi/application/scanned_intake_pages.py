@@ -69,7 +69,7 @@ def process_pages(
             out.append(PageResult(i, "text_layer", layer))
             continue
         if ocr_done >= cfg.max_pages:
-            out.append(_unreadable(i, "timeout"))  # over the per-document OCR page cap: refused, not guessed
+            out.append(_unreadable(i, "page_limit"))  # over the per-document OCR page cap: refused, never tried, not guessed
             continue
         ocr_done += 1
         res = _ocr_page(i, cfg, render, runner, clock)
