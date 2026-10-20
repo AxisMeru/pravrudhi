@@ -284,3 +284,17 @@ def test_the_bounded_read_works_with_descriptors_above_1024(monkeypatch: pytest.
         E.tesseract_runner(_script(tmp_path, "yes streaming-past-the-cap\n"))(b"png", 20.0)
     with pytest.raises(E.OcrTimeout):  # and so does the timeout
         E.tesseract_runner(_script(tmp_path, "sleep 20\n"))(b"png", 0.5)
+
+
+def test_the_child_limits_fail_closed_where_resource_is_missing_and_the_module_still_imports(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """`resource` is POSIX-only: it is imported inside `_limits` (the parent), never at module level, and a platform without it
+    gets `OcrUnavailable` (the page reads ocr_unavailable) instead of an internal error."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "resource", None)  # `import resource` now raises ImportError
+    with pytest.raises(E.OcrUnavailable):
+        E._limits(5.0)
+    with pytest.raises(E.OcrUnavailable):  # and a runner built on it fails closed the same way
+        E.tesseract_runner(_script(tmp_path, "cat >/dev/null\n"))(b"png", 5.0)

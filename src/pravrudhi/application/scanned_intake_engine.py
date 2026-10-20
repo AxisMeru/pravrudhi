@@ -9,7 +9,6 @@ import contextlib
 import hashlib
 import os
 import re
-import resource
 import selectors
 import shutil
 import signal
@@ -238,6 +237,13 @@ _VERIFIED: dict[tuple[str, str, str], str | None] = {}
 
 
 def _limits(timeout_s: float) -> Callable[[], None]:
+    # imported here, in the PARENT: not at module level (POSIX-only, the module must still import on Windows) and not in `apply`,
+    # which runs in the forked child where a first import is unsafe
+    try:
+        import resource
+    except ImportError:
+        raise OcrUnavailable("this platform cannot apply the child resource limits") from None
+
     def apply() -> None:  # runs in the child between fork and exec: setrlimit calls only
         for which, value in (
             (resource.RLIMIT_AS, MAX_ADDRESS_BYTES),
