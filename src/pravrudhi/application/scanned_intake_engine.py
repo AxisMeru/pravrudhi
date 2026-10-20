@@ -5,6 +5,7 @@ only). A page below the floor is NEVER guessed: it has no text."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -189,11 +190,38 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def tesseract_runner(binary: str | None = None) -> Runner:
+def tesseract_identity(exe: str, timeout_s: float = 10.0) -> tuple[str, str | None]:
+    """(version, sha256 of eng.traineddata or None): `tesseract --version` and the hash of `<TESSDATA_PREFIX>/eng.traineddata`."""
+    try:
+        p = subprocess.run([exe, "--version"], capture_output=True, timeout=timeout_s, check=False, env=child_env())  # noqa: S603
+    except (subprocess.TimeoutExpired, OSError):
+        raise OcrUnavailable("tesseract does not answer --version") from None
+    first = (p.stdout or p.stderr).decode("utf-8", "replace").strip().splitlines()[:1]
+    m = re.search(r"(\d+\.\d+(?:\.\d+)?)", first[0] if first else "")
+    prefix = child_env().get("TESSDATA_PREFIX")
+    digest = None
+    if prefix:
+        path = os.path.join(prefix, "eng.traineddata")
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()
+    return (m.group(1) if m else ""), digest
+
+
+def verify_identity(exe: str, cfg: ScannedIntakeConfig) -> None:
+    """Fail closed: the calibration (floor, detector) holds only for the engine and language data it was measured on."""
+    version, digest = tesseract_identity(exe)
+    if version != cfg.tesseract_version or digest != cfg.eng_traineddata_sha256:
+        raise OcrUnavailable("the tesseract build or its English data is not the calibrated one")
+
+
+def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None = None) -> Runner:
     """The real runner: argv list (no shell), the PNG on stdin, a hard timeout. Raises OcrUnavailable / OcrTimeout."""
     exe = binary or os.environ.get(TESSERACT_ENV) or shutil.which("tesseract")
     if not exe:
         raise OcrUnavailable("no tesseract binary")
+    if cfg is not None:
+        verify_identity(exe, cfg)
 
     def run(png: bytes, timeout_s: float) -> str:
         try:

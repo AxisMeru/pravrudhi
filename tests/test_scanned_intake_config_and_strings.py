@@ -15,6 +15,8 @@ GOOD = {
     "ocr_garbled_min_letter_share": 0.5, "ocr_agreement_min_similarity": 0.80, "ocr_max_pages": 60, "ocr_page_timeout_s": 30,
     "ocr_document_deadline_s": 120,
     "ocr_dpi": 300,
+    "ocr_tesseract_version": "5.5.3",
+    "ocr_eng_traineddata_sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
 }  # fmt: skip
 
 
@@ -30,7 +32,10 @@ def test_only_the_boolean_true_with_every_key_present_and_in_range_turns_it_on()
     assert C.parse_scanned_intake_config(None) is None and C.parse_scanned_intake_config({}) is None
 
 
-@pytest.mark.parametrize("key", [k for k in GOOD if k != "wf_c1_scanned_intake"])
+_STRING_KEYS = ("ocr_tesseract_version", "ocr_eng_traineddata_sha256")
+
+
+@pytest.mark.parametrize("key", [k for k in GOOD if k != "wf_c1_scanned_intake" and k not in _STRING_KEYS])
 def test_a_missing_or_bad_value_for_any_key_keeps_it_off(key: str):
     missing = {k: v for k, v in GOOD.items() if k != key}
     assert C.parse_scanned_intake_config(missing) is None
@@ -80,3 +85,14 @@ def test_the_packaged_config_is_off_and_valid_when_the_flag_is_flipped():
     cfg = C.parse_scanned_intake_config({**body, C.FLAG: True})
     assert cfg is not None and (cfg.min_page_confidence, cfg.min_ink_coverage, cfg.max_low_word_share) == (80.0, 0.90, 0.10)
     assert (cfg.garbled_max_odd_token_share, cfg.garbled_min_chars, cfg.dpi, cfg.languages) == (0.10, 120, 300, "eng")
+
+
+def test_the_calibrated_engine_pins_are_required_strings_and_the_hash_is_64_lowercase_hex():
+    for key in _STRING_KEYS:
+        assert C.parse_scanned_intake_config({k: v for k, v in GOOD.items() if k != key}) is None
+        for bad in (None, "", "  ", 5, True):
+            assert C.parse_scanned_intake_config({**GOOD, key: bad}) is None, (key, bad)
+    for bad in ("7D43" * 16, "abc", "g" * 64):
+        assert C.parse_scanned_intake_config({**GOOD, "ocr_eng_traineddata_sha256": bad}) is None
+    cfg = C.parse_scanned_intake_config(GOOD)
+    assert cfg is not None and cfg.tesseract_version == "5.5.3" and len(cfg.eng_traineddata_sha256) == 64

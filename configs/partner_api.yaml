@@ -152,4 +152,8 @@ ocr_max_pages: 60
 ocr_page_timeout_s: 30
 ocr_document_deadline_s: 120
 ocr_dpi: 300
+# The calibrated engine (Track A, 21 Oct): scanned intake uses no other tesseract build or English data. The engine image must carry exactly
+# this build, or these two values change together with a new calibration.
+ocr_tesseract_version: "5.5.3"
+ocr_eng_traineddata_sha256: "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
 ocr_languages: eng

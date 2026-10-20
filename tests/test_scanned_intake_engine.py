@@ -136,3 +136,35 @@ def test_the_child_environment_is_minimal_and_carries_no_inherited_secret(monkey
     monkeypatch.setenv("TESSDATA_PREFIX", "/opt/tessdata")
     env = E.child_env()
     assert set(env) == {"PATH", "OMP_THREAD_LIMIT", "LC_ALL", "TESSDATA_PREFIX"} and "secret" not in str(env)
+
+
+def _fake_version(monkeypatch: pytest.MonkeyPatch, tmp_path, out: str, data: bytes | None):
+    class P:
+        stdout, stderr, returncode = out.encode(), b"", 0
+
+    monkeypatch.setattr(E.subprocess, "run", lambda *_a, **_k: P())
+    if data is not None:
+        (tmp_path / "eng.traineddata").write_bytes(data)
+        monkeypatch.setenv("TESSDATA_PREFIX", str(tmp_path))
+    else:
+        monkeypatch.delenv("TESSDATA_PREFIX", raising=False)
+
+
+def test_the_runner_is_refused_unless_the_tesseract_build_and_english_data_are_the_calibrated_ones(monkeypatch, tmp_path):
+    import hashlib
+    from dataclasses import replace
+
+    data = b"invented traineddata"
+    cfg = replace(CFG, tesseract_version="5.5.3", eng_traineddata_sha256=hashlib.sha256(data).hexdigest())
+    _fake_version(monkeypatch, tmp_path, "tesseract 5.5.3\n leptonica-1.87.0", data)
+    assert callable(E.tesseract_runner("/opt/tesseract", cfg))  # the calibrated build and data: accepted
+    _fake_version(monkeypatch, tmp_path, "tesseract 5.3.0\n", data)
+    with pytest.raises(E.OcrUnavailable):  # a different version (for example a distro package)
+        E.tesseract_runner("/opt/tesseract", cfg)
+    _fake_version(monkeypatch, tmp_path, "tesseract 5.5.3\n", b"other data")
+    with pytest.raises(E.OcrUnavailable):  # the right version with other language data
+        E.tesseract_runner("/opt/tesseract", cfg)
+    _fake_version(monkeypatch, tmp_path, "tesseract 5.5.3\n", None)
+    with pytest.raises(E.OcrUnavailable):  # no data directory to check: not trusted
+        E.tesseract_runner("/opt/tesseract", cfg)
+    assert E.tesseract_identity.__name__ == "tesseract_identity"
