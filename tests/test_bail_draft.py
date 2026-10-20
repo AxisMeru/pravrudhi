@@ -664,3 +664,11 @@ def test_the_fact_wording_backstop_refers_every_sensitive_wording_and_none_of_th
         assert bd.SENSITIVE_RE.search(f"The applicant states: {t}.") is not None, t
     for t in _MUST_NOT:
         assert bd.SENSITIVE_RE.search(f"The applicant states: {t}.") is None, t
+
+
+def test_the_fact_wording_refusal_names_trafficking_and_is_pinned_by_hash():
+    import hashlib
+
+    assert "a sexual offence, trafficking, or one you marked sensitive" in bd.SENSITIVE_REFUSAL
+    assert hashlib.sha256(bd.SENSITIVE_REFUSAL.encode()).hexdigest()[:16] == "3ba37eb0ef963b38"  # R1 to confirm this hash
+    assert bd.SENSITIVE_REFUSAL.startswith("No draft is made for this kind of case") and bd.SENSITIVE_REFUSAL.endswith("A lawyer drafts the application.")

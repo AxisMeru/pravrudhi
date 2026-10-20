@@ -39,9 +39,9 @@ FILL_INS_HEADING = "Details to fill in"
 KIND_TITLES = {"regular": "BAIL APPLICATION", "anticipatory": "APPLICATION FOR ANTICIPATORY BAIL"}
 KIND_WORDS = {"regular": "a regular bail application", "anticipatory": "an application for anticipatory bail"}
 SENSITIVE_REFUSAL = (
-    "No draft is made for this kind of case (a case under the POCSO Act or involving a minor, a sexual offence, or one you marked "
-    "sensitive). A lawyer drafts the application."
-)  # R1's a4_sensitive_refusal (9b9bc5a83311f2a0); the route may override it from its own config
+    "No draft is made for this kind of case (a case under the POCSO Act or involving a minor, a sexual offence, trafficking, or one "
+    "you marked sensitive). A lawyer drafts the application."
+)  # R1's wording of 20 Oct (adds "trafficking"); the route may override it from its own config
 NOTE_LEFT_OUT = "A note from the draft was left out because it predicted the result of this application."
 #: R1: barred everywhere, notes included: predictions about THIS application's result (what the other side may argue is allowed in notes).
 PREDICTIONS = (
