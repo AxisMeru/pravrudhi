@@ -1,5 +1,6 @@
 """#1015: the customer-visible lines of scanned/garbled-page intake. R1's words (OCR_LIMITS_V2/V3, OCR_UPLOAD_LINES), pinned by
-hash in tests; the engine's text must equal them exactly. Nothing here says "garbled", quotes a share, or claims a page was fully read."""
+hash in tests; the engine's text must equal them exactly. Nothing here says "garbled", quotes a share, or claims a
+page was fully read."""
 
 from __future__ import annotations
 
