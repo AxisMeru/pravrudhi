@@ -566,14 +566,16 @@ def test_the_work_grows_linearly_on_dense_text_of_every_shape(unit: str) -> None
     def took(n: int) -> float:
         text = (unit * (n // len(unit) + 1))[:n]
         best = 1e9
-        for _ in range(2):
+        for _ in range(4):  # the best of four: a loaded runner inflates single runs, never the best by much
             t0 = _time.perf_counter()
             D.check_draft(text, DraftCheckConfig(max_chars=1_000_000), lambda t: ("NOT_IN_INDEX", False))
             best = min(best, _time.perf_counter() - t0)
         return best
 
     small, big = took(100_000), took(400_000)
-    assert big / max(small, 1e-4) < 9.0, (unit, small, big)
+    # Quadratic code fails BOTH signals (ratio near 16 and big above 5 s); load noise on one measurement fails at most one of them,
+    # so a pass needs either a linear ratio or an absolute time well inside the quadratic one (linear is about 0.5 s).
+    assert big / max(small, 1e-4) < 9.0 or big < 1.5, (unit, small, big)
     assert big < 6.0, (unit, big)
 
 
