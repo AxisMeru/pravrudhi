@@ -332,3 +332,26 @@ def test_in_a_matter_with_a_scanned_page_no_row_of_any_surface_names_a_paper_and
     for name, answer in answers.items():
         assert assert_marked(answer) >= (0 if name == "a2_list" else 1), name  # each surface really showed a scanned item
         assert unmarked_rows(answer, name) == [], unmarked_rows(answer, name)
+
+
+def test_when_the_listing_is_cut_for_size_an_entry_whose_scanned_occurrence_was_dropped_is_still_marked(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    s = MatterStore(tmp_path / "s", MatterSpansConfig())
+    m = s.create_matter(T)
+    many = " ".join(f"(2087) 4 SCC {500 + i}" for i in range(60))
+    last = "(2090) 9 SCC 901"
+    s.add_document(T, m, f"{many}\fThe last paper cites {last}.", "scan.pdf", ocr_pages=[2])
+    cfg = replace(SweepConfig(), max_bytes=10_000)
+    out = SM.sweep_for_matter(s, T, SM.SweepRequest(matter_id=m), "run-1", cfg, Lookup())
+    assert out["listing_truncated"] is True
+    entry = next(e for e in out["distinct_citations"] if e["text"] == last)
+    assert entry["occurrences"] == []  # the size cap dropped its only (scanned-page) occurrence
+    assert entry["from_ocr"] is True and entry["ocr_marker"] == MARKER  # still marked: its paper holds a scanned page
+    first = next(e for e in out["distinct_citations"] if e["text"] == "(2087) 4 SCC 500")
+    assert first["from_ocr"] is True  # conservative: the same paper; over-marking is the safe direction
+    plain = MatterStore(tmp_path / "p", MatterSpansConfig())
+    pm = plain.create_matter(T)
+    plain.add_document(T, pm, f"{many}\fThe last paper cites {last}.", "typed.pdf")
+    cut_plain = SM.sweep_for_matter(plain, T, SM.SweepRequest(matter_id=pm), "run-1", cfg, Lookup())
+    assert cut_plain["listing_truncated"] is True and "from_ocr" not in str(cut_plain)  # no scanned page: nothing added
