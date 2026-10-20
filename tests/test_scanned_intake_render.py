@@ -106,3 +106,30 @@ def test_the_worker_script_is_self_contained_and_takes_the_page_cap_from_the_par
     assert "pravrudhi" not in R.WORKER_CODE and "import pypdfium2" in R.WORKER_CODE
     argv = R._worker_argv(4, 300)
     assert argv[1] == "-I" and argv[-3:] == ["4", "300", str(R.MAX_PIXELS)]
+
+
+def test_the_real_image_worker_without_pillow_is_ocr_unavailable():
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        with pytest.raises(E.OcrUnavailable):  # exit code 2 from the isolated child
+            R.render_image(b"\x89PNG")
+    else:
+        pytest.skip("Pillow is installed: the real decode runs in the image gate")
+
+
+def test_the_image_worker_is_self_contained_guards_the_header_before_decoding_and_accepts_three_formats_only():
+    code = R.IMAGE_WORKER_CODE
+    assert "pravrudhi" not in code and 'formats=["PNG", "JPEG", "TIFF"]' in code
+    assert "Image.MAX_IMAGE_PIXELS = max_pixels" in code
+    assert code.index("width * height > max_pixels") < code.index('convert("L")')  # the size is refused before any pixel is decoded
+    assert code.index("sys.exit(3)") < code.index("img.seek(0)")
+
+
+def test_a_decoded_image_is_validated_and_the_exit_codes_map_like_the_pdf_worker(tmp_path):
+    ok = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',2,2)+bytes([0,255,255,0]))"
+    png, dark = R.render_image(b"x", argv=_child(tmp_path, ok))
+    assert png.startswith(b"\x89PNG") and list(dark) == [(0, 0), (1, 1)]
+    for code, exc in ((3, E.OcrTimeout), (2, E.OcrUnavailable), (4, E.OcrUnavailable)):  # bomb, no Pillow, undecodable
+        with pytest.raises(exc):
+            R.render_image(b"x", argv=_child(tmp_path, f"import sys; sys.stdin.buffer.read(); sys.exit({code})"))
