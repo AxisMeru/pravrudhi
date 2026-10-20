@@ -1454,3 +1454,23 @@ class TestSetVersions:
         assert "contract_set_version" in body and "validated_set_version" in body
         assert len(body["validated_set_version"]) == 64
         assert body["contract_set_version"] is None or len(body["contract_set_version"]) == 64
+
+
+def test_the_public_status_route_reports_every_wf_flag_as_a_boolean_and_nothing_else(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from pravrudhi.api import partner as P
+
+    flags = {"wf_a3_chronology": True, "wf_a4_bail_drafting": False, "wf_x_odd": "true", "wf_n": 1}
+    flags |= {"rate_limit_per_minute": 30, "service_window_tz": "Asia/Kolkata", "secret_key": "s"}
+    monkeypatch.setattr(P, "_peek_flags", lambda _r: flags)
+    cfg = P.PartnerApiConfig(rate_limit_per_minute=1000, max_concurrent=1, trust_proxy_header=False)
+    app = FastAPI()
+    app.include_router(P.build_partner_router(tmp_path, agent_factory=lambda _r: _agent(tmp_path, _proof_script()), config=cfg))
+    r = TestClient(app).get("/api/v1/status")
+    assert r.status_code == 200
+    want = {"wf_a3_chronology": True, "wf_a4_bail_drafting": False, "wf_n": False, "wf_x_odd": False}
+    assert r.json()["workflows"] == want  # only wf_* keys; only a real true is true
+    assert "Asia/Kolkata" not in r.text and "secret_key" not in r.text and "rate_limit_per_minute" not in r.text
+    assert set(r.json()) == {"engine_version", "service_window", "judge", "workflows"}  # the existing fields are unchanged

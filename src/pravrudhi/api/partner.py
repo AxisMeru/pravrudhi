@@ -122,6 +122,9 @@ class ServiceStatusOut(BaseModel):
     engine_version: str
     service_window: ServiceWindowOut | None
     judge: JudgeStateOut
+    #: every `wf_*` switch of partner_api.yaml as the routes read it: true only for the boolean true, any other value is false.
+    #: Flags only: no counts, no tenant data, no values of any other key (public, unauthenticated route).
+    workflows: dict[str, bool] = {}
 
 
 @dataclass(frozen=True)
@@ -1375,6 +1378,7 @@ def build_partner_router(
                 state=state,
                 checked_at=seen.isoformat(timespec="seconds") if (fresh and seen) else None,
             ),
+            workflows={k: v is True for k, v in sorted(_flags.items()) if isinstance(k, str) and k.startswith("wf_")},
         )
 
     # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is

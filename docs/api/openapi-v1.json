@@ -1118,6 +1118,14 @@
                 "type": "null"
               }
             ]
+          },
+          "workflows": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "default": {},
+            "title": "Workflows",
+            "type": "object"
           }
         },
         "required": [
