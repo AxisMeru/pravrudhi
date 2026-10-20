@@ -1,5 +1,7 @@
 # Prabhasa-Nyaya corpus proposal
 
+> Proposal of 6 Sep 2026: the intended recipe, not the corpus actually held; the source of our Supreme Court copy is not confirmed.
+
 Step `corpus` (capability `corpus`) for the Prabhasa-Nyaya objective: a legal-reasoning
 assistant for Indian jurisprudence that cites the statute or precedent it relied on, says
 "I don't know" rather than inventing a citation, and reasons over a **typed Nyaya meaning
