@@ -79,8 +79,13 @@ def sweep_for_matter(
         if pages:  # a distinct citation is marked when ANY of its occurrences is from a scanned page (R1 ADVISE on #605)
             from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
 
+            cut = bool(
+                out.get("listing_truncated")
+            )  # occurrences may have been dropped for size: read the entry's papers instead
             for entry in out.get("distinct_citations", []):
-                entry["from_ocr"] = any(o.get("from_ocr") for o in entry.get("occurrences", []))
+                entry["from_ocr"] = any(o.get("from_ocr") for o in entry.get("occurrences", [])) or (
+                    cut and any(pages.get(p["doc_id"]) for p in entry.get("papers", []))  # conservative: a scanned paper holds it
+                )
                 if entry["from_ocr"]:
                     entry["ocr_marker"] = OCR_MARKER_LINE
         return {**out, "matter_id": req.matter_id}
