@@ -97,6 +97,7 @@ def table_rows(rows: list[dict[str, Any]], first_ref: int) -> list[dict[str, Any
                 "readings": list(g["readings"]) if g.get("readings") else None,
                 "ambiguous": bool(g.get("readings") and len(g["readings"]) > 1),
                 "row_id": g.get("id"),
+                **{k: g[k] for k in ("from_ocr", "ocr_marker") if k in g},  # R1: only for a matter with an image-read page
             }
             for g in grp
         ]
@@ -115,6 +116,7 @@ def table_rows(rows: list[dict[str, Any]], first_ref: int) -> list[dict[str, Any
                 "document_name": r.get("document_name"),
                 "page": r.get("page"),
                 "source": f"{r.get('document_name')} p.{r.get('page')}",
+                **{k: r[k] for k in ("from_ocr", "ocr_marker") if k in r},
             }
         )
     return out

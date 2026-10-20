@@ -72,6 +72,9 @@ def sweep_for_matter(
         store.list_documents(
             tenant, req.matter_id
         )  # the matter must still exist: a snapshot of a deleted matter is not returned (404)
+        from pravrudhi.application.ocr_marks import mark_tree, ocr_page_map
+
+        mark_tree(out, ocr_page_map(docs))  # citation rows, occurrences and cut rows: say if the page was read from an image
         return {**out, "matter_id": req.matter_id}
     finally:
         with _inflight_lock:
