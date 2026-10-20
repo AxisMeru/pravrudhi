@@ -150,6 +150,7 @@ ROUTE_PREFIX = "/api/v1/matter-spans"
 ROUTE_CREATE, ROUTE_DOCUMENTS, ROUTE_QUERY, ROUTE_LIST, ROUTE_DELETE = (
     f"{ROUTE_PREFIX}/{n}" for n in ("matters", "documents", "query", "list", "delete")
 )
+ROUTE_MINE = f"{ROUTE_PREFIX}/my-matters"  # the caller's own matters (flag wf_a2_list_matters)
 
 
 def open_route_lists(paths: list[str]) -> None:
@@ -318,6 +319,38 @@ class MatterStore:
         with self._open(self._db_path(tenant, matter_id)) as conn:
             docs = _documents(conn)
         return {"matter_id": matter_id, "documents": docs, **_page_notes(docs)}
+
+    def _paper_count(self, tenant: str, matter_id: str) -> int | None:
+        """Fully indexed documents of one matter, or None when the matter is not readable right now (not created yet, or a
+        folder that is no matter: it is left out of a listing, never guessed)."""
+        try:
+            with self._open(self._db_path(tenant, matter_id)) as conn:
+                return int(conn.execute("SELECT COUNT(*) FROM document WHERE ingest_done = 1").fetchone()[0])
+        except (MatterNotFound, sqlite3.Error):
+            return None
+
+    def _listing(self, tenant: str, ids: list[str]) -> dict[str, Any]:
+        out = []
+        for matter_id in ids:
+            n = self._paper_count(tenant, matter_id)
+            if n is not None:
+                out.append({"matter_id": matter_id, "papers": n})
+        return {"matters": out}
+
+    def list_matters(self, tenant: str) -> dict[str, Any]:
+        """The caller's OWN matters, newest activity first: matter id and the number of fully indexed papers. Read-only; the
+        tenant is the caller's organisation (or user), so another tenant's matters cannot appear and a tenant with none gets an
+        empty list, never a refusal that would tell the caller anything. Nothing is created for a tenant with no folder."""
+        tdir = self._tenant_dir(tenant)
+        if not tdir.is_dir():
+            return {"matters": []}
+        found: list[tuple[float, str]] = []
+        for p in tdir.iterdir():
+            db = p / DB_NAME
+            if _MATTER_ID.fullmatch(p.name) and p.is_dir() and not p.is_symlink() and db.is_file() and not db.is_symlink():
+                with suppress(OSError):
+                    found.append((-db.stat().st_mtime, p.name))
+        return self._listing(tenant, [m for _t, m in sorted(found)])
 
     def read_passages(self, tenant: str, matter_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """READ-ONLY, for the chronology: the committed documents of a matter and every passage of them, in ONE read transaction,

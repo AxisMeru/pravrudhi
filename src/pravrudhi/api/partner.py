@@ -2708,6 +2708,12 @@ def build_partner_router(
             _a2_register("/matter-spans/documents", a2_documents_ep, _a2.DocumentRequest, _a2.ROUTE_DOCUMENTS)
             _a2_register("/matter-spans/query", a2_query_ep, _a2.QueryRequest, _a2.ROUTE_QUERY)
             _a2_register("/matter-spans/list", a2_list_ep, _a2.MatterRef, _a2.ROUTE_LIST)
+            if _flags.get("wf_a2_list_matters") is True:  # the caller's own matters; needs A2 on; no new module, config or secret
+
+                def a2_mine_ep(request: Request, user: User | None = CurrentUserDep) -> dict[str, Any] | JSONResponse:
+                    return _a2_call(request, user, lambda store, tenant: store.list_matters(tenant))
+
+                _a2_register("/matter-spans/my-matters", a2_mine_ep, None, _a2.ROUTE_MINE)
         _a2.open_route_lists(_a2_paths)
 
     # --- A3 chronology: registered ONLY when partner_api.yaml sets wf_a3_chronology to true. It reads A2's stored passages, so it
