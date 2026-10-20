@@ -597,6 +597,23 @@ class ObjectBackedMatterStore(MatterStore):
             self._read(tenant, matter_id)
             return super().list_documents(tenant, matter_id)
 
+    def list_matters(self, tenant: str) -> dict[str, Any]:
+        """The tenant's matters as the object store knows them (a cold worker may hold no local copy): every matter with a HEAD
+        pointer, each brought to its current snapshot, then counted. A matter that is mid-delete or unreadable is left out."""
+        with self._wrap():
+            self._ready()
+            tp = self._tprefix(tenant)
+            ids = sorted({k[len(tp) :].split("/", 1)[0] for k, _ in self.objects.list(tp) if k.endswith("/HEAD")})
+            ids = [m for m in ids if _MATTER_ID.fullmatch(m)]
+            ready: list[str] = []
+            for matter_id in ids:
+                try:
+                    self._current(tenant, matter_id)
+                except MatterNotFound:
+                    continue
+                ready.append(matter_id)
+            return self._listing(tenant, ready)
+
     def read_passages(self, tenant: str, matter_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         with self._wrap():
             self._read(tenant, matter_id)
