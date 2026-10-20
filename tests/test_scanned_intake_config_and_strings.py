@@ -66,3 +66,15 @@ def test_no_customer_line_says_garbled_or_claims_completeness():
     for line in lines:
         low = line.lower()
         assert "garbled" not in low and "fully searched" not in low and "complete" not in low and "all pages" not in low
+
+
+def test_the_packaged_config_is_off_and_valid_when_the_flag_is_flipped():
+    from pathlib import Path
+
+    import yaml
+
+    body = yaml.safe_load((Path(__file__).resolve().parent.parent / "configs" / "partner_api.yaml").read_text(encoding="utf-8"))
+    assert body["wf_c1_scanned_intake"] is False and C.parse_scanned_intake_config(body) is None  # shipped off
+    cfg = C.parse_scanned_intake_config({**body, C.FLAG: True})
+    assert cfg is not None and (cfg.min_page_confidence, cfg.min_ink_coverage, cfg.max_low_word_share) == (80.0, 0.90, 0.10)
+    assert (cfg.garbled_max_odd_token_share, cfg.garbled_min_chars, cfg.dpi, cfg.languages) == (0.10, 120, 300, "eng")

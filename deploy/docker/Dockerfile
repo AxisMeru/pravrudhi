@@ -18,7 +18,7 @@ FROM python:3.13-slim
 
 ARG PRAVRUDHI_VERSION
 RUN test -n "$PRAVRUDHI_VERSION" || (echo "PRAVRUDHI_VERSION is required" >&2 && exit 1)
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates > /dev/null \
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl ca-certificates tesseract-ocr tesseract-ocr-eng > /dev/null \
     && rm -rf /var/lib/apt/lists/*
 
 # The two wheels every AxisMeru/pravrudhi release publishes. The kernel's own version is read from the release
@@ -48,7 +48,7 @@ RUN --mount=type=secret,id=github_token set -eu; \
     engine="$(printf '%s' "$data" | grep -o '"browser_download_url": *"[^"]*pravrudhi-[0-9][^"]*\.whl"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"; \
     [ -n "$kernel" ] || { echo "FATAL: no pravrudhi_kernel wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
     [ -n "$engine" ] || { echo "FATAL: no pravrudhi wheel in release v${PRAVRUDHI_VERSION} (assets not published yet?)" >&2; exit 1; }; \
-    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist] @ $engine"; \
+    pip install --no-cache-dir --quiet "$kernel" "pravrudhi[assist,scanned] @ $engine"; \
     command -v pravrudhi >/dev/null || { echo "FATAL: pravrudhi not on PATH after install" >&2; exit 1; }
 
 # prabhasa-nyaya's compiled Lean `score` binary (2026-09-23: found missing from every prior image --

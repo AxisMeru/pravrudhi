@@ -132,3 +132,19 @@ wf_a7_matter_hearing_pack: true
 wf_a8_synopsis_list_of_dates: false
 # A4 HELD OFF (19 Oct, Track B's rerun: no draft refusal for sexual-offence/minor/trafficking wordings without a declared tag or section; Track C fix pending). True only with the fix merged and Track A's A4 gate re-run on that tree.
 wf_a4_bail_drafting: false
+# #1015 scanned and garbled-page intake (OFF; the route wiring is a later PR). Calibrated by Track A on real Punjab and Haryana orders
+# (record OCR_FLOOR_AND_GARBLED_RECORD v3 fe4253e57206; pinned tesseract 5.5.3, 300 dpi gray, --psm 3 tsv, English only): provisional,
+# born-digital court PDFs with broken text layers, NOT partner phone photos. EVERY ocr_* key is required when the flag is true.
+wf_c1_scanned_intake: false
+ocr_min_page_confidence: 80
+ocr_min_ink_coverage: 0.90
+ocr_max_low_word_share: 0.10
+ocr_low_word_confidence: 50
+ocr_garbled_min_chars: 120
+ocr_garbled_max_odd_token_share: 0.10
+ocr_garbled_min_letter_share: 0.5
+ocr_agreement_min_similarity: 0.80
+ocr_max_pages: 60
+ocr_page_timeout_s: 30
+ocr_dpi: 300
+ocr_languages: eng
