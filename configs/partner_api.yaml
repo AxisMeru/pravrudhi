@@ -136,10 +136,10 @@ wf_a7_matter_hearing_pack: true
 # restart, because the packaged config is authoritative. A8 also needs A2 on and a store location (409 store_off / 503 store_unavailable otherwise).
 wf_a8_synopsis_list_of_dates: true
 wf_a4_bail_drafting: true
-# #1015 scanned and garbled-page intake (OFF; the route wiring is a later PR). Calibrated by Track A on real Punjab and Haryana orders
+# #1015 scanned and garbled-page intake (the route is wired in the A2 documents route, 0.6.25). Calibrated by Track A on real Punjab and Haryana orders
 # (record OCR_FLOOR_AND_GARBLED_RECORD v3 fe4253e57206; pinned tesseract 5.5.3 then recalibrated on 5.5.0, 300 dpi gray, --psm 3 tsv, English only): provisional,
 # born-digital court PDFs with broken text layers, NOT partner phone photos. EVERY ocr_* key is required when the flag is true.
-wf_c1_scanned_intake: false
+wf_c1_scanned_intake: true
 ocr_min_page_confidence: 80
 ocr_min_ink_coverage: 0.90
 ocr_max_low_word_share: 0.10
@@ -150,7 +150,10 @@ ocr_garbled_min_letter_share: 0.5
 ocr_agreement_min_similarity: 0.80
 ocr_max_pages: 60
 ocr_page_timeout_s: 30
-ocr_document_deadline_s: 120
+# Production value 60 s, not the calibration run's 120 s: a request reaches the engine through a Cloudflare tunnel whose edge answers 524 after about 100 s,
+# and the PDF text-layer pass (up to 30 s) runs before this deadline starts, so 30 + 60 stays under the edge limit. Pages not read in time are
+# reported as not read, never guessed.
+ocr_document_deadline_s: 60
 ocr_dpi: 300
 # The calibrated engine: scanned intake uses no other tesseract build or English data. The engine image must carry exactly this build, or
 # these two values change together with a new calibration. Recalibrated on the engine image's own tesseract (Debian 5.5.0, 20 Oct): the same

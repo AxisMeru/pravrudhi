@@ -30,13 +30,13 @@ def _packaged() -> dict[str, object]:
     return body
 
 
-def test_the_packaged_pins_are_the_ones_the_engine_image_carries_and_the_flag_stays_off() -> None:
+def test_the_packaged_pins_are_the_ones_the_engine_image_carries_and_the_flag_is_on() -> None:
     body = _packaged()
     assert body["ocr_tesseract_version"] == IMAGE_TESSERACT_VERSION
     assert body["ocr_eng_traineddata_sha256"] == IMAGE_ENG_SHA256
-    assert body[C.FLAG] is False  # this change prepares the switch-on, it does not make it
-    assert C.parse_scanned_intake_config(body) is None  # flag off: nothing is read or served
-    cfg = C.parse_scanned_intake_config({**body, C.FLAG: True})  # with the flag forced on in a test, every packaged key parses
+    assert body[C.FLAG] is True  # the switch-on change (draft until Lead-2's go)
+    assert C.parse_scanned_intake_config({**body, C.FLAG: False}) is None  # the kill: the key false reads and serves nothing
+    cfg = C.parse_scanned_intake_config(body)  # every packaged key parses
     assert cfg is not None and cfg.tesseract_version == IMAGE_TESSERACT_VERSION and cfg.eng_traineddata_sha256 == IMAGE_ENG_SHA256
 
 
