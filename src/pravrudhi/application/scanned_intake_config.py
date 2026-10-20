@@ -32,6 +32,7 @@ class ScannedIntakeConfig:
     agreement_min_similarity: float  # OCR text must differ from the layer by more than this (1 - similarity) to replace it
     max_pages: int  # pages OCR'd per document
     page_timeout_s: float
+    document_deadline_s: float  # all OCR pages of ONE document together (one request holds a shared A2 slot)
     dpi: int
     languages: str = "eng"
 
@@ -48,6 +49,7 @@ _KEYS: dict[str, tuple[str, type, float, float]] = {
     "ocr_agreement_min_similarity": ("agreement_min_similarity", float, 0.0, 1.0),
     "ocr_max_pages": ("max_pages", int, 1, 400),
     "ocr_page_timeout_s": ("page_timeout_s", float, 1.0, 300.0),
+    "ocr_document_deadline_s": ("document_deadline_s", float, 1.0, 900.0),
     "ocr_dpi": ("dpi", int, 72, 600),
 }
 

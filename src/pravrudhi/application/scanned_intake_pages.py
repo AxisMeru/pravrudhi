@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pravrudhi.application import scanned_intake_engine as E
 from pravrudhi.application import scanned_intake_strings as S
@@ -59,6 +59,7 @@ def process_pages(
 ) -> list[PageResult]:
     out: list[PageResult] = []
     ocr_done = 0
+    started = clock()  # the document deadline covers every OCR page together
     for i, layer in enumerate(layers, 1):
         blank = not layer.strip()
         flagged = (not blank) and E.layer_is_garbled(layer, cfg)
@@ -71,8 +72,12 @@ def process_pages(
         if ocr_done >= cfg.max_pages:
             out.append(_unreadable(i, "page_limit"))  # over the per-document OCR page cap: refused, never tried, not guessed
             continue
+        remaining = cfg.document_deadline_s - (clock() - started)
+        if remaining <= 0:
+            out.append(_unreadable(i, "document_time"))  # the paper's time is spent: never tried, not guessed
+            continue
         ocr_done += 1
-        res = _ocr_page(i, cfg, render, runner, clock)
+        res = _ocr_page(i, replace(cfg, page_timeout_s=min(cfg.page_timeout_s, remaining)), render, runner, clock)
         if flagged and res.source == "ocr" and not E.ocr_replaces_layer(layer, res.text, cfg):
             out.append(PageResult(i, "text_layer", layer))  # OCR agrees with the layer: it was not really garbled
         elif flagged and res.source == "ocr":

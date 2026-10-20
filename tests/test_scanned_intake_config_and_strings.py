@@ -13,6 +13,7 @@ GOOD = {
     "wf_c1_scanned_intake": True, "ocr_min_page_confidence": 80, "ocr_min_ink_coverage": 0.90, "ocr_max_low_word_share": 0.10,
     "ocr_low_word_confidence": 50, "ocr_garbled_min_chars": 120, "ocr_garbled_max_odd_token_share": 0.15,
     "ocr_garbled_min_letter_share": 0.5, "ocr_agreement_min_similarity": 0.80, "ocr_max_pages": 60, "ocr_page_timeout_s": 30,
+    "ocr_document_deadline_s": 120,
     "ocr_dpi": 300,
 }  # fmt: skip
 

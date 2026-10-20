@@ -90,7 +90,7 @@ def test_a_timeout_the_page_cap_and_a_slow_page_are_unreadable_with_reason_timeo
     r2, run2 = make(tsv(GOOD_WORDS))
     capped = PG.process_pages(["", ""], replace(CFG, max_pages=1), r2, run2)
     assert [x.source for x in capped] == ["ocr", "unreadable"] and capped[1].reason == "page_limit"  # never tried: not "timeout"
-    ticks = iter([0.0, 100.0, 200.0])
+    ticks = iter([0.0, 0.0, 100.0, 200.0, 300.0])  # document start, page start, then past the deadline
     r3, run3 = make(tsv(GOOD_WORDS))
     assert (
         PG.process_pages([""], CFG, r3, run3, clock=lambda: next(ticks))[0].reason == "timeout"
@@ -140,3 +140,30 @@ def test_an_unreadable_last_page_is_kept_as_an_empty_page_in_a2_and_the_paper_is
         out = store.add_document("org:t", m, PG.assemble(results), "paper")
         assert out["pages_without_text"] == bad and out["indexed_complete"] is (not bad), pages
         assert store.list_documents("org:t", m)["documents"][0]["n_pages"] == len(pages)
+
+
+def test_the_document_deadline_stops_ocr_before_the_next_page_and_shortens_the_page_timeout():
+    t = {"now": 0.0}
+    seen: list[float] = []
+
+    def clock() -> float:
+        return t["now"]
+
+    def runner(_png: bytes, timeout_s: float) -> str:
+        seen.append(timeout_s)
+        t["now"] += 50.0  # each page takes 50 s
+        return tsv(GOOD_WORDS)
+
+    render, _ = make("")
+    cfg = replace(CFG, page_timeout_s=30.0, document_deadline_s=120.0)
+    out = PG.process_pages(["", "", "", ""], cfg, render, runner, clock=clock)
+    # 50 s per page is over the 30 s page timeout: each page is unreadable (the 120 s document deadline is not reached first)
+    assert [r.source for r in out] == ["unreadable"] * 4
+    assert seen[:2] == [30.0, 30.0]
+    t["now"] = 0.0
+    seen.clear()
+    quick = replace(cfg, page_timeout_s=60.0, document_deadline_s=100.0)
+    out2 = PG.process_pages(["", "", "", ""], quick, render, runner, clock=clock)
+    assert [r.source for r in out2] == ["ocr", "ocr", "unreadable", "unreadable"]
+    assert out2[2].reason == "document_time" and out2[3].reason == "document_time"
+    assert seen == [60.0, 50.0]  # the second page got what was left of the document deadline
