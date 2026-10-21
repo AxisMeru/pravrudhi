@@ -122,8 +122,11 @@ wf_b3_s138_checklist: true
 # the B3 package and the 17 Oct A2/A3/A5/S1/S3 pairs, and read the A4/A6/A7/A8 packages and results on 19 Oct. Only the boolean true turns a
 # workflow on; the kill for any one is its key false (or removed) in a new image or after a restart, because the packaged config is authoritative.
 wf_a2_span_index: true
-# Lists the caller's own matters (POST /api/v1/matter-spans/my-matters: matter id and paper count; read-only, own organisation only). Off until the app's list ships.
-wf_a2_list_matters: false
+# Lists the caller's own matters (POST /api/v1/matter-spans/my-matters: matter id and paper count; read-only, own organisation only; at most
+# matter_spans_max_list_matters (50) matters and matter_spans_list_budget_s (30) seconds per listing, with `truncated` true when cut). The app's
+# "Your matters" list is a separate build-time flag shipped in its own deploy. The kill is the key false (or removed) in a new image or after a
+# restart, because the packaged config is authoritative. The gate records and the production list + delete test are on the release pull request.
+wf_a2_list_matters: true
 wf_a3_chronology: true
 wf_a5_ingredient_agenda: true
 wf_s1_matter_citation_sweep: true
