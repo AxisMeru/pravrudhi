@@ -100,6 +100,8 @@ cold_start_wake_second: parallel
 cold_start_waker_url: ""
 cold_start_waker_secret_env: PRAVRUDHI_WAKER_SECRET
 cold_start_waker_timeout_s: 5
+cold_start_user_wakes_per_day: 6
+cold_start_failed_cooldown_s: 120
 
 # Async jobs (POST /api/v1/analyse-facts/jobs, then poll GET .../jobs/{job_id}). Jobs are in memory and are lost on a
 # restart. A finished job stays collectable for job_retention_s; one key may hold at most

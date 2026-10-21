@@ -34,6 +34,7 @@ def cfg(**kw: object) -> W.WakeConfig:
 def test_the_defaults_and_the_flag() -> None:
     c = cfg()
     assert (c.budget_s, c.poll_after_s, c.deadline_margin_s, c.waker_timeout_s) == (300.0, 5, 30.0, 5.0)
+    assert (c.user_wakes_per_day, c.failed_cooldown_s) == (6, 120.0)
     assert c.waker_secret_env == "PRAVRUDHI_WAKER_SECRET" and c.waker_url == GOOD["cold_start_waker_url"]
     for off in (None, {}, {"cold_start_wake": False}, {"cold_start_wake": "true"}, {"cold_start_wake": 1}, [], "x"):
         assert W.parse_cold_start_config(off) is None  # only the boolean true turns it on
@@ -45,6 +46,8 @@ def test_the_defaults_and_the_flag() -> None:
         {"cold_start_budget_s": 29}, {"cold_start_budget_s": 421}, {"cold_start_budget_s": True}, {"cold_start_budget_s": "300"},
         {"cold_start_poll_after_s": 0}, {"cold_start_poll_after_s": 61}, {"cold_start_deadline_margin_s": -1},
         {"cold_start_deadline_margin_s": 301}, {"cold_start_waker_timeout_s": 0}, {"cold_start_waker_timeout_s": 31},
+        {"cold_start_user_wakes_per_day": 0}, {"cold_start_user_wakes_per_day": 51}, {"cold_start_user_wakes_per_day": True},
+        {"cold_start_failed_cooldown_s": -1}, {"cold_start_failed_cooldown_s": 3601}, {"cold_start_failed_cooldown_s": "120"},
         {"cold_start_wake_second": "lazy"}, {"cold_start_wake_second": "both"},
         {"cold_start_waker_secret_env": "lower"}, {"cold_start_waker_secret_env": "A"}, {"cold_start_waker_secret_env": 5},
         {"cold_start_waker_url": ""}, {"cold_start_waker_url": None}, {"cold_start_waker_url": "http://waker.example.test/wake"},

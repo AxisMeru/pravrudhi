@@ -50,6 +50,8 @@ class WakeConfig:
     waker_url: str  # https://.../wake
     waker_secret_env: str  # the NAME of the env var holding the HMAC secret (secret by reference)
     waker_timeout_s: float
+    user_wakes_per_day: int = 6  # per verified user, failed wakes count too (R2 item 10)
+    failed_cooldown_s: float = 120.0  # after a failed wake the same user waits this long (no retry storm)
 
 
 _ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{2,63}")
@@ -75,7 +77,9 @@ def parse_cold_start_config(body: Any) -> WakeConfig | None:
     url = body.get("cold_start_waker_url", "")
     if budget is None or poll is None or margin is None or timeout is None:
         return None
-    if body.get("cold_start_wake_second", "parallel") != "parallel":
+    per_day = _num(body.get("cold_start_user_wakes_per_day", 6), 1, 50)
+    cooldown = _num(body.get("cold_start_failed_cooldown_s", 120), 0, 3600)
+    if per_day is None or cooldown is None or body.get("cold_start_wake_second", "parallel") != "parallel":
         return None
     if not isinstance(env, str) or not _ENV_NAME.fullmatch(env) or not isinstance(url, str):
         return None
@@ -87,7 +91,7 @@ def parse_cold_start_config(body: Any) -> WakeConfig | None:
         return None
     if parts.query or parts.fragment or parts.username:
         return None
-    return WakeConfig(budget, int(poll), margin, url, env, timeout)
+    return WakeConfig(budget, int(poll), margin, url, env, timeout, int(per_day), cooldown)
 
 
 class JudgeWake:
