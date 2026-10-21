@@ -651,11 +651,14 @@ class ObjectBackedMatterStore(MatterStore):
         ocr_pages: list[int] | None = None,
         *,
         ocr_layout: dict[int, dict[str, Any]] | None = None,
+        page_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._wrap():
             self._ready()
             with self._write(tenant, matter_id):
-                return super().add_document(tenant, matter_id, text, name, ocr_pages, ocr_layout=ocr_layout)
+                return super().add_document(
+                    tenant, matter_id, text, name, ocr_pages, ocr_layout=ocr_layout, page_rows=page_rows
+                )
 
     def delete_document(self, tenant: str, matter_id: str, doc_id: str) -> dict[str, Any]:
         with self._wrap():

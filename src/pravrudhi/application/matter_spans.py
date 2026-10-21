@@ -387,10 +387,12 @@ class MatterStore:
         ocr_pages: list[int] | None = None,
         *,
         ocr_layout: dict[int, dict[str, Any]] | None = None,
+        page_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """`ocr_pages`: the 1-based pages whose text was read from a page image (scanned intake). Kept with the document so the
         tools that quote its passages can say so; None or empty (every flag-off path) stores nothing extra. `ocr_layout` (page ->
-        word boxes, from scanned intake) gives each passage on such a page its crop box; stored only with `ocr_pages`."""
+        word boxes, from scanned intake) gives each passage on such a page its crop box; `page_rows` is the per-page result list
+        the ingest answered with, shown on the paper's listing. Both are stored only with `ocr_pages`."""
         if not text.strip():
             raise MatterError("no_text", "The document has no text to index (a scanned PDF has no text layer)")
         if len(text) > self.cfg.max_chars:
@@ -405,12 +407,13 @@ class MatterStore:
         if len(spans) > self.cfg.max_spans_per_doc:
             raise MatterError("too_many_spans", f"A document may hold at most {self.cfg.max_spans_per_doc} passages", 413)
         with self._tenant_lock(tenant):
-            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans, ocr_pages, ocr_layout)
+            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans, ocr_pages, ocr_layout, page_rows)
 
     def _ingest(
         self, tenant: str, matter_id: str, text: str, name: str, pages: list[str], without_text: list[int],
         spans: list[tuple[int, int, int]], ocr_pages: list[int] | None = None,
         ocr_layout: dict[int, dict[str, Any]] | None = None,
+        page_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """The write, under the tenant lock: the tenant-bytes check and the bytes it spends are one step, so two ingests of one
         tenant cannot both pass the cap."""
@@ -467,6 +470,9 @@ class MatterStore:
                     _ensure_ocr_column(conn)  # the column appears only when a scanned page is first stored
                     pages_json = json.dumps(sorted(set(ocr_pages)))
                     conn.execute("UPDATE document SET ocr_pages = ? WHERE doc_id = ?", (pages_json, doc_id))
+                    if page_rows:
+                        _ensure_column(conn, "document", "pages_meta")
+                        conn.execute("UPDATE document SET pages_meta = ? WHERE doc_id = ?", (json.dumps(page_rows), doc_id))
                     if boxes:
                         _ensure_column(conn, "span", "ocr_box")
                         conn.executemany("UPDATE span SET ocr_box = ? WHERE id = ?", [(b, i) for i, b in boxes])
@@ -663,6 +669,21 @@ def _crop_for(lo: int, hi: int, layout: dict[str, Any]) -> dict[str, Any] | None
             "ocr_dpi": layout.get("dpi")}  # fmt: skip
 
 
+def _marked_page_rows(rows: list[dict[str, Any]], marker: str) -> list[dict[str, Any]]:
+    """The stored per-page results with R1's rule applied: a page read from an image says so (`from_ocr` true and the one marker
+    line), a text-layer page says false and carries no marker; an unreadable page has neither (it has no text)."""
+    out = []
+    for r in rows:
+        row = dict(r)
+        if row.get("source") == "ocr":
+            row["from_ocr"] = True
+            row["ocr_marker"] = marker
+        elif row.get("source") == "text_layer":
+            row["from_ocr"] = False
+        out.append(row)
+    return out
+
+
 def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})"))
 
@@ -686,6 +707,11 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         out.append({"doc_id": r[0], "name": r[1], "n_pages": r[2], "n_spans": r[3], "n_chars": r[4], "ingest_done": bool(r[5]),
                     "pages_without_text": unread, "indexed_complete": bool(r[5]) and not unread})
     ocr = _ocr_pages_by_doc(conn)
+    meta = (
+        {r[0]: json.loads(r[1]) for r in conn.execute("SELECT doc_id, pages_meta FROM document WHERE pages_meta IS NOT NULL")}
+        if _has_column(conn, "document", "pages_meta")
+        else {}
+    )
     if ocr:  # only a matter that holds a page read from an image says which papers did; any other matter is unchanged
         from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
 
@@ -693,6 +719,8 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             d["from_ocr"] = d["doc_id"] in ocr
             if d["from_ocr"]:
                 d["ocr_pages"] = ocr[d["doc_id"]]
+                if meta.get(d["doc_id"]):
+                    d["pages"] = _marked_page_rows(meta[d["doc_id"]], OCR_MARKER_LINE)
                 d["ocr_marker"] = OCR_MARKER_LINE  # R1: the same words wherever from_ocr is true
     return out
 

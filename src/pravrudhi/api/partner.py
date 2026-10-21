@@ -2696,7 +2696,7 @@ def build_partner_router(
                         ocr = [int(p["page"]) for p in extra.get("pages", []) if p.get("source") == "ocr"]  # kept: from_ocr
                         stored = store.add_document(
                             tenant, req.matter_id, text, req.name, ocr or None,
-                            ocr_layout=layout or None,
+                            ocr_layout=layout or None, page_rows=extra.get("pages") if ocr else None,
                         )  # fmt: skip
                         return {**stored, **extra}
                     text = _a2.read_document(req, _a2_cfg_eff)
