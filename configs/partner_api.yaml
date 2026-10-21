@@ -88,6 +88,19 @@ judge_seen_ttl_s: 600
 judge_warm_grace_s: 240
 judge_warm_retry_s: 30
 
+# #1038 cold start with progress (OFF; nothing reads these keys while cold_start_wake is false). A signed-in team user on the
+# PRAVRUDHI_WAKERS allowlist may ask the waker service (a separate service holding the only RunPod write key) to wake a parked
+# judge; the screening then runs as an async job with a `wake` status block. Any bad value keeps it off. The waker URL must be
+# https and end in exactly /wake; the HMAC secret is read from the env var NAMED below (secret by reference).
+cold_start_wake: false
+cold_start_budget_s: 300
+cold_start_poll_after_s: 5
+cold_start_deadline_margin_s: 30
+cold_start_wake_second: parallel
+cold_start_waker_url: ""
+cold_start_waker_secret_env: PRAVRUDHI_WAKER_SECRET
+cold_start_waker_timeout_s: 5
+
 # Async jobs (POST /api/v1/analyse-facts/jobs, then poll GET .../jobs/{job_id}). Jobs are in memory and are lost on a
 # restart. A finished job stays collectable for job_retention_s; one key may hold at most
 # job_max_unfinished_per_key unfinished jobs (429 beyond that). Polling is not rate limited.
