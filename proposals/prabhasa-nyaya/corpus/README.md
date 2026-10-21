@@ -64,19 +64,21 @@ actually held are **not confirmed**: the Supreme Court entry below is the plan, 
 where that copy came from.
 
 - **India Code** (indiacode.nic.in) — official repository of Central Acts, published by
-  the Legislative Department, Ministry of Law and Justice. Public domain / government
-  work; used for statute text.
+  the Legislative Department, Ministry of Law and Justice. Used for statute text.
+  Licence: not confirmed.
 - **Supreme Court of India** judgments (main.sci.gov.in / judgments.ecourts.gov.in) — the
   planned source is the official judgment archive. Source of the copy actually held: not
   confirmed. Licence: not confirmed.
 - **High Court** judgment portals (per-state eCourts endpoints) — the planned source is the official archive per jurisdiction. The High Court data we actually used came from the Indian High Court Judgments data set on AWS Open Data (Dattam Labs, CC BY 4.0, sourced from the eCourts judgments portal).
 - **Law Commission of India** (lawcommissionofindia.nic.in) — official reports archive.
+  Licence: not confirmed.
 - **Indian Kanoon** (indiakanoon.org) — planned only as a *fallback fetch mirror* when the
   official portal's document is unreachable or malformed, never as the provenance-of-record;
   a document's manifest entry would still name the official court/act as the authority and
-  record Indian Kanoon only as `mirror_used: true`. Indian Kanoon's terms restrict bulk
-  scraping — see `config/sources.yaml: indian_kanoon.rate_limit_notice` — so this source is
-  capped and rate-limited, and the recipe must not depend on it for coverage.
+  record Indian Kanoon only as `mirror_used: true`. Whether Indian Kanoon's terms allow bulk
+  fetching is not confirmed (see `config/sources.yaml: indian_kanoon.rate_limit_notice`), so
+  this source is capped and rate-limited, and the recipe must not depend on it for coverage.
+  Licence: not confirmed.
 
 Every fetch writes one manifest row (`scripts/build_manifest.py`) with: `source_id`,
 `origin_url`, `fetch_timestamp_utc`, `sha256` of the raw fetched bytes, `court_or_authority`,
