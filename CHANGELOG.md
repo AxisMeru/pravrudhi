@@ -3,6 +3,33 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.27 (2026-10-21)
+
+PATCH release on 0.6.26. Nothing is switched on, and no request answers differently from 0.6.26.
+
+### Changed
+
+- **The caller's own matters can be listed, behind a new key that is off.** A new route, `POST /api/v1/matter-spans/my-matters`, returns the caller's matters as a matter id and a paper count each, with no names and no text. The key `wf_a2_list_matters` is `false` in the shipped configuration, and the route does not exist while it is false. The list is capped (see Configuration) and the answer gains `truncated`, true when the list was cut.
+- **Scanned-page rows can say they were read from a page image.** For a matter that holds a page read from an image, these answers gain `from_ocr`, `ocr_marker` (the line "Read from a scanned page: check this against the paper.", present only when `from_ocr` is true), `source` ("ocr" or "text_layer", paper passages only) and `ocr_pages` (paper entries only): the paper list and passages, the chronology, cheque-case and hearing-pack rows: the list of dates and its dates, the agenda pointers, the citation sweep's rows, occurrences, cut rows and distinct citations, and the tabular route's mentions, shown values and not-read rows. No field is renamed or removed, and a matter with no scanned page returns exactly what 0.6.26 returned. This has no effect today, because no page is stored as read from an image while scanned intake is off.
+- **The partner quickstart lists the checkable contract ids.** It names the 37 ids and says an id outside the list is refused with a 422 (unknown contract) before any fact is judged; the request still counts toward the rate limit. A test keeps the list equal to the registry's.
+
+### Configuration
+
+- Two new optional keys, with nothing to set: `matter_spans_max_list_matters` (default 50, accepted 1 to 1000), the most matters one listing opens or pulls, and `matter_spans_list_budget_s` (default 30, accepted 1 to 90 whole seconds), the time one listing may spend opening matters. A value outside its range keeps the matter span index off, as for the other `matter_spans_*` caps.
+- No new environment variable and no new secret. This is a new image (a code change), not a configuration-only release.
+
+### Not switched on
+
+- **Scanned and garbled-page intake stays off.** `wf_c1_scanned_intake` is still `false`; an image sent to the matter route is still refused with 415 `image_not_enabled`, and no page is rendered or read.
+- **The matter listing stays off** (`wf_a2_list_matters` is `false`). The section look-up key `wf_b1_section_lookup` is not set and its route does not exist; unchanged.
+- `ocr_document_deadline_s` stays 120 in the shipped configuration.
+
+### Notes
+
+- **Storage: one add-only change.** A matter file gets a new column, `document.ocr_pages` (text, default `[]`), added the first time a page read from an image is stored, inside that write. New matter files are created as before, and a matter that never holds a scanned page never gets the column. While scanned intake is off, nothing writes it. Deleting a paper or a matter removes the column's contents with the row. An older release (0.6.26) opens, reads and writes a matter file that has the column without error, and a paper added by the older release reads as having no scanned pages (tested on the 0.6.26 container image with the folder store; the object store was not run separately).
+- Switching scanned intake on later is a configuration-only release once the checks tracked in the project issue #575 pass. Before it, the marker must be shown beside every row that has it.
+- Docs and tests only, no caller effect: a note that the object-backed store lists by matter id, not by age (#600); a test that deleting a scanned paper leaves no page text in the store (#596); an internal metadata string in the section look-up's text file reworded, which no route returns (#594).
+
 ## 0.6.26 (2026-10-20)
 
 PATCH release on 0.6.25. Nothing is switched on, and no request answers differently from 0.6.25.
