@@ -81,6 +81,13 @@ class JobStore:
             j = self._jobs.get(job_id)
             return replace(j) if j is not None and j.key_id == key_id else None
 
+    def get_any(self, job_id: str) -> Job | None:
+        """The job regardless of owner (housekeeping only: never returned to a caller)."""
+        with self._lock:
+            self._purge()
+            j = self._jobs.get(job_id)
+            return replace(j) if j is not None else None
+
     def count(self) -> int:
         with self._lock:
             self._purge()
