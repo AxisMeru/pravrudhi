@@ -163,7 +163,7 @@ def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any
                 yield from walk(r.original_router.routes)
 
     key_listed = {(m, p) for m, p, _b in KEY_ROUTES} | {("GET", "/api/v1/orgs/acme/usage")}
-    # ON in the packaged config (B3 19 Oct 2026; A2-A8, S1, S3 with 0.6.23): each registers its own gate routes
+    # ON in the packaged config (B3 19 Oct 2026; A2-A8, S1, S3 0.6.23; B1 with its switch-on): each registers its own gate routes
     key_listed |= {
         ("POST", "/api/v1/s138-checklist"),
         ("POST", "/api/v1/chronology"),
@@ -175,6 +175,7 @@ def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any
         ("POST", "/api/v1/matter-hearing-pack"),
         ("POST", "/api/v1/synopsis-dates"),
         ("POST", "/api/v1/bail-draft"),
+        ("POST", "/api/v1/section-lookup"),  # B1, ON with the switch-on release
         ("POST", "/api/v1/matter-spans/delete"),
         ("POST", "/api/v1/matter-spans/documents"),
         ("POST", "/api/v1/matter-spans/list"),
