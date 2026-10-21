@@ -28,7 +28,7 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets" / "section_lookup"
 NYAYA_DIR = Path(__file__).resolve().parent.parent / "assets" / "nyaya"
 #: sha256 of the two shipped files: a changed file fails closed (503) until the pin and the tests are updated on purpose
 PIN_MAPPING = "ec2e7e7efd35bf5526b1c3b6209e1a7cbd4d0a5a7e8c100dc8a95dde06517cad"
-PIN_IPC_BODIES = "e5ffe30e48f6f2b158240d75469a36981ed77c4202b502435c74fc03418df431"
+PIN_IPC_BODIES = "370dff58ae8f3ac6a50f5215acc8e4113d08c37b4e46d39602a28b05112ce27c"
 REQUIRED_STRINGS = frozenset(
     {
         "b1_source",
