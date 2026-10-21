@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """#1038 PR-3: the cold-start routes, end to end through the partner router with a fake RunPod health, a scripted agent and the
 test acting as the box-side waker (signed polls and deliveries). CPU only, no network. Invented ids."""
 
