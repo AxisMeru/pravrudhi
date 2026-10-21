@@ -1,9 +1,11 @@
 """Apply the fixed `ipc_pdf_parse` to the held MHA PDF text (`pdftotext -layout` of the PDF whose sha256 is in the asset's
 `source`) and update `ipc_bodies_v1.json` for exactly these ids: the sections the old parser lost to a swallowed heading or a
 leading footnote mark (17, 63, 139, 158, 213, 227, 481, 490, and 479, 364A) and the entries whose text had swallowed the NEXT
-section (14, 57, 62, 138A, 157, 212, 226, 478, 480, 364). Every other entry is left byte-identical.
+section (14, 57, 62, 138A, 157, 212, 226, 478, 480, 364), and the nine whose text kept a stray footnote digit or an
+unmatched bracket (4, 42, 121, 124A, 131, 193, 410, 482, 483). Every other entry is left byte-identical.
 Usage: python scripts/ipc_restore_sections.py LAYOUT_TXT ASSET_JSON"""
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -12,10 +14,13 @@ import ipc_pdf_parse as P  # noqa: E402
 
 RESTORE = ("17", "63", "139", "158", "213", "227", "481", "490", "479", "364A")  # the last two: found by the same fix
 FIXED = ("14", "57", "62", "138A", "157", "212", "226", "478", "480", "364")
+PAGE_BREAK_TO_SPACE = ("212", "213", "481")  # a page break inside a sentence left a form feed in the text: one space
+CLEANED = ("4", "42", "121", "124A", "131", "193", "410", "482", "483")  # a stray footnote digit or an unmatched bracket
 SHIPPED_NOW = {"IPC/Section " + s for s in ("17", "139", "213", "227", "490")}  # were listed as unreliable; now read from the PDF
 PARSE_LIMITS = (
     "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could "
-    "not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers"
+    "not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers; misprints in "
+    "the PDF are kept as printed: 'appreension' (Section 364A), 'Preach' (title of Section 490), 'imprinsonment' (Section 57)"
 )
 
 
@@ -37,10 +42,12 @@ def main(layout: str, asset: str) -> None:
     docs = []
     for sid, body in parsed.items():
         key = "IPC/Section " + sid
-        if key in old and sid not in FIXED + RESTORE:
+        if key in old and sid not in FIXED + RESTORE + CLEANED:
             docs.append(old[key])
-        elif sid in FIXED + RESTORE:
+        elif sid in FIXED + RESTORE + CLEANED:
             prev = old.get(key, {})
+            if sid in PAGE_BREAK_TO_SPACE:
+                body = {**body, "text": re.sub(r"\s*\x0c\s*", " ", body["text"])}
             docs.append({"id": key, "act": "Indian Penal Code, 1860", "section": "Section " + sid, "title": body["title"],
                          "text": body["text"], "pdf_page": prev.get("pdf_page", pages[sid])})  # fmt: skip
     kept = [k for k in old if k not in {d["id"] for d in docs}]
