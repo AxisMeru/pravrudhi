@@ -10,7 +10,7 @@
   "pdf_created": "2007-01-17 (as printed in the PDF metadata)",
   "held_by": "Track C, trackc-seat3/ipc/ic/",
   "text_extraction": "pdftotext -layout; Track C parse_ipc_pdf.py (section start, footnote strip, amendment-marker strip) + a second pass for sections the parser missed; the printed amendment markers 'N*[...]' and footnotes are REMOVED from text (words inside brackets kept)",
-  "parse_limits": "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers",
+  "parse_limits": "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers; the printed text is kept as printed, including misprints such as 'appreension' (Section 364A), 'Preach' (title of Section 490) and 'imprinsonment' (Section 57)",
   "file_date": "January 2007 (PDF metadata 17 Jan 2007)",
   "last_amendment_shown": "Act 42 of 1997 (footnote in the text); no later year appears in the extracted text",
   "marks": "Amendment marks and footnotes are left out of this text."
@@ -49,7 +49,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 4",
    "title": "Extension of Code to extra-territorial offences",
-   "text": "The provisions of this Code apply also to any offence committed by--\n(1) any citizen of India in any place without and beyond India;\n(2) any person on any ship or aircraft registered in India wherever it may be.\nExplanation.\nExplanation.--In this section the word \"offence\" includes every act committed outside India which, if committed in India would \fbe punishable under this Code.\nIllustration\n3A, who is a citizen of India, commits a murder in Uganda. He can be tried and convicted of murder in any place in India in which he may be found.\n* * * *",
+   "text": "The provisions of this Code apply also to any offence committed by--\n(1) any citizen of India in any place without and beyond India;\n(2) any person on any ship or aircraft registered in India wherever it may be.\nExplanation.\nExplanation.--In this section the word \"offence\" includes every act committed outside India which, if committed in India would \fbe punishable under this Code.\nIllustration\nA, who is a citizen of India, commits a murder in Uganda. He can be tried and convicted of murder in any place in India in which he may be found.\n* * * *",
    "pdf_page": 2
   },
   {
@@ -329,7 +329,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 42",
    "title": "\"Local law\"",
-   "text": "A \"local law\" is a law applicable only to a particular part of [ India].\n43.\n\"Illegal\".\n\"Legally bound to do\".",
+   "text": "A \"local law\" is a law applicable only to a particular part of India.\n43.\n\"Illegal\".\n\"Legally bound to do\".",
    "pdf_page": 15
   },
   {
@@ -977,7 +977,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 121",
    "title": "Waging, or attempting to wage war, or abetting waging of war, against the Government of India",
-   "text": "Whoever wages war against the Government of India, or attempts to wage such war, or abets the waging of such war, shall be punished with death, or imprisonment for life and shall also be liable to fine.\nIllustration.\n7A joins an insurrection against the Government of India. A has committed the offence defined in this section.\n* * * *",
+   "text": "Whoever wages war against the Government of India, or attempts to wage such war, or abets the waging of such war, shall be punished with death, or imprisonment for life and shall also be liable to fine.\nIllustration.\nA joins an insurrection against the Government of India. A has committed the offence defined in this section.\n* * * *",
    "pdf_page": 48
   },
   {
@@ -1009,7 +1009,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 124A",
    "title": "Sedition",
-   "text": "Whoever by words, either spoken or written, or by signs, or by visible representation, or otherwise, brings or attempts to bring into hatred or contempt, or excites or attempts to excite disaffection towards, 2the Government established by law in India, a 4shall be punished with imprisonment for life, to which fine may be added, or with imprisonment which may extend to three years, to which fine may be added, or with fine.\nExplanation 1.-The expression \"disaffection\" includes disloyalty and all feelings of enmity.\nExplanation 2.-Comments expressing disapprobation of the measures of the Government with a view to obtain their alteration by lawful means, without exciting or attempting to excite hatred, contempt or disaffection, do not constitute an offence under this section.\nExplanation 3.-Comments expressing disapprobation of the administrative or other action of the Government without exciting or \fattempting to excite hatred, contempt or disaffection, do not constitute an offence under this section.",
+   "text": "Whoever by words, either spoken or written, or by signs, or by visible representation, or otherwise, brings or attempts to bring into hatred or contempt, or excites or attempts to excite disaffection towards, the Government established by law in India, a shall be punished with imprisonment for life, to which fine may be added, or with imprisonment which may extend to three years, to which fine may be added, or with fine.\nExplanation 1.-The expression \"disaffection\" includes disloyalty and all feelings of enmity.\nExplanation 2.-Comments expressing disapprobation of the measures of the Government with a view to obtain their alteration by lawful means, without exciting or attempting to excite hatred, contempt or disaffection, do not constitute an offence under this section.\nExplanation 3.-Comments expressing disapprobation of the administrative or other action of the Government without exciting or \fattempting to excite hatred, contempt or disaffection, do not constitute an offence under this section.",
    "pdf_page": 50
   },
   {
@@ -1065,7 +1065,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 131",
    "title": "Abetting mutiny, or attempting to seduce a soldier, sailor or airman from his duty",
-   "text": "Whoever abets the committing of mutiny by an officer, soldier, sailor or airman, in the Army, Navy or Air Force of the Government of India or attempts to seduce any such officer, soldier, sailor or airman from his allegiance or his duty, shall be punished with imprisonment for life, or with imprisonment of either description for a term which may extend to ten years, and shall also be liable to fine.\nExplanation.-In this section the words \"officer\", [\"soldier\", \"sailor\" and \"airman\"] include any person subject to the Army Act, the Army Act, 1950 (46 of 1950), the Naval Discipline Act, 12the Indian Navy (Discipline) Act,1934 (34 of 1934) the Air Force Act or the Air Force Act, 1950 (45 of 1950), as the case may be.",
+   "text": "Whoever abets the committing of mutiny by an officer, soldier, sailor or airman, in the Army, Navy or Air Force of the Government of India or attempts to seduce any such officer, soldier, sailor or airman from his allegiance or his duty, shall be punished with imprisonment for life, or with imprisonment of either description for a term which may extend to ten years, and shall also be liable to fine.\nExplanation.-In this section the words \"officer\", \"soldier\", \"sailor\" and \"airman\" include any person subject to the Army Act, the Army Act, 1950 (46 of 1950), the Naval Discipline Act, the Indian Navy (Discipline) Act,1934 (34 of 1934) the Air Force Act or the Air Force Act, 1950 (45 of 1950), as the case may be.",
    "pdf_page": 53
   },
   {
@@ -1601,7 +1601,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 193",
    "title": "Punishment for false evidence",
-   "text": "Whoever intentionally gives false evidence in any of a judicial proceeding, or fabricates false evidence for the purpose of being used in any stage of a judicial proceeding, shall be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nand whoever intentionally gives or fabricates false evidence in any other case, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine.\nExplanation 1.-A trial before a Court-martial 1is a judicial proceeding.\nExplanation 2.-An investigation directed by law preliminary to a proceeding before a Court of Justice, is a stage of a judicial proceeding, though that investigation may not take place before a Court of Justice.\nIllustration\nA, in an enquiry before a Magistrate for the purpose of ascertaining whether Z ought to be committed for trial, makes on oath a statement which he knows to be false. As this enquiry is a stage of a judicial proceeding, A as given false evidence.\nExplanation 3.-An investigation directed by a Court of Justice according to law, and conducted under the authority of a Court of Justice, is a stage of a judicial proceeding, though that investigation may not take place before a Court of Justice.\nIllustration\nA, in an enquiry before an officer deputed by a Court of Justice to ascertain on the spot the boundaries of land, makes on oath a statement which he knows to be false. As this enquiry is a stage of a judicial proceeding, A has given false evidence.",
+   "text": "Whoever intentionally gives false evidence in any of a judicial proceeding, or fabricates false evidence for the purpose of being used in any stage of a judicial proceeding, shall be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nand whoever intentionally gives or fabricates false evidence in any other case, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine.\nExplanation 1.-A trial before a Court-martial is a judicial proceeding.\nExplanation 2.-An investigation directed by law preliminary to a proceeding before a Court of Justice, is a stage of a judicial proceeding, though that investigation may not take place before a Court of Justice.\nIllustration\nA, in an enquiry before a Magistrate for the purpose of ascertaining whether Z ought to be committed for trial, makes on oath a statement which he knows to be false. As this enquiry is a stage of a judicial proceeding, A as given false evidence.\nExplanation 3.-An investigation directed by a Court of Justice according to law, and conducted under the authority of a Court of Justice, is a stage of a judicial proceeding, though that investigation may not take place before a Court of Justice.\nIllustration\nA, in an enquiry before an officer deputed by a Court of Justice to ascertain on the spot the boundaries of land, makes on oath a statement which he knows to be false. As this enquiry is a stage of a judicial proceeding, A has given false evidence.",
    "pdf_page": 78
   },
   {
@@ -1753,7 +1753,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 212",
    "title": "Harbouring offender",
-   "text": "Whenever an offence has been committed, whoever harbours or conceals a person whom he knows or has reason to believe to be the offender, with the intention of screening him from legal punishment, \fif a capital offence;\nif a capital offence;--shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to five years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment which may extend to one year, and not to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one-fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.\n\"Offence\" in this section includes any act committed at any place out of India, which, if committed in India, would be punishable under any of the following sections, namely, 302, 304, 382, 392, 393, 394, 395, 396, 397, 398, 399, 402, 435, 436, 449, 450, 457, 458, 459 and 460; and every such act shall, for the purposes of this section, be deemed to be punishable as if the accused person had been guilty of it in India.\nException.-This provision shall not extend to any case in which the harbour or concealment is by the husband or wife of the offender.\nIllustration\nA, knowing that B has committed dacoity, knowingly conceals B in order to screen him from legal punishment. Here, as B is liable to imprisonment for life, A is liable to imprisonment of either description for a term not exceeding three years, and is also liable to fine.",
+   "text": "Whenever an offence has been committed, whoever harbours or conceals a person whom he knows or has reason to believe to be the offender, with the intention of screening him from legal punishment, if a capital offence;\nif a capital offence;--shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to five years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment which may extend to one year, and not to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one-fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.\n\"Offence\" in this section includes any act committed at any place out of India, which, if committed in India, would be punishable under any of the following sections, namely, 302, 304, 382, 392, 393, 394, 395, 396, 397, 398, 399, 402, 435, 436, 449, 450, 457, 458, 459 and 460; and every such act shall, for the purposes of this section, be deemed to be punishable as if the accused person had been guilty of it in India.\nException.-This provision shall not extend to any case in which the harbour or concealment is by the husband or wife of the offender.\nIllustration\nA, knowing that B has committed dacoity, knowingly conceals B in order to screen him from legal punishment. Here, as B is liable to imprisonment for life, A is liable to imprisonment of either description for a term not exceeding three years, and is also liable to fine.",
    "pdf_page": 85
   },
   {
@@ -1761,7 +1761,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 213",
    "title": "Taking gift, etc., to screen an offender from punishment",
-   "text": "Whoever accepts or attempts to obtain, or agrees to accept, any gratification for himself or any other person, or any restitution of property to himself or any other person, in consideration of his concealing an offence or of his screening any person from legal punishment for any \foffence, or of his not proceeding against any person for the purpose of bringing him to legal punishment,\nif a capital offence;\nif a capital offence;-shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment not extending to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.",
+   "text": "Whoever accepts or attempts to obtain, or agrees to accept, any gratification for himself or any other person, or any restitution of property to himself or any other person, in consideration of his concealing an offence or of his screening any person from legal punishment for any offence, or of his not proceeding against any person for the purpose of bringing him to legal punishment,\nif a capital offence;\nif a capital offence;-shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment not extending to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.",
    "pdf_page": 86
   },
   {
@@ -3465,7 +3465,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 410",
    "title": "Stolen property",
-   "text": "Property, the possession whereof has been transferred by theft, or by extortion, or by robbery, and property which has been criminally misappropriated or in respect of which 1criminal breach of trust has been committed, is designated as \"stolen property\", whether the transfer has been made, or the misappropriation or breach of trust has been committed, within or without India. But, if such property subsequently comes into the possession of a person legally entitled to the possession thereof, it then ceases to be stolen property.",
+   "text": "Property, the possession whereof has been transferred by theft, or by extortion, or by robbery, and property which has been criminally misappropriated or in respect of which criminal breach of trust has been committed, is designated as \"stolen property\", whether the transfer has been made, or the misappropriation or breach of trust has been committed, within or without India. But, if such property subsequently comes into the possession of a person legally entitled to the possession thereof, it then ceases to be stolen property.",
    "pdf_page": 166
   },
   {
@@ -4041,7 +4041,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 481",
    "title": "Using a false property mark",
-   "text": "Whoever marks any movable property or goods or any case, package or other receptacle containing movable property or goods, or uses any case, package or other receptacle having any mark thereon, in a manner reasonably calculated to cause it to be believed that the property or goods so marked, or any property or goods contained in any such receptacle so marked, belong to a person to whom they do not belong, is said to use a false \fproperty mark.",
+   "text": "Whoever marks any movable property or goods or any case, package or other receptacle containing movable property or goods, or uses any case, package or other receptacle having any mark thereon, in a manner reasonably calculated to cause it to be believed that the property or goods so marked, or any property or goods contained in any such receptacle so marked, belong to a person to whom they do not belong, is said to use a false property mark.",
    "pdf_page": 189
   },
   {
@@ -4049,7 +4049,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 482",
    "title": "Punishment for using a false property mark",
-   "text": "Whoever uses 1any false property mark shall, unless he proves that he acted without intent to defraud, be punished with imprisonment of either description for a term which may extend to one year, or with fine, or with both.",
+   "text": "Whoever uses any false property mark shall, unless he proves that he acted without intent to defraud, be punished with imprisonment of either description for a term which may extend to one year, or with fine, or with both.",
    "pdf_page": 190
   },
   {
@@ -4057,7 +4057,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 483",
    "title": "Counterfeiting a property mark used by another",
-   "text": "Whoever counterfeits any 3property mark used by any other person shall be punished with imprisonment of either description for a term which may extend to two years, or with fine, or with both.",
+   "text": "Whoever counterfeits any property mark used by any other person shall be punished with imprisonment of either description for a term which may extend to two years, or with fine, or with both.",
    "pdf_page": 190
   },
   {
