@@ -52,9 +52,7 @@ def may_wake(user: Any, *, auth_enabled: bool, wakers: frozenset[str]) -> bool:
 class WakeLimiter:
     """Per-user wake limits with an injected clock. Thread-safe. `begin` is the single entry: it answers whether this user may
     start a wake now ("new"), already has one running ("existing"), or is refused ("limit" or "cooldown"). The caller reports
-    the outcome with `end(user, ok=...)`; a failed wake counts toward the day cap and starts the cooldown."""Per-user wake limits with an injected clock. Thread-safe. `begin` is the single entry: it answers whether this user may start
-    a wake now ("new"), already has one running ("existing"), or is refused ("limit" or "cooldown"). The caller reports the
-    outcome with `end(user, ok=...)`; a failed wake counts toward the day cap and starts the cooldown."""
+    the outcome with `end(user, ok=...)`; a failed wake counts toward the day cap and starts the cooldown."""
 
     def __init__(self, per_day: int, failed_cooldown_s: float, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._per_day, self._cooldown, self._clock = per_day, failed_cooldown_s, clock
