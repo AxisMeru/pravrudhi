@@ -363,19 +363,30 @@ def tesseract_runner(binary: str | None = None, cfg: ScannedIntakeConfig | None 
     return run
 
 
-def words_to_text(words: list[Word]) -> str:
-    """The page text: words of a line joined by a space, lines by a newline, paragraphs by a blank line (A2 cuts spans there)."""
+def words_with_offsets(words: list[Word]) -> tuple[str, list[tuple[int, int, Word]]]:
+    """The page text and, for each word, its [start, end) character range in that text. Words of a line are joined by a space,
+    lines by a newline, paragraphs by a blank line (A2 cuts spans there)."""
     out: list[str] = []
+    spans: list[tuple[int, int, Word]] = []
     prev: tuple[int, int, int] | None = None
+    size = 0
     for w in words:
         key = (w.block, w.par, w.line)
         if prev is None:
-            out.append(w.text)
+            sep = ""
         elif key[:2] != prev[:2]:
-            out.append("\n\n" + w.text)
+            sep = "\n\n"
         elif key != prev:
-            out.append("\n" + w.text)
+            sep = "\n"
         else:
-            out.append(" " + w.text)
+            sep = " "
+        out.append(sep + w.text)
+        spans.append((size + len(sep), size + len(sep) + len(w.text), w))
+        size += len(sep) + len(w.text)
         prev = key
-    return "".join(out)
+    return "".join(out), spans
+
+
+def words_to_text(words: list[Word]) -> str:
+    """The page text (see `words_with_offsets`)."""
+    return words_with_offsets(words)[0]

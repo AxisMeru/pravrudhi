@@ -643,12 +643,19 @@ class ObjectBackedMatterStore(MatterStore):
             return super().check_quote(tenant, matter_id, doc_id, span_id, quote)
 
     def add_document(
-        self, tenant: str, matter_id: str, text: str, name: str, ocr_pages: list[int] | None = None
+        self,
+        tenant: str,
+        matter_id: str,
+        text: str,
+        name: str,
+        ocr_pages: list[int] | None = None,
+        *,
+        ocr_layout: dict[int, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._wrap():
             self._ready()
             with self._write(tenant, matter_id):
-                return super().add_document(tenant, matter_id, text, name, ocr_pages)
+                return super().add_document(tenant, matter_id, text, name, ocr_pages, ocr_layout=ocr_layout)
 
     def delete_document(self, tenant: str, matter_id: str, doc_id: str) -> dict[str, Any]:
         with self._wrap():

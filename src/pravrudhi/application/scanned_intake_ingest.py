@@ -38,8 +38,10 @@ def ingest_document(
     *,
     render: PG.Render | None = None,
     runner: E.Runner | None = None,
+    layout_out: dict[int, dict[str, object]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """(text for A2, extra response fields). Plain text passes through unchanged with no extra fields."""
+    """(text for A2, extra response fields). Plain text passes through unchanged with no extra fields. `layout_out`, when given,
+    is filled with the word boxes of every page read from an image (see `scanned_intake_pages.ocr_layout`)."""
     if req.image_base64 is not None:
         # While images are refused, HEIC gets the SAME answer as any other image: R1's HEIC line ("save it as JPEG or PNG")
         # would send the user to formats this build also refuses. It returns the day JPEG, PNG and TIFF are accepted.
@@ -70,4 +72,6 @@ def ingest_document(
             return render_pdf_page(data, i, dpi, timeout_s=max(0.001, min(scan.page_timeout_s, left)))
 
     results = PG.process_pages(layered.split("\f"), scan, render, runner or _lazy_runner(scan))
+    if layout_out is not None:
+        layout_out.update(PG.ocr_layout(results, scan.dpi))
     return PG.assemble(results), PG.summary(results)
