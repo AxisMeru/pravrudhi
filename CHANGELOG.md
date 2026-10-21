@@ -3,6 +3,30 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.29 (2026-10-21)
+
+PATCH release on 0.6.28. The matter listing is switched on in the shipped configuration. Nothing else is switched on.
+
+
+### Changed
+- **The matter listing is on.** `wf_a2_list_matters` is `true` in the shipped configuration, and a route, `POST /api/v1/matter-spans/my-matters`, now exists (it did not exist while the key was `false`). It takes no body and returns `{"matters": [{"matter_id": ..., "papers": N}, ...], "truncated": bool}` for the caller's own organisation: each matter's id and the number of fully indexed papers in it (only papers whose ingest finished are counted), with no names, no labels and no paper text. It is read-only, calls no model and stores nothing.
+
+- **Who sees what.** Any key of the same organisation sees the same list. A key of another organisation gets `{"matters": [], "truncated": false}`, the same as having no matters. A request without a valid key is refused with 401, as for the other matter routes.
+
+- **The list is bounded.** A listing returns at most a fixed number of matters and stops after a fixed time budget; `truncated` is `true` when the list was cut. The two limits (`matter_spans_max_list_matters`, `matter_spans_list_budget_s`) are unchanged from 0.6.27 and are not set in the shipped configuration, so their defaults apply. When a list is cut, the folder store lists the newest matters first; the object-backed store lists by matter id, which is a stable order but not an order by age.
+
+- The listing needs the matter span index (`wf_a2_span_index`), which is already on. Deleting is unchanged and does not depend on this key: `POST /api/v1/matter-spans/delete`.
+
+### Configuration
+- One key changes in the shipped configuration: `wf_a2_list_matters` goes from `false` to `true`. No code change, no new environment variable, no new secret, no new dependency, no schema change and no migration. This is a new image.
+
+### Not switched on
+- **Not in this release and still off:** scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`; an image is still refused), the OCR time-limit change (`ocr_document_deadline_s` stays 120), photo intake and the matter-tabular route.
+
+### Notes
+- **Turning it off:** deploy the 0.6.28 image: the route disappears again. Matters and papers already stored stay and stay deletable; nothing is converted, and the older image reads the same matter files.
+- The delete route was tested on a scratch store, not on the production volume; we did not examine what backups or snapshots hold.
+
 ## 0.6.28 (2026-10-21)
 
 PATCH release on 0.6.27. Section look-up is switched on in the shipped configuration, and the IPC section text it reads is restored and cleaned up. Nothing else is switched on.
