@@ -160,3 +160,5 @@ ocr_dpi: 300
 ocr_tesseract_version: "5.5.0"
 ocr_eng_traineddata_sha256: "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
 ocr_languages: eng
+# Photos (PNG, JPEG, TIFF) stay refused with 415 image_not_supported_yet until Lead-2 says; the decoder path is built behind this.
+ocr_images_enabled: false
