@@ -18,9 +18,10 @@ PAGE_BREAK_TO_SPACE = ("212", "213", "481")  # a page break inside a sentence le
 CLEANED = ("4", "42", "121", "124A", "131", "193", "410", "482", "483")  # a stray footnote digit or an unmatched bracket
 SHIPPED_NOW = {"IPC/Section " + s for s in ("17", "139", "213", "227", "490")}  # were listed as unreliable; now read from the PDF
 PARSE_LIMITS = (
-    "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could "
-    "not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers; misprints in "
-    "the PDF are kept as printed: 'appreension' (Section 364A), 'Preach' (title of Section 490), 'imprinsonment' (Section 57)"
+    "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; "
+    "sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); "
+    "page refs are PDF page numbers; the printed text is kept as printed, including misprints such as "
+    "'appreension' (Section 364A), 'Preach' (title of Section 490) and 'imprinsonment' (Section 57)"
 )
 
 
