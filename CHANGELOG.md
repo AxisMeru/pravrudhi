@@ -3,6 +3,27 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.28 (2026-10-21)
+
+PATCH release on 0.6.27. Section look-up is switched on in the shipped configuration, and the IPC section text it reads is restored and cleaned up. Nothing else is switched on.
+
+
+### Changed
+- **Section look-up is on.** `wf_b1_section_lookup` is `true` in the shipped configuration, and a new route, `POST /api/v1/section-lookup`, takes `{"code": "IPC" | "CrPC", "section": ...}`. It is read-only, calls no model and stores nothing. It answers `one_to_one`, `check_both`, `no_match` or `not_in_table`. Its two data files are pinned by sha256; if either does not match, the route answers 503 `lookup_unavailable` instead of an answer.
+
+- **What is held and what is not.** For an old IPC section the answer shows the IPC text we hold, read from one Ministry of Home Affairs PDF dated January 2007 (last amendment shown: Act 42 of 1997). The old CrPC text is not held: for a CrPC section the answer shows the matching BNSS section only. Sections whose text could not be read reliably are not shipped.
+
+- **The IPC section text is restored and cleaned up (#617 to #619).** Sections that had been lost are restored, including Section 479 and Section 364A; text that had run on into the next section is fixed; leftovers of page breaks are removed. The printed amendment marks and footnotes are left out, page references are PDF page numbers, and the printed text is kept as printed, including misprints.
+
+### Configuration
+- One key changes in the shipped configuration: `wf_b1_section_lookup` goes from absent to `true`. No new environment variable, no new secret, no new dependency, no schema change and no migration. This is a new image.
+
+### Not switched on
+- **Not in this release and still off:** scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`; an image is still refused), the matter listing (`wf_a2_list_matters` stays `false`), the OCR time-limit change (`ocr_document_deadline_s` stays 120) and photo intake.
+
+### Notes
+- **Turning it off:** deploy the 0.6.27 image: the section look-up route disappears and no data is touched.
+
 ## 0.6.27 (2026-10-21)
 
 PATCH release on 0.6.26. Nothing is switched on, and no request answers differently from 0.6.26.
