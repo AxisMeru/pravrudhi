@@ -265,7 +265,7 @@ def test_a_delivery_signature_covers_the_body_and_a_big_body_is_refused() -> Non
     path = "/internal/wake-results"
     assert _verify(h, "POST", path, body + b" ", nonces, clock) is False  # tampered body
     assert _verify(h, "POST", path, body, nonces, clock) is True
-    big, h2 = box_result_request(SECRET, [{"nonce": N1, "state": "granted", "lease_ref": "x" * 600}], ts=int(clock.t), nonce=N3)
+    big, h2 = box_result_request(SECRET, [{"nonce": N1, "state": "granted", "lease_ref": "x" * 2100}], ts=int(clock.t), nonce=N3)
     assert len(big) > W.MAX_BODY and _verify(h2, "POST", path, big, nonces, clock) is False
 
 
@@ -298,7 +298,7 @@ def test_a_request_is_listed_signed_fresh_and_asking_again_is_idempotent() -> No
     clock.t += 30  # listed again later: the same nonce, a current timestamp, a fresh signature
     again = json.loads(board.signed(SECRET)[0]["body"])
     assert again["nonce"] == n and again["ts"] == int(clock.t)
-    assert len(listed[0]["body"]) <= W.MAX_BODY
+    assert len(listed[0]["body"]) <= 512
 
 
 def test_results_are_matched_by_nonce_and_a_repeat_changes_nothing() -> None:

@@ -164,7 +164,7 @@ KINDS = ("wake", "extend")
 ANSWERS = ("granted", "already_awake", "refused", "failed")
 _NONCE = re.compile(r"[0-9a-f]{32}")
 WINDOW_S = 60
-MAX_BODY = 512
+MAX_BODY = 2048  # a poll delivery body (a wake request body is about 150 bytes)
 
 
 def canonical(ts: int, nonce: str, label: str, kind: str, lease_ref: str | None = None) -> str:
