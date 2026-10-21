@@ -129,11 +129,11 @@ class JudgeWake:
 
     def state(self) -> WakeState:
         m = self._model
+        if m["first"] == "failed":  # nothing can be scored without the first judge: end now, whatever the second is doing
+            return "timeout" if "first" in self._timed_out else "failed"
         if any(m[r] in ("waiting", "starting") for r in ROLES):
             return "waking"
-        if m["first"] == "ready":
-            return "ready" if m["second"] == "ready" else "partial"
-        return "timeout" if "first" in self._timed_out else "failed"
+        return "ready" if m["second"] == "ready" else "partial"
 
     def reason(self) -> Reason | None:
         s = self.state()

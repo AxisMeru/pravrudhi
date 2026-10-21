@@ -383,3 +383,11 @@ def test_the_packaged_config_ships_the_feature_off_with_valid_defaults() -> None
     assert W.parse_cold_start_config(body) is None  # off
     c = W.parse_cold_start_config({**body, "cold_start_wake": True})  # the shipped defaults all parse once switched on
     assert c is not None and (c.budget_s, c.poll_after_s, c.deadline_margin_s, c.request_ttl_s) == (300.0, 5, 30.0, 120.0)
+
+
+def test_a_failed_first_judge_ends_the_wake_at_once_even_while_the_second_is_still_waiting() -> None:
+    w = W.JudgeWake(cfg(), clock=Clock())
+    w.start({"first": "parked", "second": "parked"})
+    w.waker_answered("first", "refused")
+    assert w.block()["models"][1]["state"] == "waiting"
+    assert (w.state(), w.reason(), w.terminal) == ("failed", "first_judge_unavailable", True)
