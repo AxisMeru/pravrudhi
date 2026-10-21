@@ -10,19 +10,14 @@
   "pdf_created": "2007-01-17 (as printed in the PDF metadata)",
   "held_by": "Track C, trackc-seat3/ipc/ic/",
   "text_extraction": "pdftotext -layout; Track C parse_ipc_pdf.py (section start, footnote strip, amendment-marker strip) + a second pass for sections the parser missed; the printed amendment markers 'N*[...]' and footnotes are REMOVED from text (words inside brackets kept)",
-  "parse_limits": "see compare notes: about 20 sections read differently from an earlier IPC text file that is no longer shipped, and the two were not reconciled; this file is the one shown; page refs are PDF page numbers",
+  "parse_limits": "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers",
   "file_date": "January 2007 (PDF metadata 17 Jan 2007)",
   "last_amendment_shown": "Act 42 of 1997 (footnote in the text); no later year appears in the extracted text",
   "marks": "Amendment marks and footnotes are left out of this text."
  },
  "unreliable_ids_not_shipped": [
-  "IPC/Section 17",
   "IPC/Section 124",
-  "IPC/Section 139",
-  "IPC/Section 142",
-  "IPC/Section 213",
-  "IPC/Section 227",
-  "IPC/Section 490"
+  "IPC/Section 142"
  ],
  "documents": [
   {
@@ -126,7 +121,15 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 14",
    "title": "\"Servant of Government\"",
-   "text": "The words \"servant of Government\" denote any officer or servant continued, appointed or employed in India by or under the authority of Government.\n15.\n[Definition of \"British India\".] Rep. by the A. O. 1937.\n16.\nDefinition of \"Government of India\".] Rep., ibid.\n17.\n\"Government\".\n17 \"Government\".--The word \"Government\" denotes the Central Government or the Government of a 3State.",
+   "text": "The words \"servant of Government\" denote any officer or servant continued, appointed or employed in India by or under the authority of Government.",
+   "pdf_page": 5
+  },
+  {
+   "id": "IPC/Section 17",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 17",
+   "title": "\"Government\"",
+   "text": "The word \"Government\" denotes the Central Government or the Government of a State.",
    "pdf_page": 5
   },
   {
@@ -462,7 +465,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 57",
    "title": "Fractions of terms of punishment",
-   "text": "In calculating fractions of terms of punishment, 4[imprinsonment] for life shall be reckoned as equivalent to 4[imprisonment] for twenty years.\n58. \f 58. [Offenders sentenced to transportation how dealt with until transported.] Rep. by the Code of Criminal Procedure (Amendment) Act, 1955 (26 of 1955), s. 117 and Sch.",
+   "text": "In calculating fractions of terms of punishment, 4[imprinsonment] for life shall be reckoned as equivalent to 4[imprisonment] for twenty years.",
    "pdf_page": 19
   },
   {
@@ -477,8 +480,8 @@
    "id": "IPC/Section 62",
    "act": "Indian Penal Code, 1860",
    "section": "Section 62",
-   "title": "[Forfeiture of property, in respect of offenders punishable with death, transportation or imprisonment. Rep., by s. 4 ibid. 63. Amount of fine. 63. Amount of fine",
-   "text": "Where no sum is expressed to which a fine may extend, the amount of fine to which the offender is liable is unlimited, but shall not be excessive.",
+   "title": "[Forfeiture of property, in respect of offenders punishable with death, transportation or imprisonment.",
+   "text": "Rep., by s. 4 ibid.",
    "pdf_page": 20
   },
   {
@@ -486,7 +489,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 63",
    "title": "Amount of fine",
-   "text": "Where no sum is expressed to which a fine may extend, the amount of fine to which the offender is liable is unlimited, but shall not be excessive.\n64.\nSentence of imprisonment for non-payment of fine.",
+   "text": "Where no sum is expressed to which a fine may extend, the amount of fine to which the offender is liable is unlimited, but shall not be excessive.",
    "pdf_page": 21
   },
   {
@@ -1125,9 +1128,17 @@
    "id": "IPC/Section 138A",
    "act": "Indian Penal Code, 1860",
    "section": "Section 138A",
-   "title": "[Application of foregoing sections to the Indian Marine Service. Rep. by the Amending Act, 1934 (35 of 1934), s. 2 and Sch. 139. Persons subject to certain Acts. 139. Persons subject to certain Acts",
-   "text": "No person subject to [the Army Act, the Army Act, 1950 (46 of 1950), the Naval Discipline Act, 4the Indian Navy (Discipline) Act, 1934 (34 of 1934), the Air Force Act or the Air Force Act, 1950 (45 of 1950)], is subject to punishment under this Code for any of the offences defined in this Chapter.",
+   "title": "[Application of foregoing sections to the Indian Marine Service.",
+   "text": "Rep. by the Amending Act, 1934 (35 of 1934), s. 2 and Sch.",
    "pdf_page": 55
+  },
+  {
+   "id": "IPC/Section 139",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 139",
+   "title": "Persons subject to certain Acts",
+   "text": "No person subject to the Army Act, the Army Act, 1950 (46 of 1950), the Naval Discipline Act, the Indian Navy (Discipline) Act, 1934 (34 of 1934), the Air Force Act or the Air Force Act, 1950 (45 of 1950), is subject to punishment under this Code for any of the offences defined in this Chapter.",
+   "pdf_page": 56
   },
   {
    "id": "IPC/Section 140",
@@ -1278,15 +1289,15 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 157",
    "title": "Harbouring persons hired for an unlawful assembly",
-   "text": "Whoever harbours, receives or assembles, in any house or premises in his occupation or charge, or under his control any persons knowing that such persons have been hired, engaged or employed, or are about to be hired, engaged or employed, to join or become members of an unlawful assembly, shall be punished with imprisonment of either description for a term which may extend to six months, or with fine, or with both.\n158.\nBeing hired to take part in an unlawful assembly or riot;\n158. Being hired to take part in an unlawful assembly or riot;-- Whoever is engaged, or hired, or offers or attempts to be hired or engaged, to do or assist in doing any of the acts specified in section 141, shall be punished with imprisonment of either description for a term which may extend to six months, or with fine, or with both.\nor to go armed.\nor to go armed.--and whoever, being so engaged or hired as aforesaid, goes armed, or engages or offers to go armed, with any deadly weapon or with anything which used as a weapon of offence is likely to cause death, shall be punished with imprisonment of either description for a term which may extend to two years, or with fine, or with both.",
+   "text": "Whoever harbours, receives or assembles, in any house or premises in his occupation or charge, or under his control any persons knowing that such persons have been hired, engaged or employed, or are about to be hired, engaged or employed, to join or become members of an unlawful assembly, shall be punished with imprisonment of either description for a term which may extend to six months, or with fine, or with both.",
    "pdf_page": 63
   },
   {
    "id": "IPC/Section 158",
    "act": "Indian Penal Code, 1860",
    "section": "Section 158",
-   "title": "Being hired to take part in an unlawful assembly or riot;",
-   "text": "Whoever is engaged, or hired, or offers or attempts to be hired or engaged, to do or assist in doing any of the acts specified in section 141, shall be punished with imprisonment of either description for a term which may extend to six months, or with fine, or with both.\n135\nor to go armed.\nor to go armed.--and whoever, being so engaged or hired as aforesaid, goes armed, or engages or offers to go armed, with any deadly weapon or with anything which used as a weapon of offence is likely to cause death, shall be punished with imprisonment of either description for a term which may extend to two years, or with fine, or with both.\n159.\nAffray.",
+   "title": "Being hired to take part in an unlawful assembly or riot",
+   "text": "Whoever is engaged, or hired, or offers or attempts to be hired or engaged, to do or assist in doing any of the acts specified in section 141, shall be punished with imprisonment of either description for a term which may extend to six months, or with fine, or with both.\nor to go armed.\nor to go armed.--and whoever, being so engaged or hired as aforesaid, goes armed, or engages or offers to go armed, with any deadly weapon or with anything which used as a weapon of offence is likely to cause death, shall be punished with imprisonment of either description for a term which may extend to two years, or with fine, or with both.",
    "pdf_page": 63
   },
   {
@@ -1742,8 +1753,16 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 212",
    "title": "Harbouring offender",
-   "text": "Whenever an offence has been committed, whoever harbours or conceals a person whom he knows or has reason to believe to be the offender, with the intention of screening him from legal punishment, \fif a capital offence;\nif a capital offence;--shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to five years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment which may extend to one year, and not to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one-fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.\n\"Offence\" in this section includes any act committed at any place out of India, which, if committed in India, would be punishable under any of the following sections, namely, 302, 304, 382, 392, 393, 394, 395, 396, 397, 398, 399, 402, 435, 436, 449, 450, 457, 458, 459 and 460; and every such act shall, for the purposes of this section, be deemed to be punishable as if the accused person had been guilty of it in India.\nException.-This provision shall not extend to any case in which the harbour or concealment is by the husband or wife of the offender.\nIllustration\nA, knowing that B has committed dacoity, knowingly conceals B in order to screen him from legal punishment. Here, as B is liable to imprisonment for life, A is liable to imprisonment of either description for a term not exceeding three years, and is also liable to fine.\n213.\nTaking gift, etc., to screen an offender from punishment-if a capital offence; if punishable with imprisonment for life, or with imprisonment.\n213. Taking gift, etc., to screen an offender from punishment--Whoever accepts or attempts to obtain, or agrees to accept, any gratification for himself or any other person, or any restitution of property to himself or any other person, in consideration of his concealing an offence or of his screening any person from legal punishment for any \foffence, or of his not proceeding against any person for the purpose of bringing him to legal punishment,\nif a capital offence;\nif a capital offence;-shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment not extending to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.",
+   "text": "Whenever an offence has been committed, whoever harbours or conceals a person whom he knows or has reason to believe to be the offender, with the intention of screening him from legal punishment, \fif a capital offence;\nif a capital offence;--shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to five years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment which may extend to one year, and not to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one-fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.\n\"Offence\" in this section includes any act committed at any place out of India, which, if committed in India, would be punishable under any of the following sections, namely, 302, 304, 382, 392, 393, 394, 395, 396, 397, 398, 399, 402, 435, 436, 449, 450, 457, 458, 459 and 460; and every such act shall, for the purposes of this section, be deemed to be punishable as if the accused person had been guilty of it in India.\nException.-This provision shall not extend to any case in which the harbour or concealment is by the husband or wife of the offender.\nIllustration\nA, knowing that B has committed dacoity, knowingly conceals B in order to screen him from legal punishment. Here, as B is liable to imprisonment for life, A is liable to imprisonment of either description for a term not exceeding three years, and is also liable to fine.",
    "pdf_page": 85
+  },
+  {
+   "id": "IPC/Section 213",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 213",
+   "title": "Taking gift, etc., to screen an offender from punishment",
+   "text": "Whoever accepts or attempts to obtain, or agrees to accept, any gratification for himself or any other person, or any restitution of property to himself or any other person, in consideration of his concealing an offence or of his screening any person from legal punishment for any \foffence, or of his not proceeding against any person for the purpose of bringing him to legal punishment,\nif a capital offence;\nif a capital offence;-shall, if the offence is punishable with death, be punished with imprisonment of either description for a term which may extend to seven years, and shall also be liable to fine;\nif punishable with imprisonment for life, or with imprisonment.\nif punishable with imprisonment for life, or with imprisonment.-- and if the offence is punishable with imprisonment for life, or with imprisonment which may extend to ten years, shall be punished with imprisonment of either description for a term which may extend to three years, and shall also be liable to fine;\nand if the offence is punishable with imprisonment not extending to ten years, shall be punished with imprisonment of the description provided for the offence for a term which may extend to one fourth part of the longest term of imprisonment provided for the offence, or with fine, or with both.",
+   "pdf_page": 86
   },
   {
    "id": "IPC/Section 214",
@@ -1869,7 +1888,15 @@
    "id": "IPC/Section 226",
    "act": "Indian Penal Code, 1860",
    "section": "Section 226",
-   "title": "[Unlawful return from transportation. Rep. by the Code of Criminal Procedure (Amendment) Act, 1955 (26 of 1955), s. 117 and Sch. 227. Violation of condition of remission of punishment. 227. Violation of condition of remission of punishment",
+   "title": "[Unlawful return from transportation.",
+   "text": "Rep. by the Code of Criminal Procedure (Amendment) Act, 1955 (26 of 1955), s. 117 and Sch.",
+   "pdf_page": 95
+  },
+  {
+   "id": "IPC/Section 227",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 227",
+   "title": "Violation of condition of remission of punishment",
    "text": "Whoever, having accepted any conditional remission of punishment, knowingly violates any condition on which such remission was granted, shall be punished with the punishment to which he was originally sentenced, if he has already suffered no part of that punishment, and if he has suffered any part of that punishment, then with so much of that punishment as he has not already suffered.",
    "pdf_page": 95
   },
@@ -3014,8 +3041,16 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 364",
    "title": "Kidnapping or abducting in order to murder",
-   "text": "Whoever kidnaps or abducts any person in order that such person may be murdered or may be so disposed of as to be put in danger of being murdered, shall be punished with imprisonment for life or rigorous imprisonment for a term which may extend to ten years, and shall also be liable to fine.\nIIIustrations\n(a) A kidnaps Z from India, intending or knowing it to be likely that Z may be sacrificed to an idol. A has committed the offence defined in this section.\n(b) A forcibly carries or entices B away from his home in order that B may be murdered. A has committed the offence defined in this \fsection.\n364A.\nKidnappin for ransom, etc.\n3*364A. Kidnapping for ransom, etc.-Whoever kidnaps or abducts any person or keeps a person in detention after such kidnapping or abduction, and threatens to cause death or hurt to such person, or by his conduct gives rise to a reasonable appreension that such person may be put to death or hurt, or causes hurt or death to such person in order to compel the Government or any foreign State or international inter-governmental organisation or any other person to do or abstain from doing any act or to pay a ransom, shall be punishable with death or imprisonment for life, and shall also be liable to fine.",
+   "text": "Whoever kidnaps or abducts any person in order that such person may be murdered or may be so disposed of as to be put in danger of being murdered, shall be punished with imprisonment for life or rigorous imprisonment for a term which may extend to ten years, and shall also be liable to fine.\nIIIustrations\n(a) A kidnaps Z from India, intending or knowing it to be likely that Z may be sacrificed to an idol. A has committed the offence defined in this section.\n(b) A forcibly carries or entices B away from his home in order that B may be murdered. A has committed the offence defined in this \fsection.",
    "pdf_page": 144
+  },
+  {
+   "id": "IPC/Section 364A",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 364A",
+   "title": "Kidnapping for ransom, etc",
+   "text": "Whoever kidnaps or abducts any person or keeps a person in detention after such kidnapping or abduction, and threatens to cause death or hurt to such person, or by his conduct gives rise to a reasonable appreension that such person may be put to death or hurt, or causes hurt or death to such person in order to compel the Government or any foreign State or international inter-governmental organisation or any other person to do or abstain from doing any act or to pay a ransom, shall be punishable with death or imprisonment for life, and shall also be liable to fine.",
+   "pdf_page": 145
   },
   {
    "id": "IPC/Section 365",
@@ -3981,7 +4016,15 @@
    "id": "IPC/Section 478",
    "act": "Indian Penal Code, 1860",
    "section": "Section 478",
-   "title": "[Trade Mark. Rep. by the Trade and Merchandise Marks Act, 1958 (43 of 1958),s. 135 and Sch. (w. e. f. 25-11-1959). 479. Property mark. 479. Property mark",
+   "title": "[Trade Mark.",
+   "text": "Rep. by the Trade and Merchandise Marks Act, 1958 (43 of 1958),s. 135 and Sch. (w. e. f. 25-11-1959).",
+   "pdf_page": 189
+  },
+  {
+   "id": "IPC/Section 479",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 479",
+   "title": "Property mark",
    "text": "A mark used for denoting that movable property belongs to a particular person is called a property mark.",
    "pdf_page": 189
   },
@@ -3989,8 +4032,8 @@
    "id": "IPC/Section 480",
    "act": "Indian Penal Code, 1860",
    "section": "Section 480",
-   "title": "[Using a false trade mark. Rep. by the Trade and Merchandise Marks Act, 1958 (43 of 1958), s. 135 and Sch. (w.e.f. 25- 11-1959). 481. Using a false property mark. 481. Using a false property mark",
-   "text": "Whoever marks any movable property or goods or any case, package or other receptacle containing movable property or goods, or uses any case, package or other receptacle having any mark thereon, in a manner reasonably calculated to cause it to be believed that the property or goods so marked, or any property or goods contained in any such receptacle so marked, belong to a person to whom they do not belong, is said to use a false \fproperty mark.",
+   "title": "[Using a false trade mark.",
+   "text": "Rep. by the Trade and Merchandise Marks Act, 1958 (43 of 1958), s. 135 and Sch. (w.e.f. 25- 11-1959).",
    "pdf_page": 189
   },
   {
@@ -3998,7 +4041,7 @@
    "act": "Indian Penal Code, 1860",
    "section": "Section 481",
    "title": "Using a false property mark",
-   "text": "Whoever marks any movable property or goods or any case, package or other receptacle containing movable property or goods, or uses any case, package or other receptacle having any mark thereon, in a manner reasonably calculated to cause it to be believed that the property or goods so marked, or any property or goods contained in any such receptacle so marked, belong to a person to whom they do not belong, is said to use a false \fproperty mark.\n482.\nPunishment for using a false property mark.",
+   "text": "Whoever marks any movable property or goods or any case, package or other receptacle containing movable property or goods, or uses any case, package or other receptacle having any mark thereon, in a manner reasonably calculated to cause it to be believed that the property or goods so marked, or any property or goods contained in any such receptacle so marked, belong to a person to whom they do not belong, is said to use a false \fproperty mark.",
    "pdf_page": 189
   },
   {
@@ -4104,6 +4147,14 @@
    "title": "Making or using documents resembling currency-notes or bank-notes",
    "text": "(1) Whoever makes, or causes to be made, or uses for any purpose whatsoever, or delivers to any person, any document purporting to be, or in any way resembling, or so nearly resembling as to be calculated to deceive, any currency-note or bank-note shall be punished with fine which may extend to one hundred rupees.\n(2) If any person, whose name appears on a document the making of which is an offence under sub-section (1), refuses, without lawful excuse, to disclose to a police-officer on being so required the name and address of the person by whom it was printed or otherwise made, he shall be punished with fine which may extend to two hundred rupees.\n(3) Where the name of any person appears on any document in \frespect of which any person is charged with an offence under sub- section (1) or on any other document used or distributed in connection with that document it may, until the contrary is proved, be presumed that that person caused the document to be made.",
    "pdf_page": 193
+  },
+  {
+   "id": "IPC/Section 490",
+   "act": "Indian Penal Code, 1860",
+   "section": "Section 490",
+   "title": "[Preach of contract of service during voyage or journey.",
+   "text": "Rep. by the Workmen's Breach of Contract (Repealing) Act, 1925 (3 of 1925), s. 2 and Sch.",
+   "pdf_page": 194
   },
   {
    "id": "IPC/Section 491",

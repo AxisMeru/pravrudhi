@@ -39,7 +39,7 @@ def strip_markers(s: str, opened: bool = False) -> str:
     `opened`: the section's own start line consumed an opener, so the first unmatched ']' closes it."""
     out, stack, i = [], ([True] if opened else []), 0
     while i < len(s):
-        m = re.match(r"\d+\*+\[", s[i:])
+        m = re.match(r"\d+\*+\s*\[", s[i:])  # the mark and its bracket may sit on two lines
         if m:
             stack.append(True)
             i += m.end()
@@ -57,6 +57,7 @@ def strip_markers(s: str, opened: bool = False) -> str:
             out.append(c)
         i += 1
     t = "".join(out)
+    t = re.sub(r"\d+\*{2,}", "", t)  # a mark of two or more asterisks, even glued to the next word ('3****State')
     t = re.sub(r"\d+\*+(?=[\s,;.\)]|$)", "", t)
     t = re.sub(r"\*{3,}", "", t)
     return t
@@ -67,7 +68,15 @@ def tidy(body: str) -> str:
     return "\n".join(p for p in paras if p)
 
 
-START = re.compile(r"(?m)^[\x0c \t]+(?:\d+\*+\[)?(\d{1,3}[A-Z]{0,2})\.[ \t]+(.{3,260}?)\.[ \t]*-{1,2}", re.S)
+# The title runs to the first '.--' and may wrap onto the next line, but never across a blank line: a repealed section has no '.--',
+# and a title allowed to cross a blank line swallowed the NEXT section's heading and text (62 -> 63, 226 -> 227, ...). A repealed
+# section's bracketed line '[Title.] Rep. by ...' is its own start.
+_NOBLANK = r"(?:(?!\n[ \t]*\n).)"
+START = re.compile(
+    r"(?m)^(?:[\x0c \t]+(?:\d+\*+\[?)?|(?=\d{1,3}[A-Z]{0,2}\.[ \t]))(\d{1,3}[A-Z]{0,2})(?:\.|(?=[ \t]+\"))[ \t]+"
+    r"(?:(" + _NOBLANK + r"{3,260}?)(?:[.;][ \t]*-{1,2}|(?<=[a-z])--(?=[A-Z]))|(\[" + _NOBLANK + r"{3,260}?\]))",
+    re.S,
+)
 
 
 def _trim_tail(chunk: str, next_id: str) -> str:
@@ -102,7 +111,8 @@ def _drop_tail_paras(body: str, nid: str, ntitle: str) -> str:
             paras.pop()
             continue
         break
-    return "\n".join(paras)
+    # the next number alone at the top of a page can end up glued to this section's last line
+    return re.sub(r"\s*\x0c" + re.escape(nid) + r"\.\s*$", "", "\n".join(paras))
 
 
 def parse(raw: str) -> dict[str, dict[str, str]]:
@@ -111,7 +121,7 @@ def parse(raw: str) -> dict[str, dict[str, str]]:
     out: dict[str, dict[str, str]] = {}
     for k, m in enumerate(marks):
         sid = m.group(1)
-        title = re.sub(r"\s+", " ", m.group(2)).strip()
+        title = re.sub(r"\s+", " ", m.group(2) or m.group(3)).strip()
         end = marks[k + 1].start() if k + 1 < len(marks) else len(txt)
         chunk = txt[m.end():end]
         if k + 1 < len(marks):
@@ -119,7 +129,7 @@ def parse(raw: str) -> dict[str, dict[str, str]]:
         body = tidy(strip_markers(chunk, opened=bool(re.match(r"\s*\d+\*+\[", m.group(0)))))
         nxt = marks[k + 1] if k + 1 < len(marks) else None
         if nxt is not None:
-            body = _drop_tail_paras(body, nxt.group(1), re.sub(r"\s+", " ", nxt.group(2)).strip())
+            body = _drop_tail_paras(body, nxt.group(1), re.sub(r"\s+", " ", nxt.group(2) or nxt.group(3)).strip())
         title = re.sub(r"\d+\*+\[?|\]", "", title).strip()
         if sid in out:  # a repeated number (a sub-clause line that looks like a section start): keep the first
             continue

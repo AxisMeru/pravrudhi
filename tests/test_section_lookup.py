@@ -163,8 +163,9 @@ def test_crpc_bodies_are_not_held_and_the_mapping_line_still_shows_where_one_to_
 def test_an_ipc_body_that_is_not_held_says_so() -> None:
     r = _ask("IPC", "354D")  # added after the 2007 file
     assert r["old"]["held"] is False
-    r2 = _ask("IPC", "213")  # flagged unreliable at parse time: not shipped
+    r2 = _ask("IPC", "124")  # flagged unreliable at parse time: not shipped
     assert r2["old"]["held"] is False
+    assert _ask("IPC", "213")["old"]["held"] is True  # restored from the PDF (it was lost to a swallowed heading)
 
 
 def test_a_held_ipc_body_carries_the_source_the_currency_and_the_marks_lines() -> None:
