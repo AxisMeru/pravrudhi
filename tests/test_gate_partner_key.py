@@ -180,6 +180,7 @@ def test_every_route_and_method_under_api_v1_is_opened_only_when_listed(env: Any
         ("POST", "/api/v1/matter-spans/documents"),
         ("POST", "/api/v1/matter-spans/list"),
         ("POST", "/api/v1/matter-spans/matters"),
+        ("POST", "/api/v1/matter-spans/my-matters"),  # wf_a2_list_matters, ON with its switch-on
         ("POST", "/api/v1/matter-spans/query"),
     }
     secret_listed = {(m, p) for m, p, _b in ORG_ROUTES}
