@@ -278,3 +278,18 @@ def test_signed_deliveries_apply_independently_and_a_bad_body_is_refused() -> No
 @pytest.mark.parametrize("result", [{"contracts": []}, {"contracts": [{"elements": []}]}, {}, {"contracts": [None, "x"]}])
 def test_second_judge_used_is_false_without_an_established_element(result: dict[str, Any]) -> None:
     assert CS.second_judge_used(result) is False
+
+
+def test_a_user_is_not_pinned_to_a_wake_whose_task_never_finished() -> None:
+    env = Env()
+    submitted: list[Callable[[], None]] = []
+    env.svc._submit = submitted.append  # the task is lost: it never runs
+    first = env.svc.start("u", env.run_job)
+    env.mono += CS.ACTIVE_TTL_S + 1
+    again = env.svc.start("u", env.run_job)
+    assert first[0] == "accepted" and first[1]
+    # the lost wake is dropped; the limiter treats it as a failed one, so the user is on a cooldown, not stuck "existing"
+    assert again == ("not_allowed", None, CS.NOT_ALLOWED)
+    env.mono += 121
+    third = env.svc.start("u", env.run_job)
+    assert third[0] == "accepted" and third[1] != first[1]

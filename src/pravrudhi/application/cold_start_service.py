@@ -30,6 +30,7 @@ NOT_ALLOWED: dict[str, str] = {"error": "judges_offline", "wake": "not_allowed"}
 POLL_PATH = "/internal/wake-requests"
 RESULT_PATH = "/internal/wake-results"
 CHECK_EVERY_S = 2.0
+ACTIVE_TTL_S = 450.0  # a wake never lasts longer than the hard budget (420 s) plus a margin: an older entry is dead
 
 #: What `run_job` returns: ("ok", result dict) or ("err", http status, body dict). `kind` is "full" or "partial".
 RunJob = Callable[[str], tuple[Any, ...]]
@@ -69,7 +70,7 @@ class ColdStartService:
         self._health, self._submit, self._clock, self._wall, self._sleep = health, submit, clock, wall, sleep
         self._nonces = NonceStore(clock=wall)
         self._wakes: dict[str, JudgeWake] = {}
-        self._active: dict[str, str] = {}  # user -> job id of the wake in progress
+        self._active: dict[str, tuple[str, float]] = {}  # user -> (job id of the wake in progress, when it began)
         self._lock = threading.Lock()
 
     # ---- the user side -------------------------------------------------------------------------------------------------
@@ -87,7 +88,11 @@ class ColdStartService:
         owner = f"user:{user_id}"
         with self._lock:
             self._forget_finished_locked()
-            existing = self._active.get(user_id)
+            entry = self._active.get(user_id)
+            if entry is not None and self._clock() - entry[1] > ACTIVE_TTL_S:
+                del self._active[user_id]  # a task that never finished (a crash, a swap): the user is not pinned to a dead wake
+                entry = None
+            existing = entry[0] if entry is not None else None
             if existing is not None and existing in self._wakes and self._jobs.get(owner, existing) is not None:
                 return "accepted", existing, self._wakes[existing].block()
             begun = self._limiter.begin(user_id)
@@ -102,7 +107,7 @@ class ColdStartService:
             wake = JudgeWake(self._cfg, clock=self._clock)
             to_wake = wake.start(readings)
             self._wakes[job_id] = wake
-            self._active[user_id] = job_id
+            self._active[user_id] = (job_id, self._clock())
             nonces = {role: self._board.request(role, "wake") for role in to_wake}
         self._submit(lambda: self._task(user_id, job_id, wake, nonces, run_job))
         return "accepted", job_id, wake.block()
@@ -169,7 +174,7 @@ class ColdStartService:
         finally:
             self._limiter.end(user_id, ok=ok)
             with self._lock:
-                if self._active.get(user_id) == job_id:
+                if (self._active.get(user_id) or ('', 0.0))[0] == job_id:
                     del self._active[user_id]
 
     def _extend(self) -> None:
@@ -180,7 +185,8 @@ class ColdStartService:
                     self._board.request(role, "extend", lease)
 
     def _forget_finished_locked(self) -> None:
-        for job_id in [j for j in self._wakes if j not in self._active.values()]:
+        live = {entry[0] for entry in self._active.values()}
+        for job_id in [j for j in self._wakes if j not in live]:
             if self._jobs.get_any(job_id) is None:
                 del self._wakes[job_id]
 
