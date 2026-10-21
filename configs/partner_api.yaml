@@ -137,7 +137,7 @@ wf_a7_matter_hearing_pack: true
 wf_a8_synopsis_list_of_dates: true
 wf_a4_bail_drafting: true
 # #1015 scanned and garbled-page intake (OFF; the route wiring is a later PR). Calibrated by Track A on real Punjab and Haryana orders
-# (record OCR_FLOOR_AND_GARBLED_RECORD v3 fe4253e57206; pinned tesseract 5.5.3, 300 dpi gray, --psm 3 tsv, English only): provisional,
+# (record OCR_FLOOR_AND_GARBLED_RECORD v3 fe4253e57206; calibrated on tesseract 5.5.3; the shipped image runs 5.5.0 and the pin below follows the image (image_facts_0627 6bb84efd47de), 300 dpi gray, --psm 3 tsv, English only): provisional,
 # born-digital court PDFs with broken text layers, NOT partner phone photos. EVERY ocr_* key is required when the flag is true.
 wf_c1_scanned_intake: false
 ocr_min_page_confidence: 80
@@ -154,6 +154,6 @@ ocr_document_deadline_s: 120
 ocr_dpi: 300
 # The calibrated engine (Track A, 21 Oct): scanned intake uses no other tesseract build or English data. The engine image must carry exactly
 # this build, or these two values change together with a new calibration.
-ocr_tesseract_version: "5.5.3"
+ocr_tesseract_version: "5.5.0"
 ocr_eng_traineddata_sha256: "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
 ocr_languages: eng

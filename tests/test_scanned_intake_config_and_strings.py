@@ -15,7 +15,7 @@ GOOD = {
     "ocr_garbled_min_letter_share": 0.5, "ocr_agreement_min_similarity": 0.80, "ocr_max_pages": 60, "ocr_page_timeout_s": 30,
     "ocr_document_deadline_s": 120,
     "ocr_dpi": 300,
-    "ocr_tesseract_version": "5.5.3",
+    "ocr_tesseract_version": "5.5.0",
     "ocr_eng_traineddata_sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
 }  # fmt: skip
 
@@ -96,4 +96,4 @@ def test_the_calibrated_engine_pins_are_required_strings_and_the_hash_is_64_lowe
     for bad in ("7D43" * 16, "abc", "g" * 64):
         assert C.parse_scanned_intake_config({**GOOD, "ocr_eng_traineddata_sha256": bad}) is None
     cfg = C.parse_scanned_intake_config(GOOD)
-    assert cfg is not None and cfg.tesseract_version == "5.5.3" and len(cfg.eng_traineddata_sha256) == 64
+    assert cfg is not None and cfg.tesseract_version == "5.5.0" and len(cfg.eng_traineddata_sha256) == 64
