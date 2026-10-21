@@ -119,7 +119,10 @@ def _repo(tmp_path: Path) -> Path:
 
 
 def _commit(repo: Path, who: tuple[str, str], committer: tuple[str, str] | None = None) -> str:
-    (repo / "f").write_text(str(len(list(repo.glob("*"))) + hash(who) % 997))
+    # Content that differs from the previous commit by construction: the commit count only grows. (It was `hash(who) % 997`, and
+    # `hash` of a str tuple changes with PYTHONHASHSEED: in about 1 run in 500 two authors collided, the second `git commit` then
+    # had nothing to commit and exited 1, failing every test that commits both, on a CI run that touched nothing related.)
+    (repo / "f").write_text(str(int(_git(repo, "rev-list", "--count", "HEAD")) + 1))
     _git(
         repo,
         "commit",
@@ -248,3 +251,10 @@ def test_commit_msg_honours_a_listed_identity_on_an_allowlist_larger_than_a_pipe
     assert rc == 0
     rc2, _ = _run("fix: big list\n", tmp_path, author=("Nobody", "nobody@example.org"), allowed=allowed)
     assert rc2 == 1
+
+
+def test_a_second_commit_by_another_author_never_has_nothing_to_commit(tmp_path: Path) -> None:
+    """Regression for the PYTHONHASHSEED flake: each commit helper call must make a real change, whatever the authors hash to."""
+    repo = _repo(tmp_path)
+    shas = [_commit(repo, who) for who in (("Old Personal", "p@y.z"), TEAM, TEAM, ("Old Personal", "p@y.z"), TEAM)]
+    assert len(set(shas)) == len(shas)
