@@ -1,8 +1,8 @@
 """Apply the fixed `ipc_pdf_parse` to the held MHA PDF text (`pdftotext -layout` of the PDF whose sha256 is in the asset's
-`source`) and update `ipc_bodies_v1.json` for exactly these ids: the sections the old parser lost to a swallowed heading or a leading
-footnote mark (17, 63, 139, 158, 213, 227, 481, 490, and 479, 364A) and the entries whose text had swallowed the NEXT section
-(14, 57, 62, 138A, 157, 212, 226, 478, 480, 364).
-Every other entry is left byte-identical. Usage: python scripts/ipc_restore_sections.py LAYOUT_TXT ASSET_JSON"""
+`source`) and update `ipc_bodies_v1.json` for exactly these ids: the sections the old parser lost to a swallowed heading or a
+leading footnote mark (17, 63, 139, 158, 213, 227, 481, 490, and 479, 364A) and the entries whose text had swallowed the NEXT
+section (14, 57, 62, 138A, 157, 212, 226, 478, 480, 364). Every other entry is left byte-identical.
+Usage: python scripts/ipc_restore_sections.py LAYOUT_TXT ASSET_JSON"""
 import json
 import sys
 from pathlib import Path
