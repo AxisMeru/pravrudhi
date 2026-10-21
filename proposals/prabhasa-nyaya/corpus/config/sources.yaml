@@ -17,7 +17,7 @@ sources:
     description: "Official Central Acts repository, Legislative Dept, Ministry of Law and Justice"
     base_url: "https://www.indiacode.nic.in"
     authority_kind: statute
-    license_note: "Government of India public work; reproduction permitted with source acknowledgement"
+    license_note: "Not confirmed."
     fetch_method: http_html
     rate_limit_per_minute: 20
 
@@ -46,7 +46,7 @@ sources:
     description: "Law Commission of India official reports archive"
     base_url: "https://lawcommissionofindia.nic.in"
     authority_kind: report
-    license_note: "Government of India public work"
+    license_note: "Not confirmed."
     fetch_method: http_pdf
     rate_limit_per_minute: 10
 
@@ -54,12 +54,12 @@ sources:
     description: "Fallback mirror ONLY - never the recorded authority for a document"
     base_url: "https://indiakanoon.org"
     authority_kind: mirror
-    license_note: "Bulk scraping restricted by site terms; use only as single-document fallback"
+    license_note: "Not confirmed."
     fetch_method: http_html
     rate_limit_per_minute: 3
     rate_limit_notice: >
-      Indian Kanoon's terms of use prohibit systematic bulk scraping. This
-      source must only be used to re-fetch an individual document that the
+      Whether Indian Kanoon's terms of use allow systematic bulk fetching has not
+      been confirmed. Until it is, this source must only be used to re-fetch an individual document that the
       official portal (india_code / supreme_court_of_india / ecourts_high_courts)
       failed to serve, capped at a small fraction of total documents, and every
       such use is flagged mirror_used: true in the manifest with the official
