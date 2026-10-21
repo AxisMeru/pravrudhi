@@ -10,7 +10,7 @@
   "pdf_created": "2007-01-17 (as printed in the PDF metadata)",
   "held_by": "Track C, trackc-seat3/ipc/ic/",
   "text_extraction": "pdftotext -layout; Track C parse_ipc_pdf.py (section start, footnote strip, amendment-marker strip) + a second pass for sections the parser missed; the printed amendment markers 'N*[...]' and footnotes are REMOVED from text (words inside brackets kept)",
-  "parse_limits": "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers; misprints in the PDF are kept as printed: 'appreension' (Section 364A), 'Preach' (title of Section 490), 'imprinsonment' (Section 57)",
+  "parse_limits": "all sections are read from this one PDF; the printed amendment marks and footnotes are left out; sections whose text could not be read reliably are not shipped (listed in unreliable_ids_not_shipped); page refs are PDF page numbers; the printed text is kept as printed, including misprints such as 'appreension' (Section 364A), 'Preach' (title of Section 490) and 'imprinsonment' (Section 57)",
   "file_date": "January 2007 (PDF metadata 17 Jan 2007)",
   "last_amendment_shown": "Act 42 of 1997 (footnote in the text); no later year appears in the extracted text",
   "marks": "Amendment marks and footnotes are left out of this text."

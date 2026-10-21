@@ -53,4 +53,8 @@ def test_the_source_note_lists_the_misprints_kept_as_printed() -> None:
     note = json.loads((L.ASSET_DIR / "ipc_bodies_v1.json").read_text(encoding="utf-8"))["source"]["parse_limits"]
     for word in ("appreension", "Preach", "imprinsonment"):
         assert word in note
+    import hashlib
+
+    sentence = note.split("page refs are PDF page numbers; ", 1)[1]  # R1 1c949ed330cf44ab: not worded as a complete list
+    assert hashlib.sha256(sentence.encode()).hexdigest()[:16] == "1c949ed330cf44ab" and "misprints such as" in sentence
     assert "imprinsonment" in BY_ID["IPC/Section 57"]["text"]  # the entry itself is unchanged
