@@ -108,10 +108,16 @@ def citations_to_check(sweep: dict[str, Any] | None, names: dict[str, str]) -> d
                 "page": o.get("page"),
                 "status": o.get("status"),
                 "reason": o.get("reason"),
+                **{k: o[k] for k in ("from_ocr", "ocr_marker") if k in o},  # R1: where a citation was read from a scanned page
             }
             for o in c.get("occurrences") or []
         ]
-        entry = {"text": c.get("text"), "statuses": sts, "where": where}
+        entry = {
+            "text": c.get("text"),
+            "statuses": sts,
+            "where": where,
+            **{k: c[k] for k in ("from_ocr", "ocr_marker") if k in c},
+        }
         if any(s in NEEDS_ATTENTION for s in sts):
             need.append(entry)
         elif any(s.startswith("not_checked") for s in sts):
