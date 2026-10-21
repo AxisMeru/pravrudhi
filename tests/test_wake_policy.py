@@ -18,16 +18,18 @@ B = User(id="user-b", email="b@team.example.test", role="authenticated")
 
 
 def test_the_allowlist_parses_lowercased_and_empty_means_nobody() -> None:
-    assert WP.waker_ids({"PRAVRUDHI_WAKERS": " User-A , b@Team.example.test ,, "}) == {"user-a", "b@team.example.test"}
+    assert WP.waker_ids({"PRAVRUDHI_WAKERS": " User-A , User-B ,, "}) == {"user-a", "user-b"}
     assert WP.waker_ids({}) == frozenset() and WP.waker_ids({"PRAVRUDHI_WAKERS": ""}) == frozenset()
     assert WP.waker_ids({"PRAVRUDHI_ADMINS": "user-a"}) == frozenset()  # admins do not confer it
 
 
 def test_the_gate_matrix() -> None:
-    wakers = frozenset({"user-a", "b@team.example.test"})
+    wakers = frozenset({"user-a", "user-b"})
     assert WP.may_wake(A, auth_enabled=True, wakers=wakers) is True  # by id
-    assert WP.may_wake(B, auth_enabled=True, wakers=wakers) is True  # by email, case-insensitive
-    assert WP.may_wake(User("USER-A", None, "x"), auth_enabled=True, wakers=wakers) is True
+    assert WP.may_wake(B, auth_enabled=True, wakers=wakers) is True
+    emailed = User(id="user-q", email="a@team.example.test", role="x")  # an email on the list is never a credential
+    assert WP.may_wake(emailed, auth_enabled=True, wakers=frozenset({"a@team.example.test"})) is False
+    assert WP.may_wake(User("USER-A", None, "x"), auth_enabled=True, wakers=wakers) is True  # ids compare case-insensitively
     assert WP.may_wake(None, auth_enabled=True, wakers=wakers) is False  # signed out
     assert WP.may_wake(None, auth_enabled=False, wakers=wakers) is False  # auth disabled and no user (role_of would say ADMIN)
     assert WP.may_wake(A, auth_enabled=False, wakers=wakers) is False  # auth disabled
@@ -133,3 +135,20 @@ def test_a_partial_run_leaves_the_shared_breaker_exactly_unchanged_and_other_req
 def test_the_partial_breaker_is_a_fresh_object_each_time() -> None:
     a, b = WP.partial_run_breaker(), WP.partial_run_breaker()
     assert a is not b and a.is_open() and b.is_open()
+
+
+def test_a_lost_end_cannot_pin_a_user_forever() -> None:
+    clock = Clock()
+    lim = WP.WakeLimiter(6, 120.0, clock=clock, active_ttl_s=450.0)
+    assert lim.begin("u") == "new"
+    clock.t += 449
+    assert lim.begin("u") == "existing"
+    clock.t += 2  # past 450 s with no end(): released as a failed wake (a cooldown starts)
+    assert lim.begin("u") == "cooldown"
+    clock.t += 121
+    assert lim.begin("u") == "new"
+
+
+def test_the_limits_are_per_process_and_the_boxes_caps_are_the_real_bound() -> None:
+    a, b = WP.WakeLimiter(1, 0.0, clock=Clock()), WP.WakeLimiter(1, 0.0, clock=Clock())  # a restart or a second container
+    assert a.begin("u") == "new" and b.begin("u") == "new"  # documented: the waker's own 12/label cap is what bounds the spend
