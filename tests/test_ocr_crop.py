@@ -123,3 +123,22 @@ def test_the_ingest_seam_fills_the_layout_for_the_route() -> None:
         layout_out=layout,
     )  # fmt: skip
     assert extra["pages"][0]["source"] == "ocr" and list(layout) == [1] and layout[1]["size"] == (PAGE_W, PAGE_H)
+
+
+def test_delete_removes_the_boxes_with_the_passages_from_every_file(tmp_path: Path) -> None:
+    results = _results()
+    s = _store(tmp_path)
+    m = s.create_matter(T)
+    doc = s.add_document(T, m, PG.assemble(results), "scan.pdf", [2], ocr_layout=PG.ocr_layout(results, 300), page_rows=[
+        {"page": 2, "source": "ocr", "confidence": 95.0, "readable": True, "reason": None, "line": None}])  # fmt: skip
+    root = tmp_path / "s"
+    stored = b'"unit": "px at ocr_dpi"'
+
+    def holders(needle: bytes) -> list[Path]:
+        return [p for p in root.rglob("*") if p.is_file() and needle in p.read_bytes()]
+
+    assert holders(stored), "the box JSON is stored (the control: otherwise the delete check proves nothing)"
+    assert holders(b"sent late") and holders(b'"readable": true')
+    s.delete_document(T, m, doc["doc_id"])
+    assert not holders(stored) and not holders(b"sent late") and not holders(b'"readable": true')  # text, boxes, page rows
+    assert not holders(b'"page_w"')
