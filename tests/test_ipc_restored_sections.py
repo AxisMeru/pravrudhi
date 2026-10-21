@@ -29,7 +29,7 @@ RESTORED = {
     "213": ("Taking gift, etc., to screen an offender from punishment", "Whoever accepts or attempts to obtain", "or with both."),
     "227": ("Violation of condition of remission of punishment", "Whoever, having accepted any conditional remission",
             "as he has not already suffered."),
-    "481": ("Using a false property mark", "Whoever marks any movable property or goods", "is said to use a false \x0cproperty mark."),
+    "481": ("Using a false property mark", "Whoever marks any movable property or goods", "is said to use a false property mark."),
     "490": ("[Preach of contract of service during voyage or journey.", "Rep. by the Workmen's Breach of Contract (Repealing) Act", "s. 2 and Sch."),
     "479": ("Property mark", "A mark used for denoting that movable property belongs", "is called a property mark."),
     "364A": ("Kidnapping for ransom, etc", "Whoever kidnaps or abducts any person or keeps a person in detention", ""),
