@@ -3879,10 +3879,16 @@ def build_partner_router(
             )
             _cold_limiter = RateLimiter(120, max_keys=64)
 
+            def _waker_throttled(request: Request) -> JSONResponse | None:
+                """Per client address, so an anonymous caller from elsewhere cannot spend the box poller's budget."""
+                cfg = _get_state()[0]
+                addr = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+                if _cold_limiter.allow(f"waker:{addr}"):
+                    return None
+                return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"}, headers={"Retry-After": "5"})
+
             def _decorate_ready(out: dict[str, Any]) -> dict[str, Any]:
-                out["second_judge_ran"] = True
-                out["judges"] = {"first": {"ran": True}, "second": {"ran": True, "used": _cs.second_judge_used(out)}}
-                return out
+                return _cs.decorate_result(out, "full")
 
             def _wake_runner(req: AnalyseFactsRequest, admitted: _Admitted) -> Callable[[str], tuple[Any, ...]]:
                 def run_job(kind: str) -> tuple[Any, ...]:
@@ -3910,14 +3916,14 @@ def build_partner_router(
             @router.post("/analyse-facts/wake", include_in_schema=False)
             def wake_start_ep(req: AnalyseFactsRequest, request: Request, user: User | None = CurrentUserDep) -> Any:
                 if user is None or not _is_waker(user):
-                    return JSONResponse(status_code=503, content=dict(_cs.NOT_ALLOWED))  # the one marker, for every cause
+                    return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
                 admitted = _admit(req, request, user, [], [], skip_offline=True)
                 if isinstance(admitted, JSONResponse):
                     return admitted
                 run_job = _wake_runner(req, admitted)
                 outcome, job_id, block = _cold_svc.start(user.id, run_job)
                 if outcome == "not_allowed":
-                    return JSONResponse(status_code=503, content=dict(_cs.NOT_ALLOWED))
+                    return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
                 if outcome == "run_now":  # every judge is already up: exactly the normal screening
                     res = run_job("full")
                     if res[0] == "ok":
@@ -3944,15 +3950,20 @@ def build_partner_router(
 
             @router.get("/internal/wake-requests", include_in_schema=False)
             def wake_requests_ep(request: Request) -> JSONResponse:
-                if not _cold_limiter.allow("waker"):
-                    return JSONResponse(status_code=429, content={}, headers={"Retry-After": "5"})
+                throttled = _waker_throttled(request)
+                if throttled is not None:
+                    return throttled
                 status, body = _cold_svc.requests(*_waker_headers(request))
                 return JSONResponse(status_code=status, content=body)
 
             @router.post("/internal/wake-results", include_in_schema=False)
             async def wake_results_ep(request: Request) -> JSONResponse:
-                if not _cold_limiter.allow("waker"):
-                    return JSONResponse(status_code=429, content={}, headers={"Retry-After": "5"})
+                throttled = _waker_throttled(request)
+                if throttled is not None:
+                    return throttled
+                declared = request.headers.get("content-length")  # refuse an oversize body BEFORE reading it
+                if declared is None or not declared.isdigit() or int(declared) > _jw.MAX_BODY:
+                    return JSONResponse(status_code=413, content={"error": "body_too_large"})
                 raw = await request.body()
                 status, body = _cold_svc.deliver(*_waker_headers(request), raw)
                 return JSONResponse(status_code=status, content=body)

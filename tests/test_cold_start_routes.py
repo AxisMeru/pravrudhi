@@ -283,3 +283,31 @@ def test_a_request_that_carries_an_identity_token_goes_through_the_ordinary_chec
     headers = [(b"x-waker-signature", b"v1=ab"), (b"x-identity", b"token")]
     conn = _conn("GET", "/api/v1/internal/wake-requests", headers)
     assert identity._partner_route_carries_its_own_credential("/api/v1/internal/wake-requests", conn, "x-identity") is False
+
+
+# ---- R2 advises on #628 (A, B, C) ---------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("kind", "reasons", "want"),
+    [("full", ["certain"], True), ("full", ["certain", "second_judge_unavailable"], False), ("partial", ["certain"], False)],
+)
+def test_second_judge_ran_is_false_when_the_second_judge_was_unavailable_even_on_a_full_run(kind: str, reasons: list[str], want: bool) -> None:
+    from pravrudhi.application import cold_start_service as cs
+
+    out = cs.decorate_result({"contracts": [{"reason": r, "elements": []} for r in reasons]}, kind)
+    assert out["second_judge_ran"] is want and out["judges"]["second"]["ran"] is want
+    assert out["judges"]["second"]["used"] is False
+
+
+def test_an_oversize_or_undeclared_result_body_is_refused_before_it_is_read(rig: Rig) -> None:
+    body, h = box_result_request(SECRET, [{"nonce": "x" * 32, "state": "granted", "lease_ref": "l"} for _ in range(100)])
+    assert len(body) > 2048
+    assert rig.c.post(RESULTS, content=body, headers=h).status_code == 413
+
+
+def test_the_waker_throttle_is_per_client_address_and_the_body_names_the_cause(rig: Rig) -> None:
+    for _ in range(120):  # a flood of unsigned calls from one address ...
+        assert rig.c.get(REQS).status_code == 401
+    flooded = rig.c.get(REQS)
+    assert flooded.status_code == 429 and flooded.json() == {"detail": "rate limit exceeded"}
+    assert rig.c.get(REQS, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429  # an unproven header changes nothing

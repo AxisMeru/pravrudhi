@@ -51,6 +51,22 @@ def second_judge_used(result: Mapping[str, Any]) -> bool:
     return False
 
 
+def second_judge_ran(result: Mapping[str, Any], kind: str) -> bool:
+    """The second judge read the case iff the run was a full one AND no contract was referred because it was unavailable
+    (a failed second judge, or an open shared breaker, still ends a "full" run in REFER `second_judge_unavailable`)."""
+    if kind != "full":
+        return False
+    contracts = result.get("contracts") or []
+    return not any(isinstance(c, Mapping) and c.get("reason") == "second_judge_unavailable" for c in contracts)
+
+
+def decorate_result(result: dict[str, Any], kind: str) -> dict[str, Any]:
+    ran = second_judge_ran(result, kind)
+    result["second_judge_ran"] = ran
+    result["judges"] = {"first": {"ran": True}, "second": {"ran": ran, "used": ran and second_judge_used(result)}}
+    return result
+
+
 class ColdStartService:
     def __init__(
         self,
@@ -161,10 +177,7 @@ class ColdStartService:
             self._extend()  # at the START of the team screening
             res = run_job(kind)
             if res[0] == "ok":
-                result = dict(res[1])
-                ran = kind == "full"
-                result["second_judge_ran"] = ran
-                result["judges"] = {"first": {"ran": True}, "second": {"ran": ran, "used": ran and second_judge_used(result)}}
+                result = decorate_result(dict(res[1]), kind)
                 self._jobs.finish(job_id, result=result)
                 self._extend()  # at the END of a completed team screening
             else:
