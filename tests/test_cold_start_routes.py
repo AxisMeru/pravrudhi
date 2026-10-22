@@ -58,8 +58,15 @@ class Rig:
         self.runs: list[str] = []
         self.user = user
 
+        self.not_serving: set[str] = set()  # #1041: endpoints whose /models does not answer yet (a worker is up, the judge is not)
+
         def fetch(url: str, headers: Any) -> dict[str, Any]:
-            return self.health[url.split("/v2/")[1].split("/")[0]]
+            endpoint = url.split("/v2/")[1].split("/")[0]
+            if url.endswith("/models"):
+                if endpoint in self.not_serving:
+                    raise OSError("409 ENDPOINT_PAUSED")
+                return {"data": [{"id": "m"}]}
+            return self.health[endpoint]
 
         def agent() -> Any:
             a = _agent(tmp_path, _proof_script())
@@ -392,3 +399,64 @@ def test_status_lists_each_judge_only_when_cold_start_is_configured_and_never_wa
     rig.up("ep111")
     body = rig.c.get("/api/v1/status").json()
     assert body["judges"] == {"first": "ready", "second": "parked"} and rig.box_poll() == []  # a read, no wake request queued
+
+
+# ---- #1041: READY only when the judges serve; a 4xx from a just-woken judge is warming ---------------------------------------
+
+
+def test_a_judge_with_a_worker_up_that_does_not_serve_yet_is_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    r = Rig(tmp_path, monkeypatch, db=FakeWakeDb(time.time))
+    r.up("ep111", "ep222")
+    r.not_serving.add("ep222")  # RunPod lists the 32B worker, its /models still answers 409 ENDPOINT_PAUSED
+    res = r.c.post(WAKE)
+    assert res.status_code == 202 and res.json()["wake"]["state"] == "waking" and "ticket" not in res.json()
+    r.not_serving.clear()
+    done = r.c.post(WAKE)
+    assert done.status_code == 200 and done.json()["wake"]["state"] == "ready" and done.json()["ticket"]["mode"] == "full"
+
+
+def test_the_status_reads_a_not_serving_judge_as_warming_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    r = Rig(tmp_path, monkeypatch, db=FakeWakeDb(time.time))
+    r.up("ep111", "ep222")
+    r.not_serving.add("ep111")
+    body = r.c.get(STATUS).json()
+    assert body["wake"]["state"] != "ready" and "ticket" not in body
+
+
+@pytest.mark.parametrize("status,body,warm,expect", [
+    (409, '{"code":"ENDPOINT_PAUSED","detail":"Endpoint is paused (max_workers=0)"}', False, True),  # a paused front door is a state, any time
+    (409, "conflict", False, False),   # another 409 outside the window stays a configuration fault
+    (404, "model not found", True, True),   # inside the warm window any 4xx is warming
+    (404, "model not found", False, False),
+    (401, "bad key", True, True),   # inside the window even a 401 from a just-woken judge reads warming (the retry then shows the truth)
+    (401, "bad key", False, False),
+])
+def test_a_judge_4xx_is_warming_only_when_it_is_the_paused_front_door_or_inside_the_warm_window(status: int, body: str, warm: bool, expect: bool) -> None:
+    from pravrudhi.application.nyaya_agent import JudgeMisconfigured
+    from pravrudhi.models.openai_compat import HTTPStatusError
+
+    cause = HTTPStatusError(status, body)
+    err = JudgeMisconfigured("the judge refused the request")
+    err.__cause__ = cause
+    assert partner_mod._judge_fault_is_warmup(err, warm) is expect
+
+
+def test_a_non_http_cause_is_never_warming_and_the_screening_with_a_ticket_answers_judges_warming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import pravrudhi.application.nyaya_agent as NA
+    from pravrudhi.application.nyaya_agent import JudgeMisconfigured
+    from pravrudhi.models.openai_compat import HTTPStatusError
+
+    assert partner_mod._judge_fault_is_warmup(JudgeMisconfigured("x"), True) is False  # no HTTP cause: a real configuration fault
+    paused = JudgeMisconfigured("the judge refused the request (409)")
+    paused.__cause__ = HTTPStatusError(409, '{"code":"ENDPOINT_PAUSED"}')
+    r = Rig(tmp_path, monkeypatch)
+    r.up("ep111", "ep222")
+    ticket = r.c.post(WAKE).json()["ticket"]["value"]
+    monkeypatch.setattr(NA.NyayaAgent, "run", lambda self, *a, **k: (_ for _ in ()).throw(paused))
+    res = r.c.post(SCREEN, json=_req(), headers={TICKET: ticket})
+    assert res.status_code == 503 and res.json()["error"] == "judge_unavailable" and res.json()["reason"] == "judges_warming"
+    assert res.headers["Retry-After"] == "30"
+    plain = r.c.post(SCREEN, json=_req())  # the same fault WITHOUT a ticket and without the paused marker stays the marker
+    paused.__cause__ = HTTPStatusError(404, "model not found")
+    plain = r.c.post(SCREEN, json=_req())
+    assert plain.status_code == 503 and plain.json() == {"error": "agent_unavailable", "detail": "the nyaya agent is unavailable; retry later"}
