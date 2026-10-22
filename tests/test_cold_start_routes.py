@@ -115,6 +115,7 @@ def test_with_the_flag_off_none_of_the_routes_exist(tmp_path: Path, monkeypatch:
     r = Rig(tmp_path, monkeypatch, flags={})
     assert r.c.post(WAKE, json=_req()).status_code == 404
     assert r.c.get(POLL + "x").status_code == 404 and r.c.get(REQS).status_code == 404 and r.c.post(RESULTS, content=b"{}").status_code == 404
+    assert set(r.c.get("/api/v1/status").json()) == {"engine_version", "service_window", "judge", "workflows"}  # no `judges` key
 
 
 def test_without_the_secret_or_with_a_bad_value_none_of_the_routes_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -311,3 +312,9 @@ def test_the_waker_throttle_is_per_client_address_and_the_body_names_the_cause(r
     flooded = rig.c.get(REQS)
     assert flooded.status_code == 429 and flooded.json() == {"detail": "rate limit exceeded"}
     assert rig.c.get(REQS, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429  # an unproven header changes nothing
+
+
+def test_status_lists_each_judge_only_when_cold_start_is_configured_and_never_wakes(rig: Rig) -> None:
+    rig.up("ep111")
+    body = rig.c.get("/api/v1/status").json()
+    assert body["judges"] == {"first": "ready", "second": "parked"} and rig.box_poll() == []  # a read, no wake request queued

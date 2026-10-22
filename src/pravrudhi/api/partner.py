@@ -1362,8 +1362,10 @@ def build_partner_router(
 
     router = APIRouter(prefix="/api/v1")
 
+    _status_judges: list[Callable[[], dict[str, str]]] = []  # filled only when cold-start wake is configured
+
     @router.get("/status", response_model=ServiceStatusOut)
-    def status_ep() -> ServiceStatusOut:
+    def status_ep() -> Any:
         # The one endpoint that must answer on a fresh install: a root with no partner_api.yaml has no
         # window to report (null), it is not a server error.
         try:
@@ -1388,7 +1390,7 @@ def build_partner_router(
         state: Literal["ready", "warming", "unavailable", "unknown"] = _judge_seen["state"] if fresh else "unknown"
         if state == "unavailable" and _warming(cfg, now):
             state = "warming"
-        return ServiceStatusOut(
+        out = ServiceStatusOut(
             engine_version=__version__,
             service_window=window,
             judge=JudgeStateOut(
@@ -1397,6 +1399,11 @@ def build_partner_router(
             ),
             workflows={k: True for k, v in sorted(_flags.items()) if isinstance(k, str) and k.startswith("wf_") and v is True},
         )
+        if not _status_judges:
+            return out
+        # #1038: only when cold-start wake is configured, `judges` (first/second: ready|warming|parked|unknown) is added to the
+        # body OUTSIDE the published schema; a cached read of each endpoint's own /health, never a probe that wakes anything.
+        return JSONResponse(content={**out.model_dump(mode="json"), "judges": _status_judges[0]()})
 
     # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is
     # off, and must actually disappear from the JSON, not reappear as their Pydantic default (None) --
@@ -3857,6 +3864,7 @@ def build_partner_router(
                 except Exception:  # noqa: BLE001 - a failed reading is `unknown`, which is never ready
                     return "unknown"
 
+            _status_judges.append(lambda: {role: _cold_reading(role) for role in ("first", "second")})
             _wake_pool: dict[str, ThreadPoolExecutor] = {}
 
             def _wake_submit(task: Callable[[], None]) -> None:
