@@ -8,7 +8,7 @@ messages.
 PATCH release on 0.6.31. 0.6.30 and 0.6.31 were tagged but not deployed to production, so this release carries their changes too: cold start with progress, switched OFF, the shared coordination rows it needs when more than one container runs, and a fix to how the two waker paths are gated. For a customer nothing changes: with the flag off none of the new routes does anything and every existing route behaves as before. Nothing else is switched on.
 
 ### Changed
-- **Cold start with progress is built and off.** `cold_start_wake` is `false` in the shipped configuration. The wake and status routes exist only when that flag is the boolean `true`, its numbers are valid and the waker's HMAC secret environment variable is set; otherwise they do not exist, and the cold-start modules are not loaded.
+- **Cold start with progress is built and off.** `cold_start_wake` is `false` in the shipped configuration and nothing in this release switches it on. It is switched on only by setting the environment variable `PRAVRUDHI_COLD_START_WAKE` to exactly `1`; the variable can only switch cold start on, and when it is unset or has any other value the shipped configuration stands. The wake and status routes exist only when cold start is on, its numbers are valid and the waker's HMAC secret environment variable is set; otherwise they do not exist, and the cold-start modules are not loaded. Even then, no one may wake a judge until their user id is in the `PRAVRUDHI_WAKERS` list.
 
 - **The waker paths.** The two signed waker paths (`GET /api/v1/internal/wake-requests` and `POST /api/v1/internal/wake-results`) are always registered. With cold start off they are plain stubs that read, write and check nothing and answer 404 to a signed-in caller; an anonymous caller gets the usual 401 first, and a request carrying exactly one `X-Waker-Signature` header, from anyone, passes the identity gate and gets the stub's 404. With cold start on, the identity gate lets a request through on exactly those two method and path pairs when it carries exactly one `X-Waker-Signature` header, and the route then verifies the signature itself; a request with no header, or a repeated one, gets the usual gate.
 
@@ -29,16 +29,16 @@ PATCH release on 0.6.31. 0.6.30 and 0.6.31 were tagged but not deployed to produ
 - `GET /status` lists each judge's reading (ready, warming, parked or unknown) only when cold start is configured; the published status schema is unchanged.
 
 ### Configuration
-- New keys in the shipped configuration: `cold_start_wake` (`false`), the `cold_start_*` settings with their defaults (budget 300 s, poll 5 s, deadline margin 30 s, the second judge started in parallel, the secret's environment variable name `PRAVRUDHI_WAKER_SECRET`, request lifetime 120 s, 6 wakes per user per day, 120 s cooldown after a failed wake) and two new ones, `cold_start_ticket_ttl_s` (600) and `cold_start_row_ttl_s` (900). Nothing reads them while the flag is off. A migration adds the three tables and their database functions and changes no existing data; its down step drops only them. This is a new image.
+- New keys in the shipped configuration and one new environment variable, `PRAVRUDHI_COLD_START_WAKE` (not set by this release): `cold_start_wake` (`false`), the `cold_start_*` settings with their defaults (budget 300 s, poll 5 s, deadline margin 30 s, the second judge started in parallel, the secret's environment variable name `PRAVRUDHI_WAKER_SECRET`, request lifetime 120 s, 6 wakes per user per day, 120 s cooldown after a failed wake) and two new ones, `cold_start_ticket_ttl_s` (600) and `cold_start_row_ttl_s` (900). Nothing reads them while the flag is off. A migration adds the three tables and their database functions and changes no existing data; its down step drops only them. This is a new image.
 
 ### Credentials
 - **Credentials, stated as they are.** The engine holds an HMAC secret shared with the waker, and it makes no outbound call to wake a judge: the box-side waker polls the engine. The shared tables use the database role the engine already uses. The engine currently holds a management-capable RunPod key; replacing it with an inference-only key is tracked as #1039 and is not part of this release.
 
 ### Not switched on
-- **Not in this release and still off:** cold start itself (`cold_start_wake`), the app's cold-start screen (a separate app release), the box-side waker (a separate install), scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`) and photo intake. Nothing here changes what a customer sees.
+- **Not in this release and still off:** cold start itself (it stays off unless `PRAVRUDHI_COLD_START_WAKE` is set to `1`), the app's cold-start screen (a separate app release), the box-side waker (a separate install), scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`) and photo intake. Nothing here changes what a customer sees.
 
 ### Notes
-- **Turning it off:** the flag is already off. If it is switched on later, the way back is the flag `false` in a new image, or the 0.6.29 image (the version running in production before this release): the new routes disappear again. The 0.6.29 image never reads the new tables; their rows expire by themselves, and the migration's down step drops the tables and functions.
+- **Turning it off:** cold start is off unless the environment variable `PRAVRUDHI_COLD_START_WAKE` is set to `1`. If it was set, remove it and restart the service, or deploy the 0.6.29 image (the version running in production before this release): the new routes disappear again. The 0.6.29 image never reads the new tables; their rows expire by themselves, and the migration's down step drops the tables and functions.
 
 ## 0.6.31 (2026-10-22)
 
