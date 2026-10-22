@@ -3925,8 +3925,12 @@ def build_partner_router(
             _waker_limiter = RateLimiter(120, max_keys=4096)
             _user_limiter = RateLimiter(120, max_keys=4096)
 
+            _any_signed_in = _wp.any_signed_in_enabled()  # read ONCE at startup: exactly "1"; a later env change does nothing
+
             def _is_waker(user: User | None) -> bool:
-                return _wp.may_wake(user, auth_enabled=auth_mode() is not AuthMode.DISABLED, wakers=_wp.waker_ids())
+                return _wp.may_wake(
+                    user, auth_enabled=auth_mode() is not AuthMode.DISABLED, wakers=_wp.waker_ids(), any_signed_in=_any_signed_in
+                )
 
             class _RealTicket:
                 def mode(self, request: Request, user: User | None) -> str | None:
