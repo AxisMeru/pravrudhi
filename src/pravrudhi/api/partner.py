@@ -3866,6 +3866,7 @@ def build_partner_router(
     # the HMAC secret env var is set: with anything missing none of these routes exists and no slice module is imported.
     # PR-4: no job object and no engine-run screening. The coordination state is shared by every container (wake_store.py); the
     # CLIENT submits the screening itself once /analyse-facts/wake/status says ready or partial.
+    _cold_registered = False
     if _flags.get("cold_start_wake") is True:
         from pravrudhi.api.identity import AuthMode, auth_mode
         from pravrudhi.application import cold_start_service as _cs
@@ -3984,6 +3985,8 @@ def build_partner_router(
                 status, body = _cold_svc.requests(*_waker_headers(request))
                 return JSONResponse(status_code=status, content=body)
 
+            _cold_registered = True
+
             @router.post("/internal/wake-results", include_in_schema=False)
             async def wake_results_ep(request: Request) -> JSONResponse:
                 throttled = _waker_throttled(request)
@@ -3995,5 +3998,21 @@ def build_partner_router(
                 raw = await request.body()
                 status, body = _cold_svc.deliver(*_waker_headers(request), raw)
                 return JSONResponse(status_code=status, content=body)
+
+    # #1038: with cold start NOT configured the two waker paths still exist, as plain 404s. The identity gate lets a request that
+    # carries exactly one x-waker-signature header reach these two paths (it cannot know whether cold start is on), and without a
+    # route they would fall through to the app's catch-all and answer 200 with the page. Nothing is read, written or checked here.
+    if not _cold_registered:
+
+        class _NotFound(BaseModel):
+            detail: str
+
+        @router.get("/internal/wake-requests", include_in_schema=False, response_model=_NotFound)
+        def _wake_requests_absent() -> JSONResponse:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+        @router.post("/internal/wake-results", include_in_schema=False, response_model=_NotFound)
+        def _wake_results_absent() -> JSONResponse:
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
     return router

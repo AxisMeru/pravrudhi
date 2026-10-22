@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 from starlette.requests import HTTPConnection
 
@@ -122,18 +123,43 @@ def test_the_routes_are_not_in_the_openapi_document(rig: Rig) -> None:
     assert not [p for p in paths if "wake" in p]
 
 
-@pytest.mark.parametrize(("method", "path"), [("get", REQS), ("post", RESULTS)])
-def test_with_cold_start_off_the_identity_gate_answers_a_signed_looking_request_with_401_as_0629_did(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str, path: str
-) -> None:
-    r = Rig(tmp_path, monkeypatch, flags={})
+def _gated_app(tmp_path: Path) -> TestClient:
     app = FastAPI()
     app.include_router(build_partner_router(tmp_path, agent_factory=lambda _r: None, config=_NO_LIMIT_CONFIG))
-    app.add_middleware(identity.RequireIdentity)
-    monkeypatch.setenv("PRAVRUDHI_AUTH", "required")
-    c = TestClient(app, raise_server_exceptions=False)
-    res = getattr(c, method)(path, headers={"X-Waker-Signature": "v1=" + "0" * 64, "X-Waker-Timestamp": "1", "X-Waker-Nonce": "a" * 32})
-    assert res.status_code == 401 and r.c is not None  # never a 200 page, never a route that is not there
+    # what the hosted app has after every router: a catch-all that answers 200 with the page for any path it does not know
+    app.add_api_route("/{rest:path}", lambda: HTMLResponse("<html>the app</html>"), methods=["GET", "POST"])
+    app.add_middleware(identity.RequireIdentity)  # the real gate, auth required, no identity token on these requests
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _signed(c: TestClient, method: str, path: str) -> Any:
+    if method == "get":
+        return c.get(path, headers=box_poll_headers(SECRET))
+    body, h = box_result_request(SECRET, [])
+    return c.post(path, content=body, headers=h)
+
+
+@pytest.mark.parametrize(("method", "path"), [("get", REQS), ("post", RESULTS)])
+def test_with_cold_start_off_the_waker_paths_answer_404_not_the_page_and_unsigned_is_401(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str, path: str
+) -> None:
+    Rig(tmp_path, monkeypatch, flags={})  # cold start OFF (the rig only patches the flag read)
+    c = _gated_app(tmp_path)
+    assert _signed(c, method, path).status_code == 404  # the gate lets a signed-looking request reach the stub; never a 200
+    unsigned = c.get(path) if method == "get" else c.post(path, content=b"{}")
+    assert unsigned.status_code == 401  # no signature header: the ordinary identity check, as in 0.6.29
+
+
+@pytest.mark.parametrize(("method", "path"), [("get", REQS), ("post", RESULTS)])
+def test_with_cold_start_on_behind_the_identity_gate_a_signed_waker_request_passes_and_an_unsigned_one_does_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str, path: str
+) -> None:
+    Rig(tmp_path, monkeypatch)  # cold start ON
+    c = _gated_app(tmp_path)
+    signed = _signed(c, method, path)
+    assert signed.status_code == 200 and signed.json()["v"] == 1  # the gate lets exactly this through and the route answers
+    unsigned = c.get(path) if method == "get" else c.post(path, content=b"{}")
+    assert unsigned.status_code == 401
 
 
 def test_the_old_job_route_is_gone(rig: Rig) -> None:
@@ -308,17 +334,8 @@ def test_the_wake_requests_are_signed_fresh_and_valid_for_the_boxs_core(rig: Rig
 # ---- the identity gate lets ONLY these two signed requests through ---------------------------------------------------------
 
 
-def _app(registered: bool) -> FastAPI:
-    app = FastAPI()
-    if registered:  # what the partner router registers when cold start is on
-        app.add_api_route("/api/v1/internal/wake-requests", lambda: None, methods=["GET"])
-        app.add_api_route("/api/v1/internal/wake-results", lambda: None, methods=["POST"])
-    return app
-
-
-def _conn(method: str, path: str, headers: list[tuple[bytes, bytes]], *, registered: bool = True) -> HTTPConnection:
-    scope = {"type": "http", "method": method, "path": path, "headers": headers, "query_string": b"", "app": _app(registered)}
-    return HTTPConnection(scope)
+def _conn(method: str, path: str, headers: list[tuple[bytes, bytes]]) -> HTTPConnection:
+    return HTTPConnection({"type": "http", "method": method, "path": path, "headers": headers, "query_string": b""})
 
 
 @pytest.mark.parametrize(
@@ -339,12 +356,6 @@ def _conn(method: str, path: str, headers: list[tuple[bytes, bytes]], *, registe
 def test_the_gate_passes_only_the_two_signed_waker_requests(method: str, path: str, headers: list[tuple[bytes, bytes]], want: bool) -> None:
     got = identity._partner_route_carries_its_own_credential(path, _conn(method, path, headers), "x-identity")
     assert got is want
-
-
-@pytest.mark.parametrize(("method", "path"), [("GET", "/api/v1/internal/wake-requests"), ("POST", "/api/v1/internal/wake-results")])
-def test_with_the_routes_not_registered_the_exemption_does_not_apply(method: str, path: str) -> None:
-    conn = _conn(method, path, [(b"x-waker-signature", b"v1=ab")], registered=False)  # cold start off: the ordinary 401 as in 0.6.29
-    assert identity._partner_route_carries_its_own_credential(path, conn, "x-identity") is False
 
 
 def test_a_request_that_carries_an_identity_token_goes_through_the_ordinary_check() -> None:

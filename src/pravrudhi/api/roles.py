@@ -197,6 +197,9 @@ USER_FACING: frozenset[str] = frozenset({
     "/api/nyaya/registry/contracts",
     # L4 partner API (LEG-PLAN-2026-09-23): the agentic loop over the same registry contracts, facts in.
     "/api/v1/analyse-facts", "/api/v1/status", "/api/v1/verify-citations",
+    # #1038: the two waker paths always exist (real routes with cold start on, plain 404s with it off), each signing its own
+    # request (partner.py); the identity gate lets a request through only for these two pairs with exactly one signature header.
+    "/api/v1/internal/wake-requests", "/api/v1/internal/wake-results",
     "/api/v1/analyse-facts/jobs", "/api/v1/analyse-facts/jobs/{job_id}", "/api/v1/audit",
     # A0 assisted screening (ships dark: 404 until the route is enabled in the config).
     "/api/v1/analyse-facts/assist", "/api/assistant",
