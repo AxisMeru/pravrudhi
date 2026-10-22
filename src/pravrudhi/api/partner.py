@@ -3908,7 +3908,10 @@ def build_partner_router(
                 _ws.PgWakeStore(_wake_call, _cold_cfg) if _wake_call is not None else _ws.MemoryWakeStore(_cold_cfg)
             )
             _cold_svc = _cs.ColdStartService(_cold_cfg, secret=_cold_secret, store=_wake_store, health=_cold_reading)
-            _cold_limiter = RateLimiter(120, max_keys=64)
+            # two limiters, so a flood of anonymous addresses against the waker routes cannot spend the team users' budget (or the
+            # reverse), and each holds far more keys than a flood can plausibly fill before stale ones are reclaimed
+            _waker_limiter = RateLimiter(120, max_keys=4096)
+            _user_limiter = RateLimiter(120, max_keys=4096)
 
             def _is_waker(user: User | None) -> bool:
                 return _wp.may_wake(user, auth_enabled=auth_mode() is not AuthMode.DISABLED, wakers=_wp.waker_ids())
@@ -3930,7 +3933,7 @@ def build_partner_router(
                 """Per client address, so an anonymous caller from elsewhere cannot spend the box poller's budget."""
                 cfg = _get_state()[0]
                 addr = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
-                if _cold_limiter.allow(f"waker:{addr}"):
+                if _waker_limiter.allow(f"waker:{addr}"):
                     return None
                 return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"}, headers={"Retry-After": "5"})
 
@@ -3943,7 +3946,7 @@ def build_partner_router(
                     cfg = _get_state()[0]
                 except FileNotFoundError:
                     return JSONResponse(status_code=503, content={"error": "service_config_missing"})
-                if _window_closed(cfg) is not None or not _cold_limiter.allow(f"user:{user.id}"):
+                if _window_closed(cfg) is not None or not _user_limiter.allow(f"user:{user.id}"):
                     return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
                 return None
 

@@ -341,6 +341,13 @@ def test_the_waker_throttle_is_per_client_address_and_the_body_names_the_cause(r
     assert rig.c.get(REQS, headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429  # an unproven header changes nothing
 
 
+def test_a_flood_against_the_waker_routes_does_not_spend_the_team_users_budget(rig: Rig) -> None:
+    for _ in range(121):
+        rig.c.get(REQS)
+    assert rig.c.get(REQS).status_code == 429  # the waker address budget is spent ...
+    assert rig.c.post(WAKE).status_code == 202 and rig.c.get(STATUS).status_code == 200  # ... the users' budget is separate
+
+
 def test_status_lists_each_judge_only_when_cold_start_is_configured_and_never_wakes(rig: Rig) -> None:
     rig.up("ep111")
     body = rig.c.get("/api/v1/status").json()
