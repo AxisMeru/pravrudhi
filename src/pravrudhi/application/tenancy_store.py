@@ -23,7 +23,7 @@ from pravrudhi.application.a0_assist.store import StoreNotConfigured, parse_dsn,
 DSN_ENV = "SUPABASE_TENANCY_DB_URL"
 DEFAULT_CA_FILE = "/opt/pravrudhi/certs/supabase-prod-ca.crt"
 IDLE_REOPEN_S = 20.0
-#: #1038 PR-4 cold-start coordination functions (supabase/wake_migration_v1.sql): the only names `wake_call` accepts.
+#: #1038 PR-4 cold-start coordination functions (supabase/wake_migration_v2.sql): the only names `wake_call` accepts.
 WAKE_FUNCS = frozenset(
     {"wake_ensure", "wake_extend", "wake_open", "wake_deliver", "wake_state", "wake_lease", "wake_nonce", "wake_begin",
      "wake_active", "wake_end"}

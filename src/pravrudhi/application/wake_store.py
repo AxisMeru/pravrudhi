@@ -8,7 +8,7 @@ screening inputs or outputs never reach this module.
 * `MemoryWakeStore`: the in-process implementation (a local engine, tests, `PRAVRUDHI_TENANCY_BACKEND` unset or `file`); it is
   built from the existing `WakeBoard`, `NonceStore` and `WakeLimiter`, so behaviour is exactly that of PR #625/#626.
 * `PgWakeStore`: the same interface over the hosted tenancy database, reached ONLY through the SECURITY DEFINER functions
-  `tenancy.wake_*` (supabase/wake_migration_v1.sql) as the same narrow login role as the tenancy store. Every duration is
+  `tenancy.wake_*` (supabase/wake_migration_v2.sql) as the same narrow login role as the tenancy store. Every duration is
   measured by the database clock, so containers whose clocks differ still agree. Any store failure raises
   `TenancyStoreDown`; the service reads that as a refusal, never as permission.
 """

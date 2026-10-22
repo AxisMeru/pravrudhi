@@ -1,4 +1,4 @@
--- #1038 PR-4: cold-start coordination rows (engine 0.6.31). ADDITIVE: three new tables and ten functions in the existing `tenancy`
+-- v2 = v1 + name-list canary(). #1038 PR-4: cold-start coordination rows (engine 0.6.31). ADDITIVE: three new tables and ten functions in the existing `tenancy`
 -- schema; no existing object is read, altered or dropped. Apply as a reviewed migration (never from a console); the matching
 -- down-migration is supabase/wake_migration_v1_down.sql and drops ONLY these objects.
 --
@@ -285,5 +285,38 @@ begin
     grant execute on function tenancy.wake_end(text, boolean, double precision, double precision) to tenancy_rpc;
   end if;
 end $$;
+
+-- v2 (22 Oct): canary() counts the 16 PRE-EXISTING tenancy functions by NAME and requires the wake functions to be exactly the ten granted
+-- wake_* names (or absent), so a new granted function set no longer flips the store status. Same checks otherwise (no table grants to the login
+-- role / API roles / PUBLIC, no PUBLIC/API-role EXECUTE on any tenancy function, no CREATE on the schema).
+create or replace function tenancy.canary()
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'pg_catalog', 'tenancy'
+as $function$
+declare tables_bad integer; fns_ok integer; fns_bad integer; schema_create boolean; wake_ok integer; wake_unexpected integer;
+        wake_names text[] := array['wake_ensure','wake_extend','wake_open','wake_deliver','wake_state','wake_lease','wake_nonce','wake_begin','wake_active','wake_end'];
+begin
+  select count(*) into tables_bad from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'tenancy' and c.relkind in ('r', 'S', 'v', 'm', 'p')
+     and (exists (select 1 from aclexplode(coalesce(c.relacl, acldefault((case when c.relkind = 'S' then 's' else 'r' end)::"char", c.relowner))) a
+                  where a.grantee = 0 or a.grantee in (select oid from pg_roles where rolname in ('tenancy_rpc', 'anon', 'authenticated', 'service_role'))));
+  -- the original functions: exactly 16 executable by the login role, wake functions excluded by NAME
+  select count(*) into fns_ok from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'tenancy' and p.proname <> all (wake_names) and p.proname not in ('_wake_now', '_wake_purge') and has_function_privilege('tenancy_rpc', p.oid, 'EXECUTE');
+  -- the wake functions: either all ten granted to the login role or none present; the two helpers are never executable by it
+  select count(*) into wake_ok from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'tenancy' and p.proname = any (wake_names) and has_function_privilege('tenancy_rpc', p.oid, 'EXECUTE');
+  select count(*) into wake_unexpected from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'tenancy' and (p.proname like '%wake%') and p.proname <> all (wake_names) and p.proname not in ('_wake_now', '_wake_purge');
+  select count(*) into fns_bad from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'tenancy' and exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                                           where a.privilege_type = 'EXECUTE' and (a.grantee = 0 or a.grantee in (select oid from pg_roles where rolname in ('anon', 'authenticated', 'service_role'))));
+  schema_create := has_schema_privilege('tenancy_rpc', 'tenancy', 'CREATE');
+  return jsonb_build_object('ok', tables_bad = 0 and fns_ok = 16 and (wake_ok = 10 or wake_ok = 0) and wake_unexpected = 0 and fns_bad = 0 and not schema_create,
+    'table_grants', tables_bad, 'functions_executable', fns_ok, 'wake_functions_executable', wake_ok, 'wake_unexpected', wake_unexpected, 'functions_open_to_others', fns_bad,
+    'orgs', (select count(*) from tenancy.org), 'keys', (select count(*) from tenancy.api_key));
+end $function$;
 
 commit;
