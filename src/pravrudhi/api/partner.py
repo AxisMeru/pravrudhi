@@ -265,18 +265,29 @@ def _intake_timeout(raw: Any) -> float:
     return float(raw)
 
 
+#: #1038: switches cold start ON without a new image (a template env change). FAIL CLOSED: only the exact value "1" counts,
+#: and it can only turn the flag ON; unset or any other value leaves the packaged yaml (`cold_start_wake: false`) in force.
+#: The numbers and the waker secret are still validated as before; an unreadable yaml still means everything off.
+COLD_START_ENV = "PRAVRUDHI_COLD_START_WAKE"
+COLD_START_ENV_ON = "1"
+
+
 def _peek_flags(engine_root: Path) -> dict[str, Any]:
     """ONE read of partner_api.yaml for the optional slices' switches, importing none of their modules (#986).
 
     With every flag off the process imports exactly what the released tree imports: the slice config readers
     (`draft_check_config`, `matter_spans_config`, ...) are imported only for a slice whose flag reads true here. A missing or
-    unreadable file, or a body that is not a mapping, is `{}` (everything off). Never raises.
+    unreadable file, or a body that is not a mapping, is `{}` (everything off, whatever the environment says). Never raises.
     """
     try:
         body = yaml.safe_load(config_file(Path(engine_root), "partner_api.yaml").read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 - an optional slice must never stop the engine's own routes from starting
         return {}
-    return body if isinstance(body, dict) else {}
+    if not isinstance(body, dict):
+        return {}
+    if os.environ.get(COLD_START_ENV) == COLD_START_ENV_ON:  # exact match only: "true", "0", " 1", "" and unset all keep the yaml
+        return {**body, "cold_start_wake": True}
+    return body
 
 
 def _peek_matter_store_dir(engine_root: Path, flags: dict[str, Any]) -> Path:
