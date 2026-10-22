@@ -3,6 +3,8 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+Note (22 Oct 2026): Each entry describes its release as shipped. Whether a feature is switched on in a deployment is a setting, not part of the release; this file does not track settings.
+
 ## 0.6.32 (2026-10-22)
 
 PATCH release on 0.6.31. 0.6.30 and 0.6.31 were tagged but not deployed to production, so this release carries their changes too: cold start with progress, switched OFF, the shared coordination rows it needs when more than one container runs, and a fix to how the two waker paths are gated. For a customer nothing changes: with the flag off none of the new routes does anything and every existing route behaves as before. Nothing else is switched on.
