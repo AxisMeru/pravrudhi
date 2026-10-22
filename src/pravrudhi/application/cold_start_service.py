@@ -86,6 +86,7 @@ class ColdStartService:
         self._health, self._submit, self._clock, self._wall, self._sleep = health, submit, clock, wall, sleep
         self._nonces = NonceStore(clock=wall)
         self._wakes: dict[str, JudgeWake] = {}
+        self._stamps: dict[str, float | None] = {}  # job id -> the limiter's stamp of its wake (for a stamped, idempotent end)
         self._active: dict[str, tuple[str, float]] = {}  # user -> (job id of the wake in progress, when it began)
         self._lock = threading.Lock()
 
@@ -123,6 +124,7 @@ class ColdStartService:
             wake = JudgeWake(self._cfg, clock=self._clock)
             to_wake = wake.start(readings)
             self._wakes[job_id] = wake
+            self._stamps[job_id] = self._limiter.stamp(user_id)
             self._active[user_id] = (job_id, self._clock())
             nonces = {role: self._board.request(role, "wake") for role in to_wake}
         self._submit(lambda: self._task(user_id, job_id, wake, nonces, run_job))
@@ -185,7 +187,9 @@ class ColdStartService:
         except Exception:  # noqa: BLE001 - a crash is a failed job, never a hung one
             self._jobs.fail(job_id, status_code=500, body={"error": "internal_error"})
         finally:
-            self._limiter.end(user_id, ok=ok)
+            with self._lock:
+                stamp = self._stamps.pop(job_id, None)
+            self._limiter.end(user_id, ok=ok, stamp=stamp)
             with self._lock:
                 if (self._active.get(user_id) or ('', 0.0))[0] == job_id:
                     del self._active[user_id]
