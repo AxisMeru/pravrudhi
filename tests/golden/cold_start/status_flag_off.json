@@ -1,0 +1,12 @@
+{
+  "body": {
+    "engine_version": "<version>",
+    "judge": {
+      "checked_at": null,
+      "state": "unknown"
+    },
+    "service_window": null,
+    "workflows": {}
+  },
+  "status_code": 200
+}
