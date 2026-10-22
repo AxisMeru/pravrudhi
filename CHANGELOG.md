@@ -3,6 +3,43 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.32 (2026-10-22)
+
+PATCH release on 0.6.31. 0.6.30 and 0.6.31 were tagged but not deployed to production, so this release carries their changes too: cold start with progress, switched OFF, the shared coordination rows it needs when more than one container runs, and a fix to how the two waker paths are gated. For a customer nothing changes: with the flag off none of the new routes does anything and every existing route behaves as before. Nothing else is switched on.
+
+### Changed
+- **Cold start with progress is built and off.** `cold_start_wake` is `false` in the shipped configuration. The wake and status routes exist only when that flag is the boolean `true`, its numbers are valid and the waker's HMAC secret environment variable is set; otherwise they do not exist, and the cold-start modules are not loaded.
+
+- **The waker paths.** The two signed waker paths (`GET /api/v1/internal/wake-requests` and `POST /api/v1/internal/wake-results`) are always registered. With cold start off they are plain stubs that read, write and check nothing and answer 404 to a signed-in caller; an anonymous caller gets the usual 401 first, and a request carrying exactly one `X-Waker-Signature` header, from anyone, passes the identity gate and gets the stub's 404. With cold start on, the identity gate lets a request through on exactly those two method and path pairs when it carries exactly one `X-Waker-Signature` header, and the route then verifies the signature itself; a request with no header, or a repeated one, gets the usual gate.
+
+- **What the new code does when it is switched on.** A signed-in user on the engine's waker allowlist can start the analysis models while they are off: `POST /api/v1/analyse-facts/wake` takes no body and no facts and starts the models (it answers 200 when both are up, 202 while they start, or the not-allowed marker), and `GET /api/v1/analyse-facts/wake/status` (no job id) lets that same user read each model's state (waiting, starting, ready or failed). The status read has the same allowlist gate as the start, so it does not tell anyone else whether a model is running. The user's own browser then submits the normal screening itself; the engine does not run it for them. Two signed internal routes, `GET /api/v1/internal/wake-requests` and `POST /api/v1/internal/wake-results`, are for a separate box-side waker. All are left out of the published API schema. Anyone else gets the same `judges_offline` marker on the wake route (with `wake: not_allowed`); the existing `POST /api/v1/analyse-facts` answers as before.
+
+- **A proof still needs both judges.** If the first judge is ready and the second is not, the status carries a short-lived ticket, and a screening submitted with it refers every ingredient the first judge established to a lawyer, never as a proof; each affected contract is referred to a lawyer with the existing reason `second_judge_unavailable`. If the first judge does not start, nothing is scored. A ticket never skips the check of the first judge and can only make a run stricter; a missing, expired or foreign ticket is ignored.
+
+- **The ticket.** It is valid for 600 seconds, is a keyed signature over the user's id, an expiry and a mode, and is held only by the user's browser: the engine does not store it. It carries no facts. It is issued when both models are ready (mode `full`, which only lets the engine extend the judges' lease at the start and end of that screening) and when only the first is ready (mode `partial`). A ticket is ignored for a user who is no longer on the allowlist. A screening submitted without a ticket makes no database call.
+
+- **One field is not in this release.** The wake route no longer runs the screening, so the `second_judge_ran` marker and the `judges` block on a wake response are gone; the normal screening response already says it for each contract, where `reason` is `second_judge_unavailable`.
+
+- **Shared coordination rows.** When the engine uses the hosted database it already uses for tenancy (no new service and no new credential), the state that used to sit in each container's memory is kept in three new tables, so every container sees the same state: one request row per model (a one-time number, which model, wake or extend, an opaque lease reference, timestamps and the waker's answer; no user id), the one-time numbers that stop a signed message being replayed, and each user's wake counters (the user's id, the start times of wakes in the last 24 hours, and cooldown markers). The engine reaches the tables only through fixed database functions, as the narrow login role it already uses for tenancy; no other role can read them. Request rows are kept up to 900 seconds and ignored once expired (the waker sees only unanswered requests younger than 120 seconds), one-time numbers last 180 seconds and counters expire 86,400 seconds after the user's last activity; expired rows are removed when the engine next writes. The tables hold nothing about any case or a customer's papers: no facts, no screening results, no paper text, no contract ids and no screening input or output. The only personal data is the user's id, kept in that user's counters until they expire 24 hours after the user's last activity (and removed when the engine next writes).
+
+- **Shared only with the hosted database.** With the hosted database the wake state is shared by every container, and if the store cannot answer, the wake is refused, never allowed. With the local file backend the state lives in that one process's memory: a wake works for a single engine process only, and its state is not shared between containers and is lost on a restart.
+
+- **Who may wake a judge.** Only a verified signed-in user whose user id is in the new `PRAVRUDHI_WAKERS` list (user ids only; an email is not accepted; empty or unset means nobody). It ships empty. Each user has a daily limit, a cooldown after a failed wake and one wake at a time, counted in the shared store where the hosted database is used.
+
+- `GET /status` lists each judge's reading (ready, warming, parked or unknown) only when cold start is configured; the published status schema is unchanged.
+
+### Configuration
+- New keys in the shipped configuration: `cold_start_wake` (`false`), the `cold_start_*` settings with their defaults (budget 300 s, poll 5 s, deadline margin 30 s, the second judge started in parallel, the secret's environment variable name `PRAVRUDHI_WAKER_SECRET`, request lifetime 120 s, 6 wakes per user per day, 120 s cooldown after a failed wake) and two new ones, `cold_start_ticket_ttl_s` (600) and `cold_start_row_ttl_s` (900). Nothing reads them while the flag is off. A migration adds the three tables and their database functions and changes no existing data; its down step drops only them. This is a new image.
+
+### Credentials
+- **Credentials, stated as they are.** The engine holds an HMAC secret shared with the waker, and it makes no outbound call to wake a judge: the box-side waker polls the engine. The shared tables use the database role the engine already uses. The engine currently holds a management-capable RunPod key; replacing it with an inference-only key is tracked as #1039 and is not part of this release.
+
+### Not switched on
+- **Not in this release and still off:** cold start itself (`cold_start_wake`), the app's cold-start screen (a separate app release), the box-side waker (a separate install), scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`) and photo intake. Nothing here changes what a customer sees.
+
+### Notes
+- **Turning it off:** the flag is already off. If it is switched on later, the way back is the flag `false` in a new image, or the 0.6.29 image (the version running in production before this release): the new routes disappear again. The 0.6.29 image never reads the new tables; their rows expire by themselves, and the migration's down step drops the tables and functions.
+
 ## 0.6.31 (2026-10-22)
 
 PATCH release on 0.6.30. 0.6.30 was tagged but not deployed to production, so this release carries its changes too: cold start with progress, switched OFF, and the shared coordination rows it needs when more than one container runs. For a customer nothing changes: with the flag off none of the new routes exists and every existing route behaves as before. Nothing else is switched on.
