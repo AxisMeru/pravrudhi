@@ -138,7 +138,11 @@ def install(app: FastAPI, root: Path, *, enforce: bool = True) -> None:
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         # `authorization` carries the signed-in user's token from a hosted web door (ADR-0051 addendum 3); a
         # browser preflights any request that names it, and an allow-list without it refuses every such call.
-        allow_headers=["content-type", "authorization", TOKEN_HEADER, "x-pravrudhi-operator"],
+        # `x-wake-ticket` (#1038): the web door sends it on the screening that follows a cold-start wake; a browser
+        # preflights any request that names a custom header, so an allow-list without it refuses that screening. It
+        # only ever carries an opaque, short-lived ticket the engine itself issued; the gateway Worker already
+        # forwards every request header unchanged.
+        allow_headers=["content-type", "authorization", TOKEN_HEADER, "x-pravrudhi-operator", "x-wake-ticket"],
     )
     app.add_middleware(LocalGuard, root=root, enforce=enforce)  # type: ignore[arg-type]
 
