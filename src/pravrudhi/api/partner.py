@@ -1167,6 +1167,7 @@ def build_partner_router(
     job_executor: Callable[[Callable[[], None]], Any] | None = None,
     citation_index_path: Path | None = None,
     rate_clock: Callable[[], float] | None = None,
+    partial_agent_factory: Callable[[Path, SecondJudgeCircuitBreaker], Any] | None = None,
 ) -> APIRouter:
     """`citation_index_path` (default: env `PRAVRUDHI_CITATION_INDEX`) is the case-law index
     `POST /api/v1/verify-citations` reads; unset or missing means that route answers 503.
@@ -1177,6 +1178,9 @@ def build_partner_router(
     supply a factory returning an agent built from scripted test doubles, the same shape `test_nyaya_agent.py`
     itself uses, so this router's own tests cover HTTP wiring only, not re-proving the agent's decision logic.
     `config` is likewise injectable for tests; production reads `configs/partner_api.yaml`.
+    `partial_agent_factory` (#1038, used only by the cold-start wake route when `cold_start_wake` is on): builds the agent for ONE
+    partial run (the first judge up, the second not) with a request-scoped, already-tripped breaker; production leaves it `None`
+    and gets `NyayaAgent.house(root, second_judge_breaker=...)`, a test that injects only `agent_factory` gets that agent.
     """
     # Engine start: load the citation index's titles into memory (and its file into the OS cache) off the request path, so the
     # first lookup after a start or a long idle does not pay for it inside the 5 s deadline (#478). Only the env-named index:
@@ -1269,6 +1273,12 @@ def build_partner_router(
     factory: AgentFactory = agent_factory or (
         lambda r: NyayaAgent.house(r, second_judge_breaker=_get_state()[4])
     )
+    def _house_with(r: Path, b: SecondJudgeCircuitBreaker) -> Any:
+        return NyayaAgent.house(r, second_judge_breaker=b)
+
+    partial_factory: Callable[[Path, SecondJudgeCircuitBreaker], Any] = partial_agent_factory or (
+        (lambda r, b: agent_factory(r)) if agent_factory is not None else _house_with
+    )
 
     def _provision_rate_limit(request: Request) -> JSONResponse | None:
         """`None` when the call may proceed; a ready-to-return 429 otherwise. Keyed by client IP the same
@@ -1352,8 +1362,10 @@ def build_partner_router(
 
     router = APIRouter(prefix="/api/v1")
 
+    _status_judges: list[Callable[[], dict[str, str]]] = []  # filled only when cold-start wake is configured
+
     @router.get("/status", response_model=ServiceStatusOut)
-    def status_ep() -> ServiceStatusOut:
+    def status_ep() -> Any:
         # The one endpoint that must answer on a fresh install: a root with no partner_api.yaml has no
         # window to report (null), it is not a server error.
         try:
@@ -1378,7 +1390,7 @@ def build_partner_router(
         state: Literal["ready", "warming", "unavailable", "unknown"] = _judge_seen["state"] if fresh else "unknown"
         if state == "unavailable" and _warming(cfg, now):
             state = "warming"
-        return ServiceStatusOut(
+        out = ServiceStatusOut(
             engine_version=__version__,
             service_window=window,
             judge=JudgeStateOut(
@@ -1387,6 +1399,11 @@ def build_partner_router(
             ),
             workflows={k: True for k, v in sorted(_flags.items()) if isinstance(k, str) and k.startswith("wf_") and v is True},
         )
+        if not _status_judges:
+            return out
+        # #1038: only when cold-start wake is configured, `judges` (first/second: ready|warming|parked|unknown) is added to the
+        # body OUTSIDE the published schema; a cached read of each endpoint's own /health, never a probe that wakes anything.
+        return JSONResponse(content={**out.model_dump(mode="json"), "judges": _status_judges[0]()})
 
     # exclude_unset=True: the debug fields are POPPED from each element dict (never set) when the gate is
     # off, and must actually disappear from the JSON, not reappear as their Pydantic default (None) --
@@ -1492,7 +1509,7 @@ def build_partner_router(
 
     def _admit(
         req: Any, request: Request, user: User | None, metered: list[str], per_minute: list[int],
-        *, screening: bool = True,
+        *, screening: bool = True, skip_offline: bool = False,
     ) -> _Admitted | JSONResponse:
         """Everything that decides whether a call may run at all (window, limits, metering, validation), shared
         by the synchronous route and job submission so a job is admitted by exactly the same rules."""
@@ -1505,7 +1522,8 @@ def build_partner_router(
         closed = _window_closed(cfg)
         if closed is not None:
             return closed
-        offline = _judges_offline(cfg) if screening else None  # intake (not screening) uses no judge
+        # intake (not screening) uses no judge; the cold-start wake route (verified waker users only) skips the refusal: it wakes
+        offline = _judges_offline(cfg) if screening and not skip_offline else None
         if offline is not None:
             return offline
         # QUEUE.md 2026-09-27: per-leg second-judge scores are visible to an AUTHENTICATED caller -- a
@@ -1561,13 +1579,14 @@ def build_partner_router(
         )
 
     def _run(
-        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False
+        req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False,
+        breaker: SecondJudgeCircuitBreaker | None = None,
     ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
         if not slot_held and not concurrency.acquire():
             return coded_503(AGENT_AT_CAPACITY)
         try:
-            agent = factory(engine_root)
+            agent = partial_factory(engine_root, breaker) if breaker is not None else factory(engine_root)
             # client_data=True is already this call's default, made explicit here (issue #39): this is a
             # public, unauthenticated endpoint (module docstring), so every run through it is exactly the
             # anonymous-submission case the retention/training-corpus guard exists for -- a reader should
@@ -3809,5 +3828,152 @@ def build_partner_router(
             route_class_override=_a8.FixedValidationRoute,
         )
         _a8.open_route_lists()  # the key-only gate list and roles.USER_FACING name this one route only while it exists
+
+    # #1038 cold start with progress. Off unless the YAML flag `cold_start_wake` is the boolean true, its numbers are valid AND
+    # the HMAC secret env var is set: with anything missing none of these routes exists and no slice module is imported.
+    if _flags.get("cold_start_wake") is True:
+        from pravrudhi.api.identity import AuthMode, auth_mode
+        from pravrudhi.application import cold_start_service as _cs
+        from pravrudhi.application import judge_endpoint_state as jes
+        from pravrudhi.application import judge_wake as _jw
+        from pravrudhi.application import wake_policy as _wp
+
+        _cold_cfg = _jw.parse_cold_start_config(_flags)
+        _cold_secret = os.environ.get(_cold_cfg.waker_secret_env, "") if _cold_cfg is not None else ""
+        if _cold_cfg is not None and _cold_secret:
+            _cold_ac: dict[str, Any] = {}
+
+            def _cold_reading(role: str) -> str:
+                """One judge's load reading for the wake: `ready` for a judge that is not a RunPod serverless endpoint (nothing
+                to wake) or when no second judge is configured; otherwise the endpoint's own /health classification."""
+                try:
+                    if "ac" not in _cold_ac:
+                        _cold_ac["ac"] = getattr(factory(engine_root), "config", None)
+                    ac = _cold_ac["ac"]
+                    spec = (ac.house_judge if role == "first" else ac.second_judge) if ac is not None else None
+                    block = dict(spec or {})
+                    if role == "second" and not block:
+                        return "ready"
+                    url = str(block.get("base_url") or "")
+                    if not url:
+                        return "unknown"
+                    if jes.runpod_endpoint_id(url) is None:
+                        return "ready"
+                    key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY" if role == "first" else "NYAYA_SECOND_JUDGE_API_KEY")
+                    return str(_offline_check.state(url, key or block.get("api_key")).status)
+                except Exception:  # noqa: BLE001 - a failed reading is `unknown`, which is never ready
+                    return "unknown"
+
+            _status_judges.append(lambda: {role: _cold_reading(role) for role in ("first", "second")})
+            _wake_pool: dict[str, ThreadPoolExecutor] = {}
+
+            def _wake_submit(task: Callable[[], None]) -> None:
+                ctx = contextvars.copy_context()
+                if job_executor is not None:
+                    job_executor(lambda: ctx.run(task))
+                    return
+                with _jobs_lock:
+                    pool = _wake_pool.setdefault("p", ThreadPoolExecutor(max_workers=2, thread_name_prefix="wake-job"))
+                pool.submit(ctx.run, task)
+
+            _cold_svc = _cs.ColdStartService(
+                _cold_cfg,
+                secret=_cold_secret,
+                board=_jw.WakeBoard(_cold_cfg.request_ttl_s),
+                limiter=_wp.WakeLimiter(_cold_cfg.user_wakes_per_day, _cold_cfg.failed_cooldown_s),
+                jobs=JobStore(retention_s=3600.0, clock=clock, max_unfinished_per_key=2),
+                health=_cold_reading,
+                submit=_wake_submit,
+            )
+            _cold_limiter = RateLimiter(120, max_keys=64)
+
+            def _waker_throttled(request: Request) -> JSONResponse | None:
+                """Per client address, so an anonymous caller from elsewhere cannot spend the box poller's budget."""
+                cfg = _get_state()[0]
+                addr = _client_ip(request, trust_proxy_header=cfg.trust_proxy_header, trusted_proxies=cfg.trusted_proxies)
+                if _cold_limiter.allow(f"waker:{addr}"):
+                    return None
+                return JSONResponse(status_code=429, content={"detail": "rate limit exceeded"}, headers={"Retry-After": "5"})
+
+            def _decorate_ready(out: dict[str, Any]) -> dict[str, Any]:
+                return _cs.decorate_result(out, "full")
+
+            def _wake_runner(req: AnalyseFactsRequest, admitted: _Admitted) -> Callable[[str], tuple[Any, ...]]:
+                def run_job(kind: str) -> tuple[Any, ...]:
+                    if not admitted.concurrency.acquire(admitted.cfg.job_slot_wait_s):
+                        return ("err", 503, json.loads(bytes(coded_503(AGENT_AT_CAPACITY).body)))
+                    try:
+                        brk = _wp.partial_run_breaker() if kind == "partial" else None
+                        out = _run(req, admitted, False, slot_held=True, breaker=brk)
+                    except HTTPException as e:
+                        return ("err", e.status_code, {"detail": e.detail})
+                    except Exception:
+                        _logger.exception("cold-start run crashed")
+                        return ("err", 500, json.loads(bytes(coded_500().body)))
+                    finally:
+                        admitted.concurrency.release()
+                    if isinstance(out, JSONResponse):
+                        return ("err", out.status_code, json.loads(bytes(out.body)))
+                    return ("ok", AnalyseFactsResponse(**out).model_dump(mode="json", exclude_unset=True))
+
+                return run_job
+
+            def _is_waker(user: User | None) -> bool:
+                return _wp.may_wake(user, auth_enabled=auth_mode() is not AuthMode.DISABLED, wakers=_wp.waker_ids())
+
+            @router.post("/analyse-facts/wake", include_in_schema=False)
+            def wake_start_ep(req: AnalyseFactsRequest, request: Request, user: User | None = CurrentUserDep) -> Any:
+                if user is None or not _is_waker(user):
+                    return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
+                admitted = _admit(req, request, user, [], [], skip_offline=True)
+                if isinstance(admitted, JSONResponse):
+                    return admitted
+                run_job = _wake_runner(req, admitted)
+                outcome, job_id, block = _cold_svc.start(user.id, run_job)
+                if outcome == "not_allowed":
+                    return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
+                if outcome == "run_now":  # every judge is already up: exactly the normal screening
+                    res = run_job("full")
+                    if res[0] == "ok":
+                        return _decorate_ready(res[1])
+                    return JSONResponse(status_code=int(res[1]), content=res[2])
+                return JSONResponse(
+                    status_code=202,
+                    content={"job_id": job_id, "status": "pending", "wake": block},
+                    headers={"Retry-After": str(_cold_cfg.poll_after_s)},
+                )
+
+            @router.get("/analyse-facts/wake/{job_id}", include_in_schema=False)
+            def wake_poll_ep(job_id: str, user: User | None = CurrentUserDep) -> Any:
+                if user is None or auth_mode() is AuthMode.DISABLED:
+                    raise HTTPException(404, "no such job")
+                out = _cold_svc.poll(user.id, job_id)
+                if out is None:
+                    raise HTTPException(404, "no such job")
+                return out
+
+            def _waker_headers(request: Request) -> tuple[str | None, str | None, str | None]:
+                h = request.headers
+                return h.get("x-waker-timestamp"), h.get("x-waker-nonce"), h.get("x-waker-signature")
+
+            @router.get("/internal/wake-requests", include_in_schema=False)
+            def wake_requests_ep(request: Request) -> JSONResponse:
+                throttled = _waker_throttled(request)
+                if throttled is not None:
+                    return throttled
+                status, body = _cold_svc.requests(*_waker_headers(request))
+                return JSONResponse(status_code=status, content=body)
+
+            @router.post("/internal/wake-results", include_in_schema=False)
+            async def wake_results_ep(request: Request) -> JSONResponse:
+                throttled = _waker_throttled(request)
+                if throttled is not None:
+                    return throttled
+                declared = request.headers.get("content-length")  # refuse an oversize body BEFORE reading it
+                if declared is None or not declared.isdigit() or int(declared) > _jw.MAX_BODY:
+                    return JSONResponse(status_code=413, content={"error": "body_too_large"})
+                raw = await request.body()
+                status, body = _cold_svc.deliver(*_waker_headers(request), raw)
+                return JSONResponse(status_code=status, content=body)
 
     return router

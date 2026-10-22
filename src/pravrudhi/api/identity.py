@@ -325,6 +325,13 @@ async def current_user(request: Request) -> User | None:
 # named here, so a route added later stays refused until it is added on purpose and tested per route
 # (tests/test_gate_partner_key.py). The header names equal `tenancy.API_KEY_HEADER` and `tenancy.TENANCY_PROVISION_HEADER`
 # (a test pins that; tenancy imports this module, so they cannot be imported from it here).
+# #1038: the box-side waker polls the engine with an HMAC it signs (X-Waker-Signature); the two routes below verify it
+# (judge_wake.verify_http: 60 s window, nonce once, constant-time). Like the partner routes they exist only when
+# `cold_start_wake` is on; the gate lets a request through ONLY for exactly these (method, path) pairs AND one signature header.
+_WAKER_HEADER = "x-waker-signature"
+WAKER_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/api/v1/internal/wake-requests"), ("POST", "/api/v1/internal/wake-results"),
+})
 _API_KEY_HEADER = "x-pravrudhi-api-key"
 _TENANCY_SECRET_HEADER = "x-pravrudhi-tenancy-secret"
 # (method, path) pairs: a new method on a listed path stays refused until it is added on purpose.
@@ -360,6 +367,8 @@ def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, i
     if identity_header in conn.headers:
         return False
     method = str(conn.scope.get("method", "")).upper()
+    if _single_header(conn, _WAKER_HEADER) and (method, path) in WAKER_ROUTES:
+        return True
     if _single_header(conn, _API_KEY_HEADER) and (
         (method, path) in PARTNER_KEY_ROUTES
         or (method == "GET" and _JOB_PATH_RE.fullmatch(path))

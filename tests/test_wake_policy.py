@@ -152,3 +152,20 @@ def test_a_lost_end_cannot_pin_a_user_forever() -> None:
 def test_the_limits_are_per_process_and_the_boxes_caps_are_the_real_bound() -> None:
     a, b = WP.WakeLimiter(1, 0.0, clock=Clock()), WP.WakeLimiter(1, 0.0, clock=Clock())  # a restart or a second container
     assert a.begin("u") == "new" and b.begin("u") == "new"  # documented: the waker's own 12/label cap is what bounds the spend
+
+
+def test_a_late_end_from_an_expired_wake_does_not_pop_the_newer_wake_or_cool_the_user_twice() -> None:
+    clock = Clock()
+    lim = WP.WakeLimiter(6, 120.0, active_ttl_s=450.0, clock=clock)
+    assert lim.begin("u") == "new"
+    old = lim.stamp("u")
+    clock.t += 451
+    assert lim.begin("u") == "cooldown"  # the first wake's entry is released as failed when the user next begins ...
+    clock.t += 121  # ... and its cooldown passes
+    assert lim.begin("u") == "new"
+    new = lim.stamp("u")
+    assert new != old
+    lim.end("u", ok=False, stamp=old)  # the first wake's task finally ends: a no-op
+    assert lim.begin("u") == "existing"  # the newer wake is still the active one
+    lim.end("u", ok=True, stamp=new)
+    assert lim.begin("u") == "new"
