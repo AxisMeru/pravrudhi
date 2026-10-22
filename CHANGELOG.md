@@ -3,6 +3,34 @@
 Release notes for the engine (`pravrudhi`). Versions before 0.5.44 are described in their GitHub release notes and commit
 messages.
 
+## 0.6.30 (2026-10-22)
+
+PATCH release on 0.6.29. It adds cold start with progress (#625, #626, #628), switched OFF. For a customer nothing changes: with the flag off none of the new routes exists and every existing route behaves as before. Nothing else is switched on.
+
+### Changed
+- **Cold start with progress is built and off.** `cold_start_wake` is `false` in the shipped configuration. The four new routes exist only when that flag is the boolean `true`, its numbers are valid and the waker's HMAC secret environment variable is set; otherwise none of them exists (they answer 404) and the cold-start modules are not loaded.
+
+- **What the new code does when it is switched on.** A signed-in user on the engine's waker allowlist can start a screening while the judges are off: `POST /api/v1/analyse-facts/wake` starts a wake job, and `GET /api/v1/analyse-facts/wake/{job_id}` lets that same user read each judge's state (waiting, starting, ready or failed). Two signed internal routes, `GET /api/v1/internal/wake-requests` and `POST /api/v1/internal/wake-results`, are for a separate box-side waker. All four are left out of the published API schema. Anyone else gets the same `judges_offline` marker on the wake route (with `wake: not_allowed`); the existing `POST /api/v1/analyse-facts` answers as before.
+
+- **A proof still needs both judges.** If the first judge is ready and the second is not, every ingredient the first judge established is referred to a lawyer, never shown as a proof, and the result says the second judge did not run. If the first judge does not start, nothing is scored.
+
+- **Who may wake a judge.** Only a verified signed-in user whose user id is in the new `PRAVRUDHI_WAKERS` list (user ids only; an email is not accepted; empty or unset means nobody). It ships empty. Each user has a daily limit and a cooldown after a failed wake, and one wake at a time. These counters live in each container's memory, so a restart or a second container does not share them; the box-side waker's own limits are the real bound.
+
+- `GET /status` lists each judge's reading (ready, warming, parked or unknown) only when cold start is configured; the published status schema is unchanged.
+
+### Configuration
+- New keys in the shipped configuration: `cold_start_wake` (`false`) and the `cold_start_*` settings with their defaults (budget 300 s, poll 5 s, deadline margin 30 s, the second judge started in parallel, the secret's environment variable name `PRAVRUDHI_WAKER_SECRET`, request lifetime 120 s, 6 wakes per user per day, 120 s cooldown after a failed wake). Nothing reads them while the flag is off. No schema change and no migration. This is a new image.
+
+### Credentials
+- **Credentials, stated as they are.** The engine holds an HMAC secret shared with the waker, and it makes no outbound call to wake a judge: the box-side waker polls the engine. The engine currently holds a management-capable RunPod key; replacing it with an inference-only key is tracked as #1039 and is not part of this release.
+
+### Not switched on
+- **Not in this release and still off:** cold start itself (`cold_start_wake`), the app's cold-start screen (a separate app release), the box-side waker (a separate install), scanned and garbled-page intake (`wf_c1_scanned_intake` stays `false`) and photo intake. Nothing here changes what a customer sees.
+
+### Notes
+- **Turning it off:** the flag is already off. If it is switched on later, the way back is the flag `false` in a new image, or the 0.6.29 image: the new routes disappear again. Nothing is stored by these routes that outlives a restart.
+- **Not shared between containers.** The wake state and the limits are kept per container, and this release does not share them. Where more than one container runs, a wake started on one container may not be seen by another; a shared store is a separate change.
+
 ## 0.6.29 (2026-10-21)
 
 PATCH release on 0.6.28. The matter listing is switched on in the shipped configuration. Nothing else is switched on.
