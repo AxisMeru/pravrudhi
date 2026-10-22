@@ -1,295 +1,230 @@
-"""#1038 PR-3 (service): the wake job lifecycle with a scripted box-side waker and scripted judge health. No FastAPI, no network:
-the task runs inline and `sleep` is the hook that plays the waker's answers and the judges' health between passes."""
+# ruff: noqa: E501
+"""#1038 PR-4: ColdStartService end to end over the shared store, with the test acting as the box-side waker and as several
+containers (two services on one FakeWakeDb). No job object, no engine-run screening. CPU only; invented ids."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 import pytest
 
 from pravrudhi.application import cold_start_service as CS
-from pravrudhi.application import judge_wake as W
-from pravrudhi.application.jobs import JobStore
-from pravrudhi.application.wake_policy import WakeLimiter
+from pravrudhi.application import wake_store as WS
+from pravrudhi.application.judge_wake import WakeConfig
 from tests.judge_wake_fakes import box_poll_headers, box_result_request
+from tests.wake_store_fakes import FakeWakeDb
 
 SECRET = "test-secret-not-a-real-key"
-CFG = W.parse_cold_start_config(
-    {"cold_start_wake": True, "cold_start_user_wakes_per_day": 2, "cold_start_failed_cooldown_s": 120}
-)
-assert CFG is not None
+CFG = WakeConfig(budget_s=300.0, poll_after_s=5, deadline_margin_s=30.0, waker_secret_env="PRAVRUDHI_WAKER_SECRET")
 
 
-class Env:
-    def __init__(self, per_day: int = 2, cooldown: float = 120.0) -> None:
-        self.mono, self.wall = 0.0, 1761000000.0
-        seq = iter(f"{i:032x}" for i in range(1, 10_000))
-        self.board = W.WakeBoard(CFG.request_ttl_s, clock=lambda: self.wall, nonce=lambda: next(seq))
-        self.limiter = WakeLimiter(per_day, cooldown, clock=lambda: self.mono)
-        self.jobs = JobStore(retention_s=3600, max_unfinished_per_key=8)
-        self.health_now = {"first": "parked", "second": "parked"}
-        self.script: list[Callable[[Env], None]] = []  # one step per sleep
-        self.runs: list[str] = []
-        self.run_result: tuple[Any, ...] = ("ok", {"run_id": "r1", "contracts": []})
-        self.svc = CS.ColdStartService(
-            CFG, secret=SECRET, board=self.board, limiter=self.limiter, jobs=self.jobs, health=lambda role: self.health_now[role],
-            submit=lambda f: f(), clock=lambda: self.mono, wall=lambda: self.wall, sleep=self._sleep,
-        )
+class Clock:
+    def __init__(self) -> None:
+        self.t = 1_800_000_000.0
 
-    def _sleep(self, s: float) -> None:
-        self.mono += s
-        self.wall += s
-        if not self.script:
-            self.mono += 1000  # nothing more is going to happen: let the budget run out
-            self.wall += 1000
-            return
-        self.script.pop(0)(self)
-
-    def run_job(self, kind: str) -> tuple[Any, ...]:
-        self.runs.append(kind)
-        return self.run_result
-
-    def answer(self, label: str, state: str, lease: str | None = None) -> Callable[[Env], None]:
-        def step(env: Env) -> None:
-            req = [r for r in json.loads(json.dumps(env.board.signed(SECRET))) if json.loads(r["body"])["label"] == label]
-            if req:
-                env.board.deliver([{"nonce": json.loads(req[0]["body"])["nonce"], "state": state, "lease_ref": lease}])
-        return step
+    def __call__(self) -> float:
+        return self.t
 
 
-def ready(*roles: str) -> Callable[[Env], None]:
-    def step(env: Env) -> None:
-        for r in roles:
-            env.health_now[r] = "ready"
-    return step
+class Nonces:
+    def __init__(self) -> None:
+        self.i = 0
+
+    def __call__(self) -> str:
+        self.i += 1
+        return f"{self.i:032x}"
 
 
-def both(*steps: Callable[[Env], None]) -> Callable[[Env], None]:
-    def step(env: Env) -> None:
-        for s in steps:
-            s(env)
-    return step
+class Rig:
+    """Two or three containers on one database, with a settable health reading per judge."""
+
+    def __init__(self, containers: int = 2) -> None:
+        self.clock, self.db, self.readings = Clock(), FakeWakeDb(Clock()), {"first": "parked", "second": "parked"}
+        self.db.clock = self.clock
+        nonces = Nonces()
+        self.svc = [
+            CS.ColdStartService(CFG, secret=SECRET, store=WS.PgWakeStore(self.db.call, CFG, nonce=nonces),
+                                health=lambda role: self.readings[role], wall=self.clock)
+            for _ in range(containers)
+        ]
+
+    def box_poll(self, i: int = 1) -> list[dict[str, Any]]:
+        h = box_poll_headers(SECRET, ts=int(self.clock.t))
+        status, body = self.svc[i].requests(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"])
+        assert status == 200, body
+        return [json.loads(r["body"]) for r in body["requests"]]
+
+    def box_deliver(self, results: list[dict[str, Any]], i: int = 0) -> int:
+        body, h = box_result_request(SECRET, results, ts=int(self.clock.t))
+        status, out = self.svc[i].deliver(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"], body)
+        assert status == 200, out
+        return int(out["applied"])
 
 
-def job_of(env: Env, user: str, job_id: str) -> dict[str, Any]:
-    out = env.svc.poll(user, job_id)
-    assert out is not None
-    return out
+def test_with_every_judge_up_nothing_is_stored_and_a_full_ticket_comes_back() -> None:
+    r = Rig()
+    r.readings = {"first": "ready", "second": "ready"}
+    outcome, body = r.svc[0].start("u-1")
+    assert outcome == "ready" and body["wake"]["state"] == "ready" and body["ticket"]["mode"] == "full"
+    assert r.db.calls == []  # no wake, no limiter row, no write of any kind
+    assert r.svc[1].ticket_mode(body["ticket"]["value"], "u-1") == "full" and r.svc[1].ticket_mode(body["ticket"]["value"], "u-2") is None
 
 
-# ---- start ----------------------------------------------------------------------------------------------------------------
+def test_a_cold_wake_across_three_containers_ends_ready_with_a_full_ticket() -> None:
+    r = Rig(3)
+    outcome, body = r.svc[0].start("u-1")  # container A: the user starts it
+    assert outcome == "accepted" and body["wake"]["state"] == "waking" and "ticket" not in body
+    assert [m["state"] for m in body["wake"]["models"]] == ["waiting", "waiting"]
+    asked = {q["label"]: q["nonce"] for q in r.box_poll(1)}  # container B: the box polls
+    assert set(asked) == {"first", "second"}
+    assert r.box_deliver([{"nonce": n, "state": "granted", "lease_ref": f"lease-{k}"} for k, n in asked.items()], i=2) == 2  # container C
+    assert [m["state"] for m in r.svc[0].status("u-1")["wake"]["models"]] == ["starting", "starting"]
+    assert r.box_poll(1) == []  # answered requests are no longer listed
+    r.readings = {"first": "ready", "second": "warming"}
+    assert r.svc[1].status("u-1")["wake"]["state"] == "waking"
+    r.clock.t += 40
+    r.readings = {"first": "ready", "second": "ready"}
+    done = r.svc[2].status("u-1")  # container C reads the end
+    assert done["wake"]["state"] == "ready" and done["wake"]["reason"] is None and done["ticket"]["mode"] == "full"
+    assert r.svc[0].ticket_mode(done["ticket"]["value"], "u-1") == "full"
+    assert r.svc[0].start("u-1")[0] == "ready"  # the judges are up: nothing more to wake
 
 
-def test_everything_already_up_runs_now_and_touches_nothing() -> None:
-    env = Env()
-    env.health_now = {"first": "ready", "second": "ready"}
-    assert env.svc.start("u", env.run_job) == ("run_now", None, {})
-    assert env.board.pending() == 0 and env.runs == []
-    assert env.limiter.begin("u") == "new"  # the limiter was not used
+def test_the_partial_path_issues_a_partial_ticket_and_the_reason() -> None:
+    r = Rig()
+    r.svc[0].start("u-1")
+    asked = {q["label"]: q["nonce"] for q in r.box_poll()}
+    r.box_deliver([{"nonce": asked["first"], "state": "granted", "lease_ref": "l1"}, {"nonce": asked["second"], "state": "refused", "lease_ref": None}])
+    r.readings["first"] = "ready"
+    body = r.svc[1].status("u-1")
+    assert body["wake"]["state"] == "partial" and body["wake"]["reason"] == "second_judge_unavailable"
+    assert [m["state"] for m in body["wake"]["models"]] == ["ready", "failed"] and body["ticket"]["mode"] == "partial"
+    assert r.svc[0].ticket_mode(body["ticket"]["value"], "u-1") == "partial"
 
 
-def test_a_full_wake_runs_the_screening_and_extends_at_start_and_end() -> None:
-    env = Env()
-    env.script = [
-        both(env.answer("first", "granted", "lease-first"), env.answer("second", "granted", "lease-second")),
-        ready("first", "second"),
-    ]
-    outcome, job_id, block = env.svc.start("u", env.run_job)
-    assert outcome == "accepted" and job_id and block["state"] in ("waking", "ready")  # the task ran inline in this test
-    assert env.runs == ["full"]
-    out = job_of(env, "u", job_id)
-    assert out["status"] == "done" and out["wake"]["state"] == "ready" and out["wake"]["reason"] is None
-    assert out["result"]["second_judge_ran"] is True
-    assert out["result"]["judges"] == {"first": {"ran": True}, "second": {"ran": True, "used": False}}
-    extends = [json.loads(r["body"]) for r in env.board.signed(SECRET)]
-    got = sorted((e["label"], e["kind"], e["lease_ref"]) for e in extends)
-    assert got == [("first", "extend", "lease-first"), ("second", "extend", "lease-second")]
-    assert env.limiter.begin("u") == "new"  # the wake ended well: a later wake is allowed (day cap 2, one used)
+def test_a_refused_first_judge_fails_with_no_ticket_and_the_user_cools_down() -> None:
+    r = Rig()
+    r.svc[0].start("u-1")
+    asked = {q["label"]: q["nonce"] for q in r.box_poll()}
+    r.box_deliver([{"nonce": asked["first"], "state": "refused", "lease_ref": None}, {"nonce": asked["second"], "state": "granted", "lease_ref": "l2"}])
+    body = r.svc[1].status("u-1")
+    assert body["wake"]["state"] == "failed" and body["wake"]["reason"] == "first_judge_unavailable" and "ticket" not in body
+    assert r.svc[0].start("u-1") == ("not_allowed", CS.NOT_ALLOWED)  # the cooldown
+    r.clock.t += 121
+    assert r.svc[0].start("u-1")[0] == "accepted"
 
 
-def test_the_second_judge_is_marked_used_only_when_an_element_is_established() -> None:
-    env = Env()
-    env.run_result = ("ok", {"contracts": [{"elements": [{"status": "established"}, {"status": "not_established"}]}]})
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "granted")), ready("first", "second")]
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    assert job_of(env, "u", str(job_id))["result"]["judges"]["second"] == {"ran": True, "used": True}
+def test_the_budget_ends_a_wake_that_never_became_ready() -> None:
+    r = Rig()
+    r.svc[0].start("u-1")
+    asked = {q["label"]: q["nonce"] for q in r.box_poll()}
+    r.box_deliver([{"nonce": n, "state": "granted", "lease_ref": "l"} for n in asked.values()])
+    r.clock.t += 299
+    assert r.svc[1].status("u-1")["wake"]["state"] == "waking"
+    r.clock.t += 2
+    body = r.svc[1].status("u-1")
+    assert body["wake"]["state"] == "timeout" and body["wake"]["reason"] == "start_timeout" and "ticket" not in body
 
 
-def test_a_partial_load_runs_with_the_partial_kind_and_says_the_second_did_not_run() -> None:
-    env = Env()
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "refused")), ready("first")]
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    assert env.runs == ["partial"]  # the caller scopes a pre-tripped breaker to THIS run only
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "done" and out["wake"]["state"] == "partial" and out["wake"]["reason"] == "second_judge_unavailable"
-    assert out["result"]["second_judge_ran"] is False
-    assert out["result"]["judges"]["second"] == {"ran": False, "used": False}
+def test_a_second_judge_that_times_out_alone_ends_partial() -> None:
+    r = Rig()
+    r.svc[0].start("u-1")
+    asked = {q["label"]: q["nonce"] for q in r.box_poll()}
+    r.box_deliver([{"nonce": n, "state": "granted", "lease_ref": "l"} for n in asked.values()])
+    r.readings["first"] = "ready"
+    r.clock.t += 301
+    body = r.svc[0].status("u-1")
+    assert body["wake"]["state"] == "partial" and body["ticket"]["mode"] == "partial"
 
 
-def test_a_refused_first_judge_fails_the_job_and_nothing_is_scored() -> None:
-    env = Env()
-    env.script = [both(env.answer("first", "refused"), env.answer("second", "granted"))]
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    assert env.runs == []
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "failed" and out["wake"]["state"] == "failed" and out["wake"]["reason"] == "first_judge_unavailable"
-    assert out["error"]["status_code"] == 503 and "result" not in out
+def test_a_status_without_a_wake_in_progress_is_a_timeout_never_a_state_oracle() -> None:
+    r = Rig()
+    body = r.svc[0].status("u-9")  # never started, judges parked
+    assert body["wake"]["state"] == "timeout" and "ticket" not in body
 
 
-def test_the_budget_ends_a_wake_that_never_becomes_ready_and_unknown_never_counts() -> None:
-    env = Env()
-    env.health_now = {"first": "parked", "second": "parked"}
-    env.script = [
-        both(env.answer("first", "granted"), env.answer("second", "granted")),
-        lambda e: e.health_now.update(first="unknown", second="unknown"),
-    ]
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "failed" and out["wake"]["state"] == "timeout" and out["wake"]["reason"] == "start_timeout"
-    assert env.runs == []
+def test_two_users_share_one_wake_request_per_judge() -> None:
+    r = Rig()
+    r.svc[0].start("u-1")
+    r.svc[1].start("u-2")
+    assert len(r.box_poll()) == 2  # one per judge, not four
 
 
-def test_no_answer_from_the_waker_expires_as_failed() -> None:
-    env = Env()
-    env.script = [lambda e: None] * 3  # the waker never answers: the request expires (ttl 120 s) inside the budget loop
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "failed" and out["wake"]["state"] in ("failed", "timeout")
-    assert env.runs == []
+def test_the_daily_cap_counts_and_refuses_with_the_one_marker() -> None:
+    r = Rig()
+    for _ in range(6):
+        assert r.svc[0].start("u-1")[0] == "accepted"
+        r.db.limits["u-1"]["active"] = None  # the wake ended (the status read releases it)
+        r.clock.t += 1
+    assert r.svc[1].start("u-1") == ("not_allowed", CS.NOT_ALLOWED)
 
 
-def test_a_failed_run_after_a_good_wake_is_a_failed_job_but_not_a_failed_wake() -> None:
-    env = Env()
-    env.run_result = ("err", 503, {"error": "judge_unavailable"})
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "granted")), ready("first", "second")]
-    _, job_id, _ = env.svc.start("u", env.run_job)
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "failed" and out["error"]["status_code"] == 503 and out["wake"]["state"] == "ready"
-    assert env.limiter.begin("u") == "new"  # no cooldown: the wake itself worked
+def test_a_store_that_is_down_never_grants_a_wake() -> None:
+    r = Rig()
+    r.db.down = True
+    assert r.svc[0].start("u-1") == ("not_allowed", CS.NOT_ALLOWED)
+    with pytest.raises(ConnectionError):
+        r.svc[0].status("u-1")
+    h = box_poll_headers(SECRET, ts=int(r.clock.t))
+    assert r.svc[0].requests(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"])[0] == 401  # the nonce store is down: refused
 
 
-def test_a_crashing_run_is_a_failed_job() -> None:
-    env = Env()
+def test_a_failure_while_asking_for_the_wake_frees_the_slot_without_a_cooldown() -> None:
+    r = Rig()
+    real = r.db.wake_ensure
 
-    def boom(kind: str) -> tuple[Any, ...]:
-        raise RuntimeError("secret detail")
+    def boom(*a: Any) -> Any:
+        raise ConnectionError("x")
 
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "granted")), ready("first", "second")]
-    _, job_id, _ = env.svc.start("u", boom)
-    out = job_of(env, "u", str(job_id))
-    assert out["status"] == "failed" and out["error"]["body"] == {"error": "internal_error"} and "secret" not in json.dumps(out)
-
-
-# ---- limits and the one marker --------------------------------------------------------------------------------------------
+    r.db.wake_ensure = boom  # type: ignore[method-assign]
+    assert r.svc[0].start("u-1")[0] == "not_allowed"
+    r.db.wake_ensure = real  # type: ignore[method-assign]
+    assert r.svc[0].start("u-1")[0] == "accepted"
 
 
-def test_a_second_request_for_the_same_user_is_the_existing_job() -> None:
-    env = Env()
-    submitted: list[Callable[[], None]] = []
-    env.svc._submit = submitted.append  # hold the task: the wake stays in progress
-    a = env.svc.start("u", env.run_job)
-    b = env.svc.start("U", env.run_job)
-    assert a[0] == b[0] == "accepted" and a[1] == b[1] and len(submitted) == 1
-    assert env.board.pending() == 2  # one wake request per judge, not four
+def test_extend_needs_a_lease_and_is_rate_deduped() -> None:
+    r = Rig()
+    r.svc[0].extend()
+    assert r.box_poll() == [] or all(q["kind"] != "extend" for q in r.box_poll())  # no lease granted yet: nothing to extend
+    r.svc[0].start("u-1")
+    asked = {q["label"]: q["nonce"] for q in r.box_poll()}
+    r.box_deliver([{"nonce": n, "state": "granted", "lease_ref": f"lease-{k}"} for k, n in asked.items()])
+    r.clock.t += 40
+    r.svc[1].extend()
+    r.svc[1].extend()  # inside 30 s on the same container: no second request
+    extends = [q for q in r.box_poll(0) if q["kind"] == "extend"]
+    assert sorted((q["label"], q["lease_ref"]) for q in extends) == [("first", "lease-first"), ("second", "lease-second")]
+    r.svc[0].extend()  # another container: the database dedupes (30 s per judge)
+    assert len([q for q in r.box_poll(1) if q["kind"] == "extend"]) == 2
 
 
-def test_the_cap_the_cooldown_and_too_many_jobs_all_answer_with_the_identical_marker() -> None:
-    env = Env(per_day=1, cooldown=120.0)
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "granted")), ready("first", "second")]
-    env.svc.start("u", env.run_job)
-    env.health_now = {"first": "parked", "second": "parked"}
-    capped = env.svc.start("u", env.run_job)  # the day cap (1) is spent
-    env.script = [env.answer("first", "refused")]
-    env2 = Env(per_day=5, cooldown=120.0)
-    env2.script = [both(env2.answer("first", "refused"))]
-    env2.svc.start("v", env2.run_job)
-    cooling = env2.svc.start("v", env2.run_job)  # a failed wake: cooldown
-    assert capped == ("not_allowed", None, CS.NOT_ALLOWED) and cooling == ("not_allowed", None, CS.NOT_ALLOWED)
-    assert CS.NOT_ALLOWED == {"error": "judges_offline", "wake": "not_allowed"}
+def test_extend_never_raises_when_the_store_is_down() -> None:
+    r = Rig()
+    r.db.down = True
+    r.svc[0].extend()
 
 
-# ---- poll ownership and the coarse block ------------------------------------------------------------------------------------
+def test_the_waker_routes_verify_signature_window_and_replay_across_containers() -> None:
+    r = Rig()
+    h = box_poll_headers(SECRET, ts=int(r.clock.t), nonce="a" * 32)
+    args = (h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"])
+    assert r.svc[0].requests(*args)[0] == 200
+    assert r.svc[1].requests(*args)[0] == 401  # a replay on another container
+    assert r.svc[0].requests(None, None, None)[0] == 401
+    old = box_poll_headers(SECRET, ts=int(r.clock.t) - 120)
+    assert r.svc[0].requests(old["X-Waker-Timestamp"], old["X-Waker-Nonce"], old["X-Waker-Signature"])[0] == 401
+    forged = box_poll_headers("another-secret", ts=int(r.clock.t))
+    assert r.svc[0].requests(forged["X-Waker-Timestamp"], forged["X-Waker-Nonce"], forged["X-Waker-Signature"])[0] == 401
+    body, hh = box_result_request(SECRET, [], ts=int(r.clock.t))
+    assert r.svc[0].deliver(hh["X-Waker-Timestamp"], hh["X-Waker-Nonce"], hh["X-Waker-Signature"], body + b" ")[0] == 401  # tampered
+    ok = box_result_request(SECRET, [], ts=int(r.clock.t))
+    assert r.svc[0].deliver(ok[1]["X-Waker-Timestamp"], ok[1]["X-Waker-Nonce"], ok[1]["X-Waker-Signature"], ok[0])[0] == 200
+    junk = box_result_request(SECRET, [], ts=int(r.clock.t))
+    assert r.svc[0].deliver(junk[1]["X-Waker-Timestamp"], junk[1]["X-Waker-Nonce"], junk[1]["X-Waker-Signature"], b"{}")[0] == 401
 
 
-def test_only_the_owner_can_poll_a_wake_job() -> None:
-    env = Env()
-    env.script = [both(env.answer("first", "granted"), env.answer("second", "granted")), ready("first", "second")]
-    _, job_id, _ = env.svc.start("owner", env.run_job)
-    assert env.svc.poll("owner", str(job_id)) is not None
-    assert env.svc.poll("someone-else", str(job_id)) is None
-    assert env.svc.poll("owner", "no-such-job") is None
-    assert env.jobs.get("key-1", str(job_id)) is None  # a key-owned lookup never sees a user job
-
-
-def test_the_wake_block_never_carries_ids_leases_counts_or_costs() -> None:
-    env = Env()
-    env.script = [
-        both(env.answer("first", "granted", "lease-secret-1"), env.answer("second", "granted", "lease-secret-2")),
-        ready("first", "second"),
-    ]
-    _, job_id, _ = env.svc.start("owner", env.run_job)
-    wake = job_of(env, "owner", str(job_id))["wake"]
-    assert set(wake) == {"state", "models", "reason", "deadline_s"}
-    assert "lease-secret" not in json.dumps(wake) and "owner" not in json.dumps(wake)
-
-
-# ---- the waker-facing side ------------------------------------------------------------------------------------------------
-
-
-def test_the_signed_poll_lists_the_requests_and_a_bad_poll_is_401() -> None:
-    env = Env()
-    submitted: list[Callable[[], None]] = []
-    env.svc._submit = submitted.append
-    env.svc.start("u", env.run_job)
-    h = box_poll_headers(SECRET, ts=int(env.wall), nonce="a" * 32)
-    status, body = env.svc.requests(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"])
-    labels = sorted(json.loads(r["body"])["label"] for r in body["requests"])
-    assert status == 200 and body["v"] == 1 and labels == ["first", "second"]
-    assert env.svc.requests(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"]) == (401, {})  # replay
-    assert env.svc.requests(None, None, None) == (401, {})
-    bad = box_poll_headers("another-secret", ts=int(env.wall), nonce="b" * 32)
-    assert env.svc.requests(bad["X-Waker-Timestamp"], bad["X-Waker-Nonce"], bad["X-Waker-Signature"]) == (401, {})
-
-
-def test_signed_deliveries_apply_independently_and_a_bad_body_is_refused() -> None:
-    env = Env()
-    submitted: list[Callable[[], None]] = []
-    env.svc._submit = submitted.append
-    env.svc.start("u", env.run_job)
-    nonces = {json.loads(r["body"])["label"]: json.loads(r["body"])["nonce"] for r in env.board.signed(SECRET)}
-    for i, label in enumerate(("first", "second")):  # two deliveries in one cycle, each on its own nonce
-        item = {"nonce": nonces[label], "state": "granted", "lease_ref": f"l{i}"}
-        body, h = box_result_request(SECRET, [item], ts=int(env.wall), nonce=f"{i:032x}")
-        got = env.svc.deliver(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"], body)
-        assert got == (200, {"v": 1, "applied": 1})
-    assert env.board.lease_for("first") == "l0" and env.board.lease_for("second") == "l1"
-    body, h = box_result_request(SECRET, [], ts=int(env.wall), nonce="c" * 32)
-    assert env.svc.deliver(h["X-Waker-Timestamp"], h["X-Waker-Nonce"], h["X-Waker-Signature"], body + b"x")[0] == 401  # tampered
-    junk = b"not json"
-    sig = W.sign_http(SECRET, "POST", CS.RESULT_PATH, int(env.wall), "d" * 32, junk)
-    assert env.svc.deliver(str(int(env.wall)), "d" * 32, "v1=" + sig, junk) == (400, {"error": "bad_request"})
-    wrong = json.dumps({"v": 2, "results": []}).encode()
-    sig2 = W.sign_http(SECRET, "POST", CS.RESULT_PATH, int(env.wall), "e" * 32, wrong)
-    assert env.svc.deliver(str(int(env.wall)), "e" * 32, "v1=" + sig2, wrong) == (400, {"error": "bad_request"})
-
-
-@pytest.mark.parametrize("result", [{"contracts": []}, {"contracts": [{"elements": []}]}, {}, {"contracts": [None, "x"]}])
-def test_second_judge_used_is_false_without_an_established_element(result: dict[str, Any]) -> None:
-    assert CS.second_judge_used(result) is False
-
-
-def test_a_user_is_not_pinned_to_a_wake_whose_task_never_finished() -> None:
-    env = Env()
-    submitted: list[Callable[[], None]] = []
-    env.svc._submit = submitted.append  # the task is lost: it never runs
-    first = env.svc.start("u", env.run_job)
-    env.mono += CS.ACTIVE_TTL_S + 1
-    again = env.svc.start("u", env.run_job)
-    assert first[0] == "accepted" and first[1]
-    # the lost wake is dropped; the limiter treats it as a failed one, so the user is on a cooldown, not stuck "existing"
-    assert again == ("not_allowed", None, CS.NOT_ALLOWED)
-    env.mono += 121
-    third = env.svc.start("u", env.run_job)
-    assert third[0] == "accepted" and third[1] != first[1]
+def test_second_judge_used_reads_only_established_elements() -> None:
+    assert CS.second_judge_used({"contracts": [{"elements": [{"status": "established"}]}]}) is True
+    assert CS.second_judge_used({"contracts": [{"elements": [{"status": "not_established"}]}]}) is False
+    assert CS.second_judge_used({}) is False

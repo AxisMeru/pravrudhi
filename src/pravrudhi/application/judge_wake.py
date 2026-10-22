@@ -49,6 +49,8 @@ class WakeConfig:
     request_ttl_s: float = 120.0  # an unanswered wake request is dropped (= failed) after this
     user_wakes_per_day: int = 6  # per verified user, failed wakes count too (R2 item 10)
     failed_cooldown_s: float = 120.0  # after a failed wake the same user waits this long (no retry storm)
+    ticket_ttl_s: float = 600.0  # PR-4: how long a wake ticket (issued with a ready/partial status) is honoured
+    row_ttl_s: float = 900.0  # PR-4: how long a shared judge-wake request row lives (then it is purged)
 
 
 _ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{2,63}")
@@ -79,9 +81,28 @@ def parse_cold_start_config(body: Any) -> WakeConfig | None:
         return None
     per_day = _num(body.get("cold_start_user_wakes_per_day", 6), 1, 50)
     cooldown = _num(body.get("cold_start_failed_cooldown_s", 120), 0, 3600)
-    if per_day is None or cooldown is None:
+    ticket_ttl = _num(body.get("cold_start_ticket_ttl_s", 600), 60, 3600)
+    row_ttl = _num(body.get("cold_start_row_ttl_s", 900), 300, 86400)
+    if per_day is None or cooldown is None or ticket_ttl is None or row_ttl is None:
         return None
-    return WakeConfig(budget, int(poll), margin, env, ttl, int(per_day), cooldown)
+    return WakeConfig(budget, int(poll), margin, env, ttl, int(per_day), cooldown, ticket_ttl, row_ttl)
+
+
+def state_of(model: Mapping[str, str], *, first_timed_out: bool = False) -> WakeState:
+    """The overall wake state from the two judges' states. Pure: the one decision table, shared by `JudgeWake` and the
+    stateless status read of PR-4. A failed first judge ends it at once (nothing can be scored without it)."""
+    if model["first"] == "failed":
+        return "timeout" if first_timed_out else "failed"
+    if any(model[r] in ("waiting", "starting") for r in ROLES):
+        return "waking"
+    return "ready" if model["second"] == "ready" else "partial"
+
+
+def reason_of(state: str) -> Reason | None:
+    reasons: dict[str, Reason] = {
+        "partial": "second_judge_unavailable", "timeout": "start_timeout", "failed": "first_judge_unavailable",
+    }
+    return reasons.get(state)
 
 
 class JudgeWake:
@@ -128,22 +149,10 @@ class JudgeWake:
         return self.state() != "waking"
 
     def state(self) -> WakeState:
-        m = self._model
-        if m["first"] == "failed":  # nothing can be scored without the first judge: end now, whatever the second is doing
-            return "timeout" if "first" in self._timed_out else "failed"
-        if any(m[r] in ("waiting", "starting") for r in ROLES):
-            return "waking"
-        return "ready" if m["second"] == "ready" else "partial"
+        return state_of(self._model, first_timed_out="first" in self._timed_out)
 
     def reason(self) -> Reason | None:
-        s = self.state()
-        if s == "partial":
-            return "second_judge_unavailable"
-        if s == "timeout":
-            return "start_timeout"
-        if s == "failed":
-            return "first_judge_unavailable"
-        return None
+        return reason_of(self.state())
 
     def block(self) -> dict[str, Any]:
         """The coarse `wake` block: states and a reason only. No ids, counts, lease, cap, cost, envelope or key (R2 item 11)."""
@@ -342,6 +351,27 @@ class WakeBoard:
         """The lease reference the waker last granted for this judge (what an extend carries), or None."""
         with self._lock:
             return self._lease.get(label)
+
+    def open_rows(self) -> list[dict[str, Any]]:
+        """The unanswered, unexpired requests as plain rows (PR-4: the caller signs them), at most MAX_LISTED."""
+        with self._lock:
+            self._expire_locked(self._clock())
+            rows = [r for r in self._reqs.values() if r.answer is None]
+            return [
+                {"nonce": r.nonce, "label": r.label, "kind": r.kind, "lease_ref": r.lease_ref} for r in rows[: self.MAX_LISTED]
+            ]
+
+    def latest(self, label: str) -> tuple[str | None, float] | None:
+        """(answer or None, age in seconds) of the most recent `wake` request for this judge, or None when there is none.
+        An unanswered request older than the ttl reads as answered `failed`."""
+        with self._lock:
+            now = self._clock()
+            self._expire_locked(now)
+            rows = [r for r in self._reqs.values() if r.label == label and r.kind == "wake"]
+            if not rows:
+                return None
+            r = max(rows, key=lambda x: x.created)
+            return r.answer, now - r.created
 
     def pending(self) -> int:
         with self._lock:

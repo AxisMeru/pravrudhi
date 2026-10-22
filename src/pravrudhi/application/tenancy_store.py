@@ -23,10 +23,16 @@ from pravrudhi.application.a0_assist.store import StoreNotConfigured, parse_dsn,
 DSN_ENV = "SUPABASE_TENANCY_DB_URL"
 DEFAULT_CA_FILE = "/opt/pravrudhi/certs/supabase-prod-ca.crt"
 IDLE_REOPEN_S = 20.0
+#: #1038 PR-4 cold-start coordination functions (supabase/wake_migration_v1.sql): the only names `wake_call` accepts.
+WAKE_FUNCS = frozenset(
+    {"wake_ensure", "wake_extend", "wake_open", "wake_deliver", "wake_state", "wake_lease", "wake_nonce", "wake_begin",
+     "wake_active", "wake_end"}
+)
+WAKE_READS = frozenset({"wake_open", "wake_state", "wake_lease", "wake_active"})
 IDEMPOTENT = frozenset(
     {"get_org", "list_orgs", "add_member", "memberships_for_org", "get_key", "revoke_key", "keys_for_org", "purge_key",
      "usage_counts", "usage_summary", "audit_page", "canary"}
-)
+) | WAKE_READS
 
 
 class TenancyStoreDown(Exception):
@@ -117,6 +123,12 @@ class PgTenancyStore:
         finally:
             self._lock.release()
         raise TenancyStoreDown("unreachable")  # pragma: no cover
+
+    def wake_call(self, fn: str, *args: Any) -> Any:
+        """One cold-start coordination function (`tenancy.wake_*`) -> parsed JSON; reads are retried once, writes never."""
+        if fn not in WAKE_FUNCS:
+            raise ValueError("not a wake function")
+        return self._call(fn, *args)
 
     # ---- orgs and memberships -------------------------------------------------------------------------------------------
     def create_org(self, org_id: str, name: str, created: str) -> dict[str, Any]:

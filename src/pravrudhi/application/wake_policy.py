@@ -81,9 +81,14 @@ class WakeLimiter:
             return "new"
 
     def stamp(self, user: str) -> float | None:
-        """When the user's active wake began (the value `begin` stored), so a later `end` can prove it is that wake's end."""
+        """When the user's active wake began (the value `begin` stored), so a later `end` can prove it is that wake's end.
+        None when there is none, or when it is older than the active ttl (a dead wake is not active)."""
+        key = user.strip().lower()
         with self._lock:
-            return self._active.get(user.strip().lower())
+            began = self._active.get(key)
+            if began is not None and self._clock() - began > self._active_ttl:
+                return None
+            return began
 
     def end(self, user: str, *, ok: bool, stamp: float | None = None) -> None:
         """Release the user's wake. With `stamp`, only if THAT wake is still the active one: a late end from a wake whose

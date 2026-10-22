@@ -360,6 +360,15 @@ def _single_header(conn: HTTPConnection, name: str) -> bool:
     return len(values) == 1 and bool(values[0])
 
 
+def _route_is_registered(conn: HTTPConnection, method: str, path: str) -> bool:
+    """True only when the running app really has this route. The waker exemption must not outlive the routes: with cold start
+    off they are not registered, and a request naming them answers exactly as 0.6.29 did (the ordinary identity check, 401)."""
+    for r in getattr(conn.scope.get("app"), "routes", ()):
+        if getattr(r, "path", None) == path and method in (getattr(r, "methods", None) or ()):
+            return True
+    return False
+
+
 def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, identity_header: str) -> bool:
     """True when this request is for a partner route that validates the credential it carries: a key header on a partner key
     route, an org's key on its usage route, or the tenancy secret header on an org/key admin route. `path` is the ASGI scope
@@ -367,7 +376,7 @@ def _partner_route_carries_its_own_credential(path: str, conn: HTTPConnection, i
     if identity_header in conn.headers:
         return False
     method = str(conn.scope.get("method", "")).upper()
-    if _single_header(conn, _WAKER_HEADER) and (method, path) in WAKER_ROUTES:
+    if _single_header(conn, _WAKER_HEADER) and (method, path) in WAKER_ROUTES and _route_is_registered(conn, method, path):
         return True
     if _single_header(conn, _API_KEY_HEADER) and (
         (method, path) in PARTNER_KEY_ROUTES
