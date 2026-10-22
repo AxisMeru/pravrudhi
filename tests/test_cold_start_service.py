@@ -228,3 +228,31 @@ def test_second_judge_used_reads_only_established_elements() -> None:
     assert CS.second_judge_used({"contracts": [{"elements": [{"status": "established"}]}]}) is True
     assert CS.second_judge_used({"contracts": [{"elements": [{"status": "not_established"}]}]}) is False
     assert CS.second_judge_used({}) is False
+
+
+def test_a_fully_successful_wake_is_ended_so_the_next_start_is_not_refused_as_a_dead_wake() -> None:
+    """Run B (22 Oct): a status poll that saw every judge ready left the user's slot active; the next start after the 450 s dead-wake
+    bound was released as FAILED (not_allowed plus a 120 s cooldown). A full success must end the wake."""
+    from pravrudhi.application import judge_wake as jw
+    from pravrudhi.application import wake_store as ws
+
+    cfg = jw.parse_cold_start_config({"cold_start_wake": True})
+    assert cfg is not None
+    t = [1000.0]
+
+    def clock() -> float:
+        return t[0]
+
+    store = ws.MemoryWakeStore(cfg, clock=clock)
+    health = {"first": "parked", "second": "parked"}
+    svc = CS.ColdStartService(cfg, secret="x" * 40, store=store, health=lambda role: health[role], wall=clock)
+    assert svc.start("u-1")[0] == "accepted"
+    t[0] += 5
+    store.deliver([{"nonce": q["nonce"], "state": "granted", "lease_ref": "L" + q["label"]} for q in store.open_requests()])
+    t[0] += 40
+    health.update(first="ready", second="ready")
+    assert svc.status("u-1")["wake"]["state"] == "ready"
+    assert store.limit_active("u-1") is None  # the wake was ended by the status poll that saw it succeed
+    health.update(first="parked", second="parked")
+    t[0] += 1291  # well past the 450 s dead-wake bound
+    assert svc.start("u-1")[0] == "accepted"  # not not_allowed

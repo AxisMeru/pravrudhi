@@ -87,7 +87,7 @@ class ColdStartService:
         uid = _uid(user_id)
         readings = {role: self._health(role) for role in ROLES}
         if all(r == "ready" for r in readings.values()):
-            return "ready", self._evaluate(uid, readings)
+            return "ready", self._evaluate(uid, readings, closing=False)  # a start with every judge up stores and reads nothing
         try:
             begun, stamp = self._store.limit_begin(uid)
             if begun not in ("new", "existing"):
@@ -109,8 +109,13 @@ class ColdStartService:
         uid = _uid(user_id)
         return self._evaluate(uid, {role: self._health(role) for role in ROLES})
 
-    def _evaluate(self, uid: str, readings: Mapping[str, str]) -> dict[str, Any]:
-        active = None if all(r == "ready" for r in readings.values()) else self._store.limit_active(uid)
+    def _evaluate(self, uid: str, readings: Mapping[str, str], *, closing: bool = True) -> dict[str, Any]:
+        # A STATUS poll that sees every judge ready must still END the user's wake (a stamped, idempotent end). Without it a
+        # FULL success leaves the slot active, and the next start after the dead-wake bound is released as FAILED (a spurious
+        # refusal plus a failed-wake cooldown). Only the start() fast path (every judge already up, no wake begun) skips the
+        # store entirely.
+        all_ready = all(r == "ready" for r in readings.values())
+        active = None if (not closing and all_ready) else self._store.limit_active(uid)
         stamp, elapsed = active if active is not None else (None, 0.0)
         models: dict[str, str] = {}
         timed_out: set[str] = set()
