@@ -1,43 +1,46 @@
-"""#1038 cold start, PR-3 (service): the state behind the wake routes. Plain Python, no FastAPI: `partner.py` wires it to routes
-only when `cold_start_wake` is on and the HMAC secret is set. It owns
+"""#1038 cold start with progress, PR-4: the service behind the wake routes, with NO job object and no engine-run screening.
 
-* the start decision (`start`): everything already up -> run now; a parked judge and a verified waker user within their limits ->
-  a WAKE JOB owned by `user:<id>` (the same `JobStore` class as the key-owned jobs, a separate instance, so a key can never read
-  a user's job nor the reverse); anything else -> the ONE identical not-allowed answer (no cap oracle);
-* the wake task (`_task`): ask the box-side waker through the `WakeBoard`, watch each judge's own /health, apply the budget with
-  `tick()` on EVERY pass, then run the screening (both judges ready: normally; first ready only: with a request-scoped pre-tripped
-  breaker so every established element REFERs, never a proof) and send `extend` at the start and at the end of a team screening;
-* the poll (`poll`): the job plus the coarse `wake` block, only for the job's owner;
-* the waker-facing side (`requests`, `deliver`): the signed poll and the signed result delivery (contract v2).
+Production serves from several containers, so nothing here lives in process memory: the coordination state (judge-wake requests,
+the waker's answers, replay nonces, per-user limit counters) is behind the `WakeStore` interface, shared by every container
+(`wake_store.py`). A status read derives each judge's state from the shared request rows and the endpoint's own /health, so
+any container can answer any poll, and the box-side waker's poll can land anywhere. The CLIENT submits the screening itself
+once the status is `ready` or `partial`; a `partial` status carries a short-lived ticket (`wake_ticket.py`) that lets that one
+screening skip only the second judge's offline refusal and run with the second judge refused (every established element is
+referred). Nothing about a case ever reaches this module.
 
-Fail closed everywhere: a wake that fails or times out ends the job `failed`; nothing is ever scored without the first judge, and
-nothing is ever ESTABLISHED, PROOF or DENIAL unless both judges read it."""
+* the user side: `start` (an allowlisted user asks for a wake; the identical `NOT_ALLOWED` marker for every refusal),
+  `status` (the coarse state, and a ticket once the wake has ended ready or partial);
+* the waker side (contract v2, pull): `requests` and `deliver` (HMAC-SHA256, 60 s window, nonce once across containers);
+* `extend`: lease extensions for the judges, asked only with a valid ticket and rate-deduped.
+"""
 
 from __future__ import annotations
 
-import contextlib
 import json
-import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
-from pravrudhi.application.jobs import JobStore
-from pravrudhi.application.judge_wake import ROLES, JudgeWake, NonceStore, WakeBoard, WakeConfig, verify_http
-from pravrudhi.application.wake_policy import WakeLimiter
+from pravrudhi.application import wake_ticket
+from pravrudhi.application.judge_wake import (
+    HARD_MAX_BUDGET_S,
+    ROLES,
+    WakeConfig,
+    reason_of,
+    sign,
+    state_of,
+    verify_http,
+)
+from pravrudhi.application.wake_store import WakeStore
 
 NOT_ALLOWED: dict[str, str] = {"error": "judges_offline", "wake": "not_allowed"}  # the ONE marker, whatever the cause
 POLL_PATH = "/internal/wake-requests"
 RESULT_PATH = "/internal/wake-results"
-CHECK_EVERY_S = 2.0
-ACTIVE_TTL_S = 450.0  # a wake never lasts longer than the hard budget (420 s) plus a margin: an older entry is dead
-
-#: What `run_job` returns: ("ok", result dict) or ("err", http status, body dict). `kind` is "full" or "partial".
-RunJob = Callable[[str], tuple[Any, ...]]
+EXTEND_EVERY_S = 30.0  # per judge, per container (the database dedupes across containers as well)
 
 
 def _uid(user_id: str) -> str:
-    """One spelling of a user id for the owner, the active-wake map and the limiter (ids are compared case-insensitively)."""
+    """One spelling of a user id for the limiter and the ticket (ids are compared case-insensitively)."""
     return user_id.strip().lower()
 
 
@@ -51,20 +54,14 @@ def second_judge_used(result: Mapping[str, Any]) -> bool:
     return False
 
 
-def second_judge_ran(result: Mapping[str, Any], kind: str) -> bool:
-    """The second judge read the case iff the run was a full one AND no contract was referred because it was unavailable
-    (a failed second judge, or an open shared breaker, still ends a "full" run in REFER `second_judge_unavailable`)."""
-    if kind != "full":
-        return False
-    contracts = result.get("contracts") or []
-    return not any(isinstance(c, Mapping) and c.get("reason") == "second_judge_unavailable" for c in contracts)
+class _SharedNonces:
+    """The `nonces` argument of `verify_http`, backed by the shared store: once across every container."""
 
+    def __init__(self, store: WakeStore) -> None:
+        self._store = store
 
-def decorate_result(result: dict[str, Any], kind: str) -> dict[str, Any]:
-    ran = second_judge_ran(result, kind)
-    result["second_judge_ran"] = ran
-    result["judges"] = {"first": {"ran": True}, "second": {"ran": ran, "used": ran and second_judge_used(result)}}
-    return result
+    def first_use(self, nonce: str) -> bool:
+        return self._store.nonce_first_use(nonce)
 
 
 class ColdStartService:
@@ -73,149 +70,132 @@ class ColdStartService:
         cfg: WakeConfig,
         *,
         secret: str,
-        board: WakeBoard,
-        limiter: WakeLimiter,
-        jobs: JobStore,
+        store: WakeStore,
         health: Callable[[str], str],
-        submit: Callable[[Callable[[], None]], Any],
-        clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
-        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._cfg, self._secret, self._board, self._limiter, self._jobs = cfg, secret, board, limiter, jobs
-        self._health, self._submit, self._clock, self._wall, self._sleep = health, submit, clock, wall, sleep
-        self._nonces = NonceStore(clock=wall)
-        self._wakes: dict[str, JudgeWake] = {}
-        self._stamps: dict[str, float | None] = {}  # job id -> the limiter's stamp of its wake (for a stamped, idempotent end)
-        self._active: dict[str, tuple[str, float]] = {}  # user -> (job id of the wake in progress, when it began)
-        self._lock = threading.Lock()
+        self._cfg, self._secret, self._store, self._health, self._wall = cfg, secret, store, health, wall
+        self._nonces = _SharedNonces(store)
+        self._last_extend: dict[str, float] = {}
+        self._budget = min(cfg.budget_s, HARD_MAX_BUDGET_S)
 
     # ---- the user side -------------------------------------------------------------------------------------------------
 
-    def start(
-        self, user_id: str, run_job: RunJob
-    ) -> tuple[Literal["run_now", "accepted", "not_allowed"], str | None, dict[str, Any]]:
-        """Decide a team user's screening. Returns (outcome, job id, wake block): `run_now` = every judge is already up (the
-        caller runs it like the normal route); `accepted` = a wake job exists (new or the user's existing one);
-        `not_allowed` = the one identical marker (limit, cooldown, too many unfinished jobs: all the same answer)."""
-        user_id = _uid(user_id)
+    def start(self, user_id: str) -> tuple[Literal["ready", "accepted", "not_allowed"], dict[str, Any]]:
+        """An allowlisted user asks for a wake. `ready` = every judge is already up; `accepted` = a wake is in progress (new or
+        the user's existing one); `not_allowed` = the one identical marker (limit, cooldown, store unreachable: same answer)."""
+        uid = _uid(user_id)
         readings = {role: self._health(role) for role in ROLES}
         if all(r == "ready" for r in readings.values()):
-            return "run_now", None, {}
-        owner = f"user:{user_id}"
-        with self._lock:
-            self._forget_finished_locked()
-            entry = self._active.get(user_id)
-            if entry is not None and self._clock() - entry[1] > ACTIVE_TTL_S:
-                del self._active[user_id]  # a task that never finished (a crash, a swap): the user is not pinned to a dead wake
-                entry = None
-            existing = entry[0] if entry is not None else None
-            if existing is not None and existing in self._wakes and self._jobs.get(owner, existing) is not None:
-                return "accepted", existing, self._wakes[existing].block()
-            begun = self._limiter.begin(user_id)
-            if begun == "existing":  # an unfinished wake whose job record is gone: treat as refused, never start a second
-                return "not_allowed", None, dict(NOT_ALLOWED)
-            if begun != "new":
-                return "not_allowed", None, dict(NOT_ALLOWED)
-            job_id = self._jobs.create(owner)
-            if job_id is None:
-                self._limiter.end(user_id, ok=True)  # not the user's failure and not a wake: no cooldown, the slot is freed
-                return "not_allowed", None, dict(NOT_ALLOWED)
-            wake = JudgeWake(self._cfg, clock=self._clock)
-            to_wake = wake.start(readings)
-            self._wakes[job_id] = wake
-            self._stamps[job_id] = self._limiter.stamp(user_id)
-            self._active[user_id] = (job_id, self._clock())
-            nonces = {role: self._board.request(role, "wake") for role in to_wake}
-        self._submit(lambda: self._task(user_id, job_id, wake, nonces, run_job))
-        return "accepted", job_id, wake.block()
-
-    def poll(self, user_id: str, job_id: str) -> dict[str, Any] | None:
-        """The job record and the coarse wake block for the job's OWNER only; None (a 404) for anyone else."""
-        job = self._jobs.get(f"user:{_uid(user_id)}", job_id)
-        if job is None:
-            return None
-        with self._lock:
-            wake = self._wakes.get(job_id)
-            block = wake.block() if wake is not None else None
-        out: dict[str, Any] = {"job_id": job.job_id, "status": job.status}
-        if job.result is not None:
-            out["result"] = job.result
-        if job.error is not None:
-            out["error"] = job.error
-        if block is not None:
-            out["wake"] = block
-        return out
-
-    # ---- the wake task -------------------------------------------------------------------------------------------------
-
-    def _task(self, user_id: str, job_id: str, wake: JudgeWake, nonces: dict[str, str], run_job: RunJob) -> None:
-        ok = False
+            return "ready", self._evaluate(uid, readings)
         try:
-            self._jobs.start(job_id)
-            pending = dict(nonces)
-            while True:
-                with self._lock:
-                    for role in list(pending):
-                        answer = self._board.answer(pending[role])
-                        if answer is not None:
-                            wake.waker_answered(role, answer[0])
-                            del pending[role]
-                    starting = [m["role"] for m in wake.block()["models"] if m["state"] == "starting"]
-                readings = {role: self._health(role) for role in starting}  # network reads, outside the lock
-                with self._lock:
-                    for role, reading in readings.items():
-                        wake.health(role, reading)
-                    wake.tick()  # on EVERY pass (R2 advise 3)
-                    state = wake.state()
-                if state != "waking":
-                    break
-                self._sleep(CHECK_EVERY_S)
-            if state in ("failed", "timeout"):
-                self._jobs.fail(job_id, status_code=503, body={"error": "judge_unavailable", "reason": wake.reason()})
-                return
-            ok = True
-            kind = "full" if state == "ready" else "partial"
-            self._extend()  # at the START of the team screening
-            res = run_job(kind)
-            if res[0] == "ok":
-                result = decorate_result(dict(res[1]), kind)
-                self._jobs.finish(job_id, result=result)
-                self._extend()  # at the END of a completed team screening
-            else:
-                self._jobs.fail(job_id, status_code=int(res[1]), body=res[2])
-        except Exception:  # noqa: BLE001 - a crash is a failed job, never a hung one
-            self._jobs.fail(job_id, status_code=500, body={"error": "internal_error"})
-        finally:
-            with self._lock:
-                stamp = self._stamps.pop(job_id, None)
-            self._limiter.end(user_id, ok=ok, stamp=stamp)
-            with self._lock:
-                if (self._active.get(user_id) or ('', 0.0))[0] == job_id:
-                    del self._active[user_id]
+            begun, stamp = self._store.limit_begin(uid)
+            if begun not in ("new", "existing"):
+                return "not_allowed", dict(NOT_ALLOWED)
+            try:
+                for role in ROLES:
+                    if readings[role] != "ready":
+                        self._store.ensure_wake(role, self._budget)
+            except Exception:  # noqa: BLE001 - nothing was started: free the slot without a cooldown
+                if begun == "new":
+                    self._store.limit_end(uid, ok=True, stamp=stamp)
+                raise
+        except Exception:  # noqa: BLE001 - a store that cannot answer never grants a wake
+            return "not_allowed", dict(NOT_ALLOWED)
+        return "accepted", self._evaluate(uid, readings)
 
-    def _extend(self) -> None:
+    def status(self, user_id: str) -> dict[str, Any]:
+        """The user's coarse wake state (and a ticket once it ended ready or partial). Raises when the store is unreachable."""
+        uid = _uid(user_id)
+        return self._evaluate(uid, {role: self._health(role) for role in ROLES})
+
+    def _evaluate(self, uid: str, readings: Mapping[str, str]) -> dict[str, Any]:
+        active = None if all(r == "ready" for r in readings.values()) else self._store.limit_active(uid)
+        stamp, elapsed = active if active is not None else (None, 0.0)
+        models: dict[str, str] = {}
+        timed_out: set[str] = set()
         for role in ROLES:
-            lease = self._board.lease_for(role)
-            if lease is not None:
-                with contextlib.suppress(ValueError):
-                    self._board.request(role, "extend", lease)
+            if readings[role] == "ready":
+                models[role] = "ready"
+                continue
+            seen = self._store.wake_state(role) if active is not None else None
+            if seen is None:  # no wake of this user in progress (or it is long dead), or the request is gone: expired
+                models[role] = "failed"
+                timed_out.add(role)
+            elif seen[0] in ("refused", "failed"):
+                models[role] = "failed"
+            elif elapsed >= self._budget:
+                models[role] = "failed"
+                timed_out.add(role)
+            else:
+                models[role] = "starting" if seen[0] in ("granted", "already_awake") else "waiting"
+        state = state_of(models, first_timed_out="first" in timed_out)
+        if state != "waking" and stamp is not None:
+            self._store.limit_end(uid, ok=state in ("ready", "partial"), stamp=stamp)  # idempotent: a stamped end
+        body: dict[str, Any] = {
+            "wake": {
+                "state": state,
+                "models": [{"role": r, "state": models[r], "progress": None} for r in ROLES],
+                "reason": reason_of(state),
+                "deadline_s": int(self._budget + self._cfg.deadline_margin_s),
+                "poll_after_s": self._cfg.poll_after_s,
+            }
+        }
+        if state in ("ready", "partial"):
+            mode: wake_ticket.Mode = "full" if state == "ready" else "partial"
+            body["ticket"] = {
+                "value": wake_ticket.issue(self._secret, uid, mode, self._cfg.ticket_ttl_s, clock=self._wall),
+                "mode": mode,
+                "expires_in_s": int(self._cfg.ticket_ttl_s),
+            }
+        return body
 
-    def _forget_finished_locked(self) -> None:
-        live = {entry[0] for entry in self._active.values()}
-        for job_id in [j for j in self._wakes if j not in live]:
-            if self._jobs.get_any(job_id) is None:
-                del self._wakes[job_id]
+    # ---- the ticket (no I/O) ---------------------------------------------------------------------------------------------
+
+    def ticket_mode(self, value: str | None, user_id: str | None) -> wake_ticket.Mode | None:
+        return wake_ticket.verify(self._secret, value, user_id, clock=self._wall)
+
+    def extend(self) -> None:
+        """Ask the waker to extend each judge's lease. Best effort, never raises; the caller calls it only for a VALID ticket."""
+        now = self._wall()
+        for role in ROLES:
+            if now - self._last_extend.get(role, 0.0) < EXTEND_EVERY_S:
+                continue
+            self._last_extend[role] = now
+            try:
+                lease = self._store.lease_for(role)
+                if lease is not None:
+                    self._store.request_extend(role, lease)
+            except Exception:  # noqa: BLE001 - an extension is a convenience; the screening never waits on it
+                continue
 
     # ---- the waker side (contract v2) -----------------------------------------------------------------------------------
 
     def requests(self, ts: str | None, nonce: str | None, sig: str | None) -> tuple[int, dict[str, Any]]:
-        if not verify_http(self._secret, "GET", POLL_PATH, ts, nonce, sig, None, nonces=self._nonces, clock=self._wall):
+        nonces: Any = self._nonces
+        if not verify_http(self._secret, "GET", POLL_PATH, ts, nonce, sig, None, nonces=nonces, clock=self._wall):
             return 401, {}
-        return 200, {"v": 1, "requests": self._board.signed(self._secret)}
+        try:
+            rows = self._store.open_requests()
+        except Exception:  # noqa: BLE001 - nothing is listed while the store is down
+            return 503, {}
+        now = int(self._wall())
+        out: list[dict[str, str]] = []
+        for r in rows:
+            try:
+                payload: dict[str, Any] = {"v": 1, "kind": r["kind"], "label": r["label"], "ts": now, "nonce": r["nonce"]}
+                lease = r.get("lease_ref")
+                if lease is not None:
+                    payload["lease_ref"] = lease
+                signature = sign(self._secret, now, r["nonce"], r["label"], r["kind"], lease)
+            except (KeyError, ValueError):
+                continue  # a malformed row is never listed
+            out.append({"body": json.dumps(payload, separators=(",", ":")), "sig": "v1=" + signature})
+        return 200, {"v": 1, "requests": out}
 
     def deliver(self, ts: str | None, nonce: str | None, sig: str | None, body: bytes) -> tuple[int, dict[str, Any]]:
-        if not verify_http(self._secret, "POST", RESULT_PATH, ts, nonce, sig, body, nonces=self._nonces, clock=self._wall):
+        nonces: Any = self._nonces
+        if not verify_http(self._secret, "POST", RESULT_PATH, ts, nonce, sig, body, nonces=nonces, clock=self._wall):
             return 401, {}
         try:
             data = json.loads(body.decode("utf-8"))
@@ -223,4 +203,7 @@ class ColdStartService:
             return 400, {"error": "bad_request"}
         if not isinstance(data, dict) or data.get("v") != 1:
             return 400, {"error": "bad_request"}
-        return 200, {"v": 1, "applied": self._board.deliver(data.get("results"))}
+        try:
+            return 200, {"v": 1, "applied": self._store.deliver(data.get("results"))}
+        except Exception:  # noqa: BLE001
+            return 503, {}

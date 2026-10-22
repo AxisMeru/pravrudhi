@@ -109,6 +109,22 @@ def _pg() -> PgTenancyStore | None:
     return store
 
 
+def wake_call_or_none() -> Callable[..., Any] | None:
+    """#1038 PR-4: None for the file backend (a local engine keeps the cold-start state in process memory); else a callable that
+    runs one `tenancy.wake_*` coordination function through the hosted store (raises TenancyUnavailable when it is not
+    configured and TenancyStoreDown when it does not answer: the caller treats both as a refusal)."""
+    if not _backend_is_supabase():
+        return None
+
+    def call(fn: str, *args: Any) -> Any:
+        store = _pg()
+        if store is None:
+            raise TenancyUnavailable()
+        return store.wake_call(fn, *args)
+
+    return call
+
+
 _status_lock = threading.Lock()
 _status: dict[str, Any] = {"value": "checking", "at": None, "running": False}
 _STATUS_TTL_S = 30.0

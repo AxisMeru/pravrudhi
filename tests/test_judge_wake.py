@@ -48,6 +48,8 @@ def test_the_defaults_and_the_flag() -> None:
         {"cold_start_deadline_margin_s": 301}, {"cold_start_request_ttl_s": 29}, {"cold_start_request_ttl_s": 601},
         {"cold_start_user_wakes_per_day": 0}, {"cold_start_user_wakes_per_day": 51}, {"cold_start_user_wakes_per_day": True},
         {"cold_start_failed_cooldown_s": -1}, {"cold_start_failed_cooldown_s": 3601}, {"cold_start_failed_cooldown_s": "120"},
+        {"cold_start_ticket_ttl_s": 59}, {"cold_start_ticket_ttl_s": 3601}, {"cold_start_ticket_ttl_s": True},
+        {"cold_start_row_ttl_s": 299}, {"cold_start_row_ttl_s": 86401}, {"cold_start_row_ttl_s": "900"},
         {"cold_start_wake_second": "lazy"}, {"cold_start_wake_second": "both"},
         {"cold_start_waker_secret_env": "lower"}, {"cold_start_waker_secret_env": "A"}, {"cold_start_waker_secret_env": 5},
     ],
@@ -56,7 +58,34 @@ def test_one_bad_value_keeps_it_off(bad: dict[str, object]) -> None:
     assert W.parse_cold_start_config({**GOOD, **bad}) is None
 
 
+def test_the_ticket_and_row_lifetimes_default_to_600_and_900_seconds() -> None:
+    c = cfg()
+    assert (c.ticket_ttl_s, c.row_ttl_s) == (600.0, 900.0)
+    c = cfg(cold_start_ticket_ttl_s=120, cold_start_row_ttl_s=3600)
+    assert (c.ticket_ttl_s, c.row_ttl_s) == (120.0, 3600.0)
+
+
 # ---- the state machine ----------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "first_timed_out", "state", "reason"),
+    [
+        ("ready", "ready", False, "ready", None),
+        ("ready", "failed", False, "partial", "second_judge_unavailable"),
+        ("ready", "starting", False, "waking", None),
+        ("waiting", "ready", False, "waking", None),
+        ("failed", "ready", False, "failed", "first_judge_unavailable"),
+        ("failed", "waiting", True, "timeout", "start_timeout"),
+    ],
+)
+def test_the_pure_decision_table_is_the_one_both_the_machine_and_the_status_read_use(
+    first: str, second: str, first_timed_out: bool, state: str, reason: str | None
+) -> None:
+    assert W.state_of({"first": first, "second": second}, first_timed_out=first_timed_out) == state
+    assert W.reason_of(state) == reason
+
+
 
 
 def test_both_judges_wake_and_become_ready() -> None:
