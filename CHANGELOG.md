@@ -12,8 +12,11 @@ PATCH release on 0.6.32. Image only.
 ### Fixed
 - **A start right after a finished cold start is no longer refused for that reason (#1044).** When a cold start finished with every judge ready, its wake record stayed open, so the next start within about 7.5 minutes could be refused as a dead wake (503 `judges_offline`, the wake answered not allowed) and then waited a 2-minute cooldown. A cold start that finishes with every judge ready now ends its wake record.
 
+### Changed
+- **Who may ask for the models to be started (#1045).** New environment variable `PRAVRUDHI_WAKE_ANY_SIGNED_IN`. When it is set to exactly `1`, a verified, non-anonymous signed-in account that has an email address may ask for the models to be started; the `PRAVRUDHI_WAKERS` list of user ids stays as the fallback, so a listed id still may. Unset, empty or any other value leaves only the listed ids able to ask. It is off by default and changes nothing unless cold start itself is on. This release does not set it.
+
 ### Not changed
-- No configuration key, environment variable or secret changes, and no field a caller can see changes.
+- No secret changes. The shipped configuration gains no key; the one new setting is the environment variable above.
 
 ## 0.6.32 (2026-10-22)
 
