@@ -5,6 +5,16 @@ messages.
 
 Note (22 Oct 2026): Each entry describes its release as shipped. Whether a feature is switched on in a deployment is a setting, not part of the release; this file does not track settings.
 
+## 0.6.33 (2026-10-23)
+
+PATCH release on 0.6.32. Image only.
+
+### Fixed
+- **A start right after a finished cold start is no longer refused for that reason (#1044).** When a cold start finished with every judge ready, its wake record stayed open, so the next start within about 7.5 minutes could be refused as a dead wake (503 `judges_offline`, the wake answered not allowed) and then waited a 2-minute cooldown. A cold start that finishes with every judge ready now ends its wake record.
+
+### Not changed
+- No configuration key, environment variable or secret changes, and no field a caller can see changes.
+
 ## 0.6.32 (2026-10-22)
 
 PATCH release on 0.6.31. 0.6.30 and 0.6.31 were tagged but not deployed to production, so this release carries their changes too: cold start with progress, switched OFF, the shared coordination rows it needs when more than one container runs, and a fix to how the two waker paths are gated. For a customer nothing changes: with the flag off none of the new routes does anything and every existing route behaves as before. Nothing else is switched on.
