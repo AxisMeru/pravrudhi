@@ -23,6 +23,7 @@ from typing import Any
 from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
 
 WAKERS_ENV = "PRAVRUDHI_WAKERS"
+ANY_SIGNED_IN_ENV = "PRAVRUDHI_WAKE_ANY_SIGNED_IN"
 DAY_S = 24 * 3600.0
 
 
@@ -32,14 +33,28 @@ def waker_ids(env: Mapping[str, str] | None = None) -> frozenset[str]:
     return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
 
 
-def may_wake(user: Any, *, auth_enabled: bool, wakers: frozenset[str]) -> bool:
-    """True only for a verified user (non-None, non-blank id) whose USER ID is on the allowlist while auth is on. Never raises.
-    Ids only (R2): the identity record has no email-verified field, so an email is never a credential here."""
+def any_signed_in_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """True only when PRAVRUDHI_WAKE_ANY_SIGNED_IN is EXACTLY the string "1" (not "true", "01", " 1", "yes"); unset, empty or
+    anything else is off (fail closed). The caller reads it ONCE at startup. It changes nothing unless the cold-start routes
+    exist."""
+    return (os.environ if env is None else env).get(ANY_SIGNED_IN_ENV) == "1"
+
+
+def may_wake(user: Any, *, auth_enabled: bool, wakers: frozenset[str], any_signed_in: bool = False) -> bool:
+    """True only for a verified user (non-None, non-blank id, never anonymous) while auth is on, and then only when EITHER the
+    policy `any_signed_in` is on and the account has a non-empty e-mail (a sanity guard against anonymous and incomplete
+    accounts; never a credential: authorisation rests on the verified token) OR the USER ID is on the allowlist (the fallback,
+    unchanged). Never raises. Ids only on the allowlist (R2): the identity record has no email-verified field, so an email never
+    grants anything."""
     try:
-        if user is None or not auth_enabled or not wakers:
+        if user is None or not auth_enabled or getattr(user, "is_anonymous", False) is True:
             return False
         uid = str(user.id).strip().lower()
-        return bool(uid) and uid in wakers
+        if not uid:
+            return False
+        if any_signed_in and isinstance(user.email, str) and user.email.strip():
+            return True
+        return uid in wakers
     except Exception:  # noqa: BLE001 - an odd user object is simply not allowed
         return False
 

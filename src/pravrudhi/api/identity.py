@@ -66,6 +66,8 @@ class User:
     id: str
     email: str | None
     role: str
+    # a Supabase anonymous sign-in: the verified `is_anonymous` claim or introspection field; a missing claim reads False
+    is_anonymous: bool = False
 
 
 def auth_mode() -> AuthMode:
@@ -158,7 +160,12 @@ def _introspect(token: str, fetch: HttpFetch) -> dict[str, Any]:
     if resp.status_code != 200:
         raise HTTPException(status_code=401, detail="Token rejected by Supabase")
     body = resp.json()
-    claims = {"sub": body.get("id"), "email": body.get("email"), "role": "authenticated"}
+    claims = {
+        "sub": body.get("id"),
+        "email": body.get("email"),
+        "role": "authenticated",
+        "is_anonymous": body.get("is_anonymous") is True,
+    }
     if len(_INTROSPECT_CACHE) > 512:
         _INTROSPECT_CACHE.clear()
     _INTROSPECT_CACHE[token] = {"claims": claims, "at": now}
@@ -298,7 +305,12 @@ def user_from_headers(headers: Mapping[str, str]) -> User | None:
         raise
     except Exception as exc:  # noqa: BLE001 — any verification failure is a 401
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
-    return User(id=str(claims.get("sub")), email=claims.get("email"), role=str(claims.get("role") or "authenticated"))
+    return User(
+        id=str(claims.get("sub")),
+        email=claims.get("email"),
+        role=str(claims.get("role") or "authenticated"),
+        is_anonymous=claims.get("is_anonymous") is True,
+    )
 
 
 async def current_user(request: Request) -> User | None:
