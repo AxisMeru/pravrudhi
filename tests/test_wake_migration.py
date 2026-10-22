@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""#1038 PR-4: structure checks on supabase/wake_migration_v1.sql (and its down-migration). Text-level, no database: they pin the
+"""#1038 PR-4: structure checks on supabase/wake_migration_v2.sql (v1 + the name-list canary(); and its down-migration). Text-level, no database: they pin the
 properties R2 and the data-change approval rest on. The SQL is RUN by tests/test_wake_pg_it.py where docker and a Postgres image exist."""
 
 from __future__ import annotations
@@ -8,10 +8,10 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "supabase"
-UP = (ROOT / "wake_migration_v1.sql").read_text()
-DOWN = (ROOT / "wake_migration_v1_down.sql").read_text()
+UP = (ROOT / "wake_migration_v2.sql").read_text()
+DOWN = (ROOT / "wake_migration_v2_down.sql").read_text()
 TABLES = ("wake_requests", "wake_nonces", "wake_limits")
-FUNCS = re.findall(r"create or replace function (tenancy\.\w+)\(", UP)
+FUNCS = [f for f in re.findall(r"create or replace function (tenancy\.\w+)\(", UP) if f != "tenancy.canary"]
 
 
 def _code(sql: str) -> str:
@@ -37,10 +37,12 @@ def test_all_privileges_are_revoked_from_public_anon_and_authenticated_and_nothi
 
 def test_every_function_is_security_definer_with_a_fixed_search_path_and_only_the_login_role_may_run_it() -> None:
     code = _code(UP)
-    assert len(FUNCS) == 12
+    assert len(FUNCS) == 12  # the ten granted wake functions and the two internal helpers (canary() is separate)
     bodies = re.split(r"create or replace function ", code)[1:]
     for b in bodies:
         name = b.split("(")[0]
+        if name == "tenancy.canary":
+            continue  # replaced, not added: its own test below pins its body
         if name == "tenancy._wake_now":
             assert "set search_path = pg_catalog" in b
             continue
@@ -81,6 +83,24 @@ def test_only_coordination_columns_exist_never_content() -> None:
                     "user_id", "starts_json", "active_since", "cool_until"}
     for banned in ("fact", "narrative", "result", "paper", "contract", "text_body", "payload"):
         assert not [c for c in cols if banned in c]
+
+
+def test_canary_is_replaced_by_a_name_list_so_the_wake_functions_do_not_flip_the_store_status() -> None:
+    """The first apply (v1) added granted functions that the pre-existing canary() counted, and the store read `unavailable`."""
+    code = _code(UP)
+    body = code.split("create or replace function tenancy.canary()")[1]
+    for name in ("wake_ensure", "wake_extend", "wake_open", "wake_deliver", "wake_state", "wake_lease", "wake_nonce", "wake_begin",
+                 "wake_active", "wake_end"):
+        assert f"'{name}'" in body
+    assert "p.proname <> all (wake_names)" in body and "fns_ok = 16" in body and "(wake_ok = 10 or wake_ok = 0)" in body
+    assert "wake_unexpected = 0" in body and "fns_bad = 0" in body and "not schema_create" in body  # the original safety checks stay
+    assert "security definer" in body and "set search_path to 'pg_catalog', 'tenancy'" in body
+
+
+def test_the_down_migration_restores_the_original_sixteen_function_canary() -> None:
+    down = _code(DOWN)
+    tail = down.split("create or replace function tenancy.canary()")[1]
+    assert "fns_ok = 16 and fns_bad = 0" in tail and "wake" not in tail  # the pre-v2 body: no wake names, the plain count of 16
 
 
 def test_the_down_migration_drops_exactly_what_the_up_migration_creates() -> None:

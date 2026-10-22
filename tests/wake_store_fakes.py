@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""#1038 PR-4: a Python port of the `tenancy.wake_*` SQL functions (supabase/wake_migration_v1.sql), used ONLY in tests.
+"""#1038 PR-4: a Python port of the `tenancy.wake_*` SQL functions (supabase/wake_migration_v2.sql), used ONLY in tests.
 
 `FakeWakeDb.call(fn, *args)` has the shape of `PgTenancyStore.wake_call`: two `PgWakeStore`s built on the same `FakeWakeDb` are two
 containers sharing one database. It mirrors the SQL's rules (database clock, expiry on every read, one live request per judge,

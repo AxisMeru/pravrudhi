@@ -1,9 +1,12 @@
 # ruff: noqa: E501
-"""INTEGRATION: supabase/wake_migration_v1.sql run for real against a throwaway Postgres container.
+"""INTEGRATION: supabase/wake_migration_v2.sql (and its down-migration) run for real against a throwaway Postgres container.
 
 Skipped unless PRAVRUDHI_WAKE_PG_IT=1 and PRAVRUDHI_WAKE_PG_IMAGE names a Postgres image already present on this machine (for
 example the pinned supabase/postgres image of test_tenancy_pg_it.py, or postgres:16). Needs docker. A throwaway container on
-loopback, removed at the end; passwords are random and live only inside it. It proves what the structure test can only read:
+loopback, removed at the end; passwords are random and live only inside it. PRECONDITION (the miss of the first apply): production's tenancy.canary()
+counts the tenancy functions the login role can execute, and that base migration is not in this repository, so the fixture rebuilds its shape:
+two stub tables, fifteen stub functions, and the pre-v2 canary() body taken verbatim from the down-migration; the canary must stay ok after the
+apply and be restored by the down step. It proves what the structure test can only read:
 the function semantics in SQL (the same cases as the Python port in tests/wake_store_fakes.py), the unique-key replay guard, ONE
 wake started under concurrent begins, and that anon / authenticated / the engine's login role cannot touch a table directly."""
 
@@ -49,6 +52,25 @@ def nonce() -> str:
     return secrets.token_hex(16)
 
 
+def _base_precondition() -> None:
+    """The production shape this migration lands on: 15 stub functions + the pre-v2 canary() = the 16 executable by the login role."""
+    psql("create table tenancy.org (id text); create table tenancy.api_key (id text)")
+    psql("revoke all on tenancy.org, tenancy.api_key from public")
+    for role in ("anon", "authenticated"):
+        psql(f"revoke all on tenancy.org, tenancy.api_key from {role}")
+    for i in range(15):
+        psql(f"create function tenancy.base_fn_{i:02d}() returns int language sql security definer set search_path = pg_catalog as $$ select 1 $$; "
+             f"revoke all on function tenancy.base_fn_{i:02d}() from public; grant execute on function tenancy.base_fn_{i:02d}() to tenancy_rpc")
+    down = (ROOT / "wake_migration_v2_down.sql").read_text()
+    canary = "create or replace function tenancy.canary()" + down.split("create or replace function tenancy.canary()")[1].split("commit;")[0]
+    (Path("/tmp") / "wake-it-canary.sql").write_text(canary)
+    sh("docker", "cp", "/tmp/wake-it-canary.sql", f"{NAME}:/tmp/canary.sql")
+    m = sh("docker", "exec", "-e", f"PGPASSWORD={PW}", NAME, "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "/tmp/canary.sql")
+    assert m.returncode == 0, m.stderr
+    psql("revoke all on function tenancy.canary() from public; grant execute on function tenancy.canary() to tenancy_rpc")
+    assert call("tenancy.canary()")["ok"] is True  # the base shape reads ok before anything of ours is applied
+
+
 @pytest.fixture(scope="module", autouse=True)
 def db() -> Iterator[None]:
     sh("docker", "rm", "-f", NAME)
@@ -63,7 +85,8 @@ def db() -> Iterator[None]:
             psql(f"do $$ begin if not exists (select 1 from pg_roles where rolname='{role}') then create role {role} nologin; end if; end $$")
         psql(f"create role tenancy_rpc login noinherit nosuperuser nocreatedb nocreaterole nobypassrls password '{PW}'")
         psql("create schema if not exists tenancy; grant usage on schema tenancy to tenancy_rpc, anon, authenticated")
-        for f in ("wake_migration_v1.sql",):
+        _base_precondition()
+        for f in ("wake_migration_v2.sql",):
             sh("docker", "cp", str(ROOT / f), f"{NAME}:/tmp/{f}")
             m = sh("docker", "exec", "-e", f"PGPASSWORD={PW}", NAME, "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", f"/tmp/{f}")
             assert m.returncode == 0, m.stderr
@@ -119,9 +142,20 @@ def test_nobody_but_the_functions_can_touch_a_table() -> None:
             assert code != 0 and "permission denied" in out, (role, sql, out)
 
 
+def test_the_canary_stays_ok_with_the_wake_objects_applied_and_still_refuses_an_unexpected_one() -> None:
+    c = call("tenancy.canary()")
+    assert c["ok"] is True and c["functions_executable"] == 16 and c["wake_functions_executable"] == 10 and c["wake_unexpected"] == 0
+    psql("create function tenancy.wake_rogue() returns int language sql as $$ select 1 $$")
+    assert call("tenancy.canary()")["ok"] is False  # an unlisted wake function is not waved through
+    psql("drop function tenancy.wake_rogue()")
+    assert call("tenancy.canary()")["ok"] is True
+
+
 def test_the_down_migration_removes_every_object() -> None:
-    sh("docker", "cp", str(ROOT / "wake_migration_v1_down.sql"), f"{NAME}:/tmp/down.sql")
+    sh("docker", "cp", str(ROOT / "wake_migration_v2_down.sql"), f"{NAME}:/tmp/down.sql")
     m = sh("docker", "exec", "-e", f"PGPASSWORD={PW}", NAME, "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "/tmp/down.sql")
     assert m.returncode == 0, m.stderr
     assert psql("select count(*) from information_schema.tables where table_schema='tenancy' and table_name like 'wake_%'")[1] == "0"
     assert psql("select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='tenancy' and p.proname like '%wake%'")[1] == "0"
+    c = call("tenancy.canary()")
+    assert c["ok"] is True and c["functions_executable"] == 16 and "wake_functions_executable" not in c  # the original canary is back
