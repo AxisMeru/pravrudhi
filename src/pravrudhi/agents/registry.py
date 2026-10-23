@@ -22,12 +22,14 @@ from pravrudhi.models import hosted
 
 @dataclass(frozen=True)
 class AgentStatus:
+    """Whether a registered agent can run here and, if not, why."""
     name: str
     available: bool
     reason: str
 
 
 def build_registry(root: Path, *, include_orca: bool = True) -> dict[str, Any]:
+    """Build the registry of agents this root can use, by name. Each agent checks its own availability when asked."""
     agents: dict[str, Any] = {"claude-code": ClaudeCodeAgent(root), "codex": CodexAgent(root)}
     # Free-tier DashScope is retired everywhere (operator instruction, 2026-09-25). "opencode:alibaba" is
     # kept as a NAME only, for any existing route/config that still names it, aliased to the exact same paid

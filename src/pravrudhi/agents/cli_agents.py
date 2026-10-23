@@ -303,6 +303,7 @@ class CodexAgent(GitWorktreeMixin):
 
 
 def unified_agents(root: Path) -> dict[str, GitWorktreeMixin]:
+    """The Claude Code and Codex agents for this root, by name."""
     return {a.name: a for a in (ClaudeCodeAgent(root), CodexAgent(root))}
 
 

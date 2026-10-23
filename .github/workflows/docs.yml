@@ -1,0 +1,54 @@
+name: docs
+
+# Builds the Sphinx documentation (sphinx/) and checks that the generated reference pages match the code.
+# Build-only: the HTML is uploaded as a short-lived artifact and is not committed. Exit code only, no -W:
+# docstring formatting warnings do not fail the job; a missing import, a bad config or stale reference pages do.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pravrudhi_kernel/**"
+      - "configs/**"
+      - "sphinx/**"
+      - "docs/architecture.md"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "pravrudhi_kernel/**"
+      - "configs/**"
+      - "sphinx/**"
+      - "docs/architecture.md"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with: { python-version: "3.13" }
+
+      - run: uv sync --frozen
+      - run: uv pip install -r sphinx/requirements.txt
+
+      - name: the committed reference pages must equal what the code generates
+        run: uv run --no-sync python sphinx/gen_reference.py --check
+
+      - name: build the HTML
+        run: uv run --no-sync sphinx-build -b html sphinx sphinx/_build/html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: sphinx/_build/html
+          retention-days: 7

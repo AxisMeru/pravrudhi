@@ -26,6 +26,7 @@ _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 class InvalidHostSpec(ValueError):
+    """A host entry that does not describe a usable machine."""
     pass
 
 
@@ -147,6 +148,9 @@ class Requirement:
 
 @runtime_checkable
 class Transport(Protocol):
+    """How commands reach a machine: a name, a way to run a command with a timeout, and whether the machine can be
+    reached.
+    """
     name: str
 
     def run(self, command: str, timeout_s: int = 300) -> tuple[int, str, str]: ...

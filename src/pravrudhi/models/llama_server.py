@@ -15,6 +15,7 @@ IMAGE = "ghcr.io/ggml-org/llama.cpp:server-cuda"
 
 
 class LlamaServer:
+    """Starts and stops a local llama.cpp server container for the proposer model and gives a chat client for it."""
     def __init__(
         self,
         gguf: Path,

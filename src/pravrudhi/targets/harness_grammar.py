@@ -21,6 +21,9 @@ DEFAULT_FEEDBACK = (
 
 
 class HarnessRecipe(BaseModel):
+    """A harness candidate as the proposer may write it: a strategy, an execution family and bounded prompt, template,
+    retry and sampling settings. Anything outside the bounds is refused.
+    """
     model_config = ConfigDict(extra="forbid", frozen=True)
     strategy: Literal["prompt_only", "retry_policy", "sampling_policy"]
     execution_family: Literal["system_prompt", "template", "feedback", "retries", "sampling", "context"]
@@ -67,6 +70,7 @@ BASELINE = HarnessRecipe(strategy="prompt_only", execution_family="system_prompt
 
 
 def parse_harness(obj: dict[str, Any]) -> HarnessRecipe | str:
+    """Validate a harness recipe object: return the recipe, or one string that lists every field error."""
     try:
         return HarnessRecipe.model_validate(obj)
     except ValidationError as e:

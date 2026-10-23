@@ -72,6 +72,7 @@ def probe_host(spec: HostSpec, timeout_s: int = 120) -> HostCapabilities:
 
 
 def survey_fleet(root: Path) -> list[tuple[HostSpec, HostCapabilities]]:
+    """Probe every enrolled machine and return each with its measured capabilities."""
     return [(s, probe_host(s)) for s in load_fleet(root)]
 
 
@@ -99,6 +100,7 @@ def place(
 
 
 def fleet_report(root: Path) -> dict[str, Any]:
+    """The fleet as a JSON-ready report: each host and what it can do."""
     rows = []
     for spec, cap in survey_fleet(root):
         rows.append({"host": spec.to_dict(), "capabilities": cap.to_dict()})
@@ -106,6 +108,7 @@ def fleet_report(root: Path) -> dict[str, Any]:
 
 
 def render_fleet(root: Path) -> str:
+    """The fleet as a text table for the terminal."""
     lines = [
         f"{'host':12} {'transport':10} {'os/arch':18} {'accel':7} {'usable':>8}  {'docker':7} {'train':6} agents",
         "-" * 100,

@@ -15,6 +15,9 @@ from pravrudhi_kernel.schema import Candidate
 
 
 class Surface(BaseModel):
+    """One thing a target lets a night change: its name, the strategies that may change it and the execution families
+    they run under.
+    """
     model_config = ConfigDict(frozen=True, extra="forbid")
     name: str  # e.g. W3.adapter
     strategies: list[str]
@@ -22,6 +25,9 @@ class Surface(BaseModel):
 
 
 class Artefact(BaseModel):
+    """What a candidate is materialised into: the kind (baseline, adapter or harness), the folder on the host and a
+    content hash.
+    """
     model_config = ConfigDict(frozen=True, extra="forbid")
     kind: str  # baseline | adapter | harness
     path: str | None  # host path of the adapter/harness dir; None for the unmodified baseline
@@ -29,6 +35,9 @@ class Artefact(BaseModel):
 
 
 class CanarySpec(BaseModel):
+    """A pre-registered check a candidate must still pass: its name, its margin and the direction in which the margin is
+    read.
+    """
     model_config = ConfigDict(frozen=True, extra="forbid")
     name: str
     margin: float = Field(gt=0.0)
@@ -36,6 +45,9 @@ class CanarySpec(BaseModel):
 
 
 class Target(Protocol):
+    """What a harness exposes so a night can improve it: its surfaces, baseline, how a candidate is materialised, any
+    training job and the canaries. The one extension point for new harnesses.
+    """
     name: str
 
     def surfaces(self) -> list[Surface]: ...

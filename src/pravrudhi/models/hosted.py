@@ -30,6 +30,7 @@ class HostedRefused(RuntimeError):
 
 
 def client_path() -> Path:
+    """Path to the hosted free-model client: the environment override if set, otherwise the default location."""
     return Path(os.environ.get("PRAVRUDHI_FREELLM_PATH", "") or DEFAULT_CLIENT_PATH)
 
 

@@ -40,6 +40,7 @@ Never the system temp dir: on this host /tmp is a 16 GB tmpfs that large benchma
 
 
 def default_prompt_dir(root: Path) -> Path:
+    """Where Orca prompts live: the environment override, otherwise a folder under the project's state folder."""
     raw = os.environ.get(PROMPT_DIR_ENV)
     return Path(raw).expanduser() if raw else Path(root) / ".pravrudhi" / "orca-prompts"
 
@@ -77,6 +78,7 @@ def terminal_command(argv: list[str], stdin_file: Path | None = None) -> str:
 
 
 class OrcaUnavailable(RuntimeError):
+    """Raised when the Orca adapter cannot be used."""
     pass
 
 

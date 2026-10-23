@@ -41,6 +41,9 @@ def credential_path(provider_id: str) -> Path:
 
 
 def credential(provider_id: str = "alibaba") -> Secret:
+    """Read the provider's credential from its file; refuses a file that is not an owner-owned regular file with mode
+    0600.
+    """
     path = credential_path(provider_id)
     # Do not source shell code, follow symlinks, or accept permissive files.
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
@@ -61,6 +64,7 @@ def credential(provider_id: str = "alibaba") -> Secret:
 
 
 def configuration(model: str, provider_id: str = "alibaba") -> dict[str, Any]:
+    """The coding-agent configuration for one provider and model: a single enabled provider, sharing and auto-update off."""
     return {
         "$schema": "https://opencode.ai/config.json",
         "enabled_providers": [PROVIDER],

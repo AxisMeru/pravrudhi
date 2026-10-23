@@ -173,6 +173,7 @@ def _generate_hf(messages: list[dict[str, str]], max_tokens: int, temperature: f
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """Liveness probe: reports the shim's backend."""
     return {"status": "ok", "backend": BACKEND}
 
 
@@ -182,6 +183,9 @@ def health() -> dict[str, str]:
 # route must exist at that path too. Root-level route kept for direct testing against base_url
 # with no "/v1" suffix.
 async def chat_completions(request: Request) -> JSONResponse:
+    """OpenAI-compatible chat endpoint of the local shim: answers from the stub or from a Hugging Face model, depending
+    on the backend.
+    """
     body = await request.json()
     messages = body.get("messages", [])
     max_tokens = int(body.get("max_tokens", 2048))
