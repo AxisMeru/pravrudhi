@@ -507,6 +507,7 @@ def build_router(root: Path) -> APIRouter:
     def start(
         req: RunRequest, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
+        """Start a run in the caller's workspace and return its view."""
         return _mgr(user, workspace).start(req).view()
 
     @r.get("/runs", response_model=RunsResponse)
@@ -551,12 +552,14 @@ def build_router(root: Path) -> APIRouter:
     def stop_run(
         run_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
+        """Stop a run and return its view."""
         return _mgr(user, workspace).stop(run_id).view()
 
     @r.get("/runs/{run_id}/events", response_model=RunEventsResponse)
     def events(
         run_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> StreamingResponse:
+        """Stream a run's events as server-sent events."""
         return StreamingResponse(_mgr(user, workspace).stream(run_id), media_type="text/event-stream")
 
     @r.get("/models", response_model=PromotedModelsResponse)
