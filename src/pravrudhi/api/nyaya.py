@@ -226,6 +226,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
 
     @router.get("/vendors", response_model=NyayaVendorsResponse)
     def vendors(workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """The vendors the caller may ask in this project."""
         project, store = _session(user, workspace)
         return {"vendors": nyaya.available_vendors(project, store=store)}
 
@@ -233,6 +234,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def corpus(
         q: str = "", k: int = 8, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any]:
+        """Search the statute corpus (`q`, `k`): notice, document count, sources and hits (no hits for an empty query)."""
         project, _store = _session(user, workspace)
         c = nyaya.load_corpus(project)
         hits = (
@@ -251,6 +253,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
 
     @router.get("/asks", response_model=NyayaAsksResponse)
     def asks(limit: int = 20, workspace: str | None = None, user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """The caller's most recent asks (`limit`)."""
         project, _store = _session(user, workspace)
         return {"asks": nyaya.recent_asks(project, limit=limit)}
 
@@ -258,6 +261,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def ask_ep(
         req: AskRequest, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
+        """Ask vendors a question against retrieved statute text; returns the verdict (422 bad input, 403 vendor refused)."""
         if not req.question.strip():
             raise HTTPException(422, "an empty question asks nothing")
         project, store = _session(user, workspace)
@@ -276,6 +280,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def audit_ep(
         req: AuditRequest, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
+        """Audit a supplied answer against its sources with a checker; 422 on bad input, 503 when the checker is unavailable."""
         if not req.answer.strip():
             raise HTTPException(422, "nothing to audit")
         project, store = _session(user, workspace)
@@ -292,6 +297,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
 
     @router.get("/registry/contracts", response_model=NyayaRegistryContractsResponse)
     def registry_contracts_ep(user: User | None = CurrentUserDep) -> dict[str, Any]:
+        """The contract ids the registry knows, with their entries (sign-in required; nothing per user)."""
         del user  # auth-gated like every other route below; the id list itself carries nothing per-user
         return {"contracts": nyaya.registry_contract_ids(), "entries": nyaya.registry_contract_entries(engine_root)}
 
@@ -299,6 +305,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def registry_elements_ep(
         contract_id: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
+        """The elements of one registry contract; 422 for an unknown id, 503 when the checker is unavailable."""
         project, _store = _session(user, workspace)
         try:
             elements = nyaya.registry_elements(project, contract_id)
@@ -313,6 +320,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def registry_check_ep(
         req: NyayaRegistryCheckRequest, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
+        """Check element assertions for a contract, optionally with evidence (422 bad input, 503 checker unavailable)."""
         if not req.assertions:
             raise HTTPException(422, "at least one element assertion is required")
         project, _store = _session(user, workspace)

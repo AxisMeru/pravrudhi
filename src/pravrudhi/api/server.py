@@ -346,14 +346,17 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/doctor")
     def doctor() -> DoctorResponse:
+        """The workspace setup report: every check `pravrudhi doctor` runs, with its status and detail."""
         return DoctorResponse.model_validate(run_doctor(root))
 
     @api.get("/hosts")
     def hosts() -> FleetResponse:
+        """The fleet report: the machines this workspace knows about and their state."""
         return FleetResponse.model_validate(fleet_report(root))
 
     @api.get("/agents")
     def agents() -> AgentsResponse:
+        """The coding agents found on this machine: name, whether each is available and, if not, why."""
         return AgentsResponse.model_validate(
             [{"name": agent.name, "available": agent.available, "reason": agent.reason} for agent in survey(root)]
         )
@@ -528,6 +531,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/parity", response_model=ParityResponse)
     def parity_ep() -> ParityResponse:
+        """The capability parity report: the checked-in capability matrix against rival capabilities."""
         from pravrudhi.application.parity import report
 
         return ParityResponse.model_validate(report(root).model_dump())
@@ -586,6 +590,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     @api.get("/external", response_model_exclude_unset=True)
     def external() -> ExternalResultsResponse:
         # No ledger means nothing has been scored yet — an empty list, not a missing file. See `/nights`.
+        """The external benchmark results recorded in the ledger (an empty list before anything is scored)."""
         if not ledger.exists():
             return ExternalResultsResponse.model_validate([])
         return ExternalResultsResponse.model_validate(external_rows(ledger))
@@ -595,6 +600,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         # A workspace that has run nothing has no ledger — `research/` is gitignored and the file appears when
         # the first night does. Opening it unconditionally meant a fresh install answered this page with a
         # FileNotFoundError before its user had done anything.
+        """One row per night recorded in the ledger (an empty list on a fresh workspace)."""
         if not ledger.exists():
             return NightsResponse.model_validate([])
         starts: dict[tuple[int, str], dict[str, Any]] = {}
@@ -623,6 +629,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/h1/{track}/{nights}")
     def h1(track: str, nights: str) -> MarkdownResponse:
+        """The H1 report as markdown for a track over dash-separated night numbers (400 for a malformed list)."""
         if not re.fullmatch(r"[0-9]+(?:-[0-9]+)*", nights):
             raise HTTPException(400, "nights must be dash-separated non-negative integers")
         try:
@@ -633,6 +640,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/health")
     def health(http_request: HttpRequest, response: Response) -> HealthResponse:
+        """Public health: version, kernel, ledger, assistant tier and tenancy store state; never an address or a secret."""
         from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
         from pravrudhi.application import assistant_tier, tenancy
 
@@ -683,10 +691,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/status")
     def status_ep() -> StatusResponse:
+        """The workspace status summary (`initialised` is false before the first night)."""
         return StatusResponse.model_validate(status(root))
 
     @api.get("/heartbeat")
     def heartbeat_ep(n: int = 100) -> HeartbeatResponse:
+        """The last `n` heartbeats (clamped to 1..1000, default 100), newest first."""
         from pravrudhi.application.heartbeat import history
 
         beats = [b.to_dict() for b in history(root, max(1, min(n, 1000)))]
@@ -718,12 +728,14 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/update")
     def update_ep() -> UpdateStatusResponse:
+        """The software update status: current and latest version, whether an update is available and whether the check ran."""
         from pravrudhi.application.updates import status as update_status
 
         return UpdateStatusResponse.model_validate(update_status())
 
     @api.get("/update/config")
     def update_config_get() -> UpdateConfigResponse:
+        """The saved update settings."""
         from dataclasses import asdict
 
         from pravrudhi.application.update_apply import load_config
@@ -732,10 +744,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/update/last-check")
     def update_last_check_ep() -> UpdateLastCheckResponse:
+        """When the update check last ran (null if never)."""
         return UpdateLastCheckResponse.model_validate({"last_checked": _update_last_checked()})
 
     @api.put("/update/config")
     def update_config_put(req: UpdateConfigRequest) -> UpdateConfigResponse:
+        """Save the update settings and return them."""
         from dataclasses import asdict
 
         from pravrudhi.application.update_apply import UpdateConfig, save_config
@@ -772,6 +786,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.post("/update/rollback")
     def update_rollback_ep() -> ApplyResultResponse:
+        """Roll back the last applied update; 409 while an update is already in progress."""
         nonlocal _update_busy
         from dataclasses import asdict
 
@@ -791,6 +806,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     @api.get("/candidates")
     def candidates() -> CandidatesResponse:
         # Same as `/nights`: nothing proposed yet is an empty list, not a missing file.
+        """Every proposal in the ledger with its badge (an empty list before anything is proposed)."""
         if not ledger.exists():
             return CandidatesResponse.model_validate([])
         st = replay(ledger)
@@ -800,6 +816,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/candidates/{cid}")
     def candidate(cid: str) -> CandidateDetailResponse:
+        """One proposal with its badge, view and events; 404 for an unknown id."""
         st = replay(ledger)
         if cid not in st.candidates:
             raise HTTPException(404, "unknown candidate")
@@ -810,6 +827,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/observations")
     def observations(limit: int = 200) -> ObservationsResponse:
+        """The most recent `limit` observation events in the ledger (default 200)."""
         if not ledger.exists():
             return ObservationsResponse.model_validate([])
         rows = [ev.model_dump() for ev in iter_events(ledger) if ev.kind == "observe"]
@@ -858,6 +876,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
     def objective_ep(
         oid: str, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> ObjectiveDetailResponse:
+        """One objective of the caller's project with its summary; 404 if there is none with that id."""
         from pravrudhi.application.objectives import load_all, summary
         from pravrudhi.application.recipes import resolve
 
@@ -1289,10 +1308,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/inbox")
     def inbox() -> InboxListingResponse:
+        """What is waiting on a human decision (an empty list on a workspace that has never run a night)."""
         return InboxListingResponse.model_validate(inbox_listing(root))
 
     @api.get("/evidence/{name}")
     def evidence(name: str) -> EvidenceResponse:
+        """One evidence document (`docs/evidence/<name>.md`) as markdown; 404 unless it is a plain slug of an existing file."""
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
             raise HTTPException(404, "no such evidence document")
         base = (root / "docs" / "evidence").resolve()
@@ -1321,10 +1342,12 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/requests")
     def requests_ep() -> BacklogResponse:
+        """The request backlog."""
         return BacklogResponse.model_validate(requests_backlog(root))
 
     @api.get("/requests/{rid}")
     def request_ep(rid: str) -> RequestResponse:
+        """One request; 404 if unknown."""
         req = get_request(root, rid)
         if req is None:
             raise HTTPException(404, f"no request {rid}")
@@ -1332,6 +1355,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.post("/requests/{rid}/advance")
     def request_advance_ep(rid: str, req: RequestAdvanceRequest) -> RequestResponse:
+        """Move a request to a new state with a note; 409 if the transition is not allowed."""
         try:
             return _request_response(advance_request(root, rid, req.state, note=req.note))
         except RequestError as e:
@@ -1339,6 +1363,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.post("/requests/{rid}/criteria/{index}/evidence")
     def request_evidence_ep(rid: str, index: int, req: RequestEvidenceRequest) -> RequestResponse:
+        """Attach evidence to a request criterion and mark it met (409 if refused); emits a `criterion_met` notice."""
         evidence = [Evidence(kind=req.kind, ref=req.ref, note=req.note)]
         try:
             updated = meet_criterion(root, rid, index, evidence)
@@ -1356,6 +1381,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
         # ADR-0040. This route is what "giving autonomy to studio and product apps themselves" needed: the
         # apps sign through here, and it answered 403 to every agent identity. A person still signs as
         # themselves; an agent signs as the delegation's identity, under the delegation's own conditions.
+        """Sign off an inbox item as the named operator or the delegation's identity (ADR-0040); 403 otherwise."""
         from pravrudhi.application.delegation import load_delegation, unmet_conditions
 
         who = (x_pravrudhi_operator or os.environ.get("PRAVRUDHI_OPERATOR") or "").strip()
