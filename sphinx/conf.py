@@ -98,7 +98,7 @@ def _skip_private_values(app, what, name, obj, skip, options):  # type: ignore[n
     """Leave out module data that carries a private identifier or a local path in its value."""
     if skip or what != "module":
         return skip
-    if name.startswith("PRIVATE"):
+    if name.startswith(("PRIVATE", "DROP_", "INTERNAL_")) or name.endswith(("_MARKERS", "_PATTERNS")):
         return True
     try:
         text = repr(obj)
