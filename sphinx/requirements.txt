@@ -1,5 +1,7 @@
-# Build requirements for the documentation (the package itself is installed with `pip install -e . -e pravrudhi_kernel`).
-sphinx>=7
-sphinx-rtd-theme>=2
-myst-parser>=3
-sphinx-autodoc-typehints>=2
+# Build requirements for the documentation, pinned to the versions the build was checked with.
+# The package itself is installed separately (`uv sync`, or `pip install -e pravrudhi_kernel -e .`).
+sphinx==9.2.0
+sphinx-rtd-theme==3.1.0
+myst-parser==5.1.0
+sphinx-autodoc-typehints==3.17.2
+docutils==0.22.4

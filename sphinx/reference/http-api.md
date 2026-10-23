@@ -8,31 +8,19 @@ on the deployment's edition and authentication mode (see the environment page).
 | Method | Path | What it does (first line of the handler's docstring) | Handler |
 |---|---|---|---|
 | `GET` | `/api/agent-trace` | What the agents have been doing, newest first: dispatched, accepted, rejected, rate limited, moved to another route. One chronological read across a whole wave, which the per-job records cannot give. | `agent_trace_ep` in `api/server.py` |
-| `GET` | `/api/agents` | (no description yet) | `agents` in `api/server.py` |
 | `GET` | `/api/agents/cooldowns` | Which agents are sitting out a vendor usage limit right now, and when each returns (see `application.availability`) — the swarm view showed availability but never why a route disappeared. | `agent_cooldowns` in `api/server.py` |
 | `GET` | `/api/app-token` | The local token, for the interface this engine serves. Same-origin callers only. | `token` in `api/localguard.py` |
 | `GET` | `/api/appetite` | What the engine wants right now: every drive's operands, the largest eligible deficit, and the sentence generated from those fields. A drive whose input cannot be measured reports unknown with the reason, never a number nobody computed. | `appetite_ep` in `api/server.py` |
 | `GET` | `/api/assistant` | What the app needs to show the assisted-screening consent box. The two pending-delete ages are published to signed-in callers only; an unreadable runtime is the plain tier state, never a 500. | `assistant_ep` in `api/server.py` |
 | `GET` | `/api/benchmarks` | Every task the external tier has ever scored in this workspace, each with its last measured value. Choosing what success means is picking from this list, never typing an external scorer's task syntax. | `benchmarks_ep` in `api/server.py` |
-| `GET` | `/api/candidates` | (no description yet) | `candidates` in `api/server.py` |
-| `GET` | `/api/candidates/{cid}` | (no description yet) | `candidate` in `api/server.py` |
 | `POST` | `/api/chat` | Answer one turn. Any number the turn's tools did not return is stripped and reported under `refusals`, so a reply is either traceable to the ledger or visibly missing a sentence. | `chat_ep` in `api/chat.py` |
 | `POST` | `/api/chat/stream` | The same turn as `/chat`, delivered as server-sent events while it happens: `tool` when the assistant calls a tool and again when it returns, `token` for each piece of the finished, honesty- checked reply, `citation` per ledger row it stands on, and `done` with the same payload `/chat` returns in one piece - which is also what `response_model` documents here, since the raw `StreamingResponse` this returns bypasses it at runtime and a `done` event is the one SSE frame shaped exactly like it. A turn whose model endpoint never answers is reported as an `error` event rather than a dropped connection - `converse_stream` leaves the user's message unpersisted until it has a reply, so a client that falls back to `/chat` for the same message will not find it already sitting in the thread with nothing answering it. | `chat_stream_ep` in `api/chat.py` |
 | `GET` | `/api/chat/threads` | The caller's conversations. A logged-in user's follow their account; a local engine's stay on disk. | `threads_ep` in `api/chat.py` |
 | `GET` | `/api/chat/threads/{thread_id}` | One conversation in full. A thread that does not exist is a 404, not an empty conversation: the two are different facts and a client that conflates them will silently start writing into nothing. | `thread_ep` in `api/chat.py` |
 | `GET` | `/api/diffs` | Dispatched tasks with a readable worktree, newest first -- the file list a diff viewer opens onto. | `diffs_ep` in `api/server.py` |
 | `GET` | `/api/diffs/{task_id}` | One dispatched task's worktree, diffed against the commit its branch forked from. A worktree that no longer exists, or a task id that would resolve outside `.worktrees/`, comes back as an empty diff with `reason` set rather than a 404 -- the caller is asking about a task, not a resource that may not exist yet. | `diff_ep` in `api/server.py` |
-| `GET` | `/api/doctor` | (no description yet) | `doctor` in `api/server.py` |
-| `GET` | `/api/evidence/{name}` | (no description yet) | `evidence` in `api/server.py` |
-| `GET` | `/api/external` | (no description yet) | `external` in `api/server.py` |
 | `GET` | `/api/fleet` | Every Pravrudhi install the configured fleet roots name, read from its own workspace directory: no SSH, no network — an install this engine cannot see on its own filesystem is simply absent here. | `fleet_ep` in `api/server.py` |
-| `GET` | `/api/h1/{track}/{nights}` | (no description yet) | `h1` in `api/server.py` |
-| `GET` | `/api/health` | (no description yet) | `health` in `api/server.py` |
 | `GET` | `/api/health-state` | Whether this engine can still do the next piece of work, and every check behind that answer. | `health_state_ep` in `api/server.py` |
-| `GET` | `/api/heartbeat` | (no description yet) | `heartbeat_ep` in `api/server.py` |
-| `GET` | `/api/hosts` | (no description yet) | `hosts` in `api/server.py` |
-| `GET` | `/api/inbox` | (no description yet) | `inbox` in `api/server.py` |
-| `POST` | `/api/inbox/sign` | (no description yet) | `sign` in `api/server.py` |
 | `GET` | `/api/jobs` | Every dispatch-board job, newest first. A read route: it answers on a workspace that has never dispatched anything, returning an empty list rather than an error. | `jobs_ep` in `api/server.py` |
 | `POST` | `/api/jobs` | Queue an ad hoc brief and, if the board has room, start it in the background. Refused outright if it names no allowed path, a path that escapes the workspace, an unknown tier, or the queue is already full. | `submit_job` in `api/server.py` |
 | `POST` | `/api/jobs/{job_id}/cancel` | Stop a queued job. A job already running or finished is returned unchanged. | `cancel_job` in `api/server.py` |
@@ -45,77 +33,49 @@ on the deployment's edition and authentication mode (see the environment page).
 | `GET` | `/api/messaging/telegram` | Whether this caller's workspace delivers notifications to Telegram, and where. | `messaging_status_ep` in `api/server.py` |
 | `PUT` | `/api/messaging/telegram` | Store or amend this workspace's own bot. | `set_messaging_ep` in `api/server.py` |
 | `GET` | `/api/models` | What this project's loop produced. A user sees their own promotions, not the operator's. | `models` in `api/runs.py` |
-| `GET` | `/api/nights` | (no description yet) | `nights_ep` in `api/server.py` |
 | `GET` | `/api/notifications` | The notification feed a bell in the interface polls: recent entries newest first, and how many are still unread. Answers on a workspace that has never emitted one with an empty feed, not an error. | `notifications_ep` in `api/server.py` |
 | `POST` | `/api/notifications/read` | Mark notifications read. An empty `ids` list is "mark all read". | `notifications_read_ep` in `api/server.py` |
-| `POST` | `/api/nyaya/ask` | (no description yet) | `ask_ep` in `api/nyaya.py` |
-| `GET` | `/api/nyaya/asks` | (no description yet) | `asks` in `api/nyaya.py` |
-| `POST` | `/api/nyaya/audit` | (no description yet) | `audit_ep` in `api/nyaya.py` |
-| `GET` | `/api/nyaya/corpus` | (no description yet) | `corpus` in `api/nyaya.py` |
-| `POST` | `/api/nyaya/registry/check` | (no description yet) | `registry_check_ep` in `api/nyaya.py` |
-| `GET` | `/api/nyaya/registry/contracts` | (no description yet) | `registry_contracts_ep` in `api/nyaya.py` |
-| `GET` | `/api/nyaya/registry/{contract_id}/elements` | (no description yet) | `registry_elements_ep` in `api/nyaya.py` |
-| `GET` | `/api/nyaya/vendors` | (no description yet) | `vendors` in `api/nyaya.py` |
 | `GET` | `/api/objectives` | Every objective in this workspace with its standing. A file that will not load is reported, not hidden. | `objectives_ep` in `api/server.py` |
-| `POST` | `/api/objectives` | Record an objective. Refused if it could not be measured, because an unmeasurable goal is a wish. | `create_objective` in `api/server.py` |
 | `POST` | `/api/objectives/plan-preview` | The same compiler `/objectives/{oid}/plan` calls, run against a draft that has not been recorded yet -- so the guided flow can show what a plan would look like before the objective it belongs to exists. | `objective_plan_preview` in `api/server.py` |
-| `GET` | `/api/objectives/{oid}` | (no description yet) | `objective_ep` in `api/server.py` |
 | `GET` | `/api/objectives/{oid}/loom` | The plan as Loom source. Readable and editable by a person; nothing in it has run. | `objective_loom` in `api/server.py` |
 | `GET` | `/api/objectives/{oid}/plan` | A proposed decomposition of the intent into work. A proposal, never evidence: nothing here has run. | `objective_plan` in `api/server.py` |
 | `GET` | `/api/objectives/{oid}/subagents` | What the engine would dispatch for this plan, and what it has dispatched so far. | `objective_subagents` in `api/server.py` |
 | `POST` | `/api/objectives/{oid}/subagents` | Hand the plan's tasks to the swarm in the background. Everything they produce is a proposal. | `objective_dispatch` in `api/server.py` |
-| `GET` | `/api/observations` | (no description yet) | `observations` in `api/server.py` |
-| `GET` | `/api/panel/vendors` | The seats a comparison can use from this install, and why any of them cannot be used. | `panel_vendors_ep` in `api/server.py` |
-| `GET` | `/api/parity` | (no description yet) | `parity_ep` in `api/server.py` |
+| `GET` | `/api/panel/vendors` | The accounts a comparison can use from this install, and why any of them cannot be used. | `panel_vendors_ep` in `api/server.py` |
 | `GET` | `/api/providers` | The bring-your-own-key registry, marked configured or not for this caller. Never the key or a prefix of it — only the shape a valid key for that provider is expected to have. | `providers_ep` in `api/server.py` |
 | `DELETE` | `/api/providers/{provider_id}/key` | Remove a stored bring-your-own key. | `delete_provider_key` in `api/server.py` |
 | `POST` | `/api/providers/{provider_id}/key` | Validate a bring-your-own key against the provider and store it. The validation reason is redacted before it leaves the process, since a probe failure can otherwise echo the key back in its message. | `set_provider_key` in `api/server.py` |
 | `GET` | `/api/recipes` | The recipe catalogue, each entry marked available or not on this machine. Not evidence: naming a recipe does not claim it has been run. | `recipes_ep` in `api/server.py` |
-| `GET` | `/api/requests` | (no description yet) | `requests_ep` in `api/server.py` |
 | `POST` | `/api/requests` | Let the web door originate an ask, into the same store `pravrudhi requests-capture` (the operator's local hook) already writes to - admin-only, same as every other `/requests*` route: the backlog this feeds is the engine improving *itself* (CHARTER's RSI loop), not a per-user product surface, so the classification in `api/roles.py` is unchanged, not merely inherited by the path already being listed. `session` is derived from the caller, never accepted from the client - the same discipline `telegram_inbox.py` already applies (`session=f"telegram:{chat_id}"`), so the backlog can tell a web-submitted ask from a hook-submitted one without trusting a caller-supplied label. | `requests_capture_ep` in `api/server.py` |
-| `GET` | `/api/requests/{rid}` | (no description yet) | `request_ep` in `api/server.py` |
-| `POST` | `/api/requests/{rid}/advance` | (no description yet) | `request_advance_ep` in `api/server.py` |
-| `POST` | `/api/requests/{rid}/criteria/{index}/evidence` | (no description yet) | `request_evidence_ep` in `api/server.py` |
 | `GET` | `/api/routes` | Which model can be dispatched to right now, how well it has done, and when a spent one returns. | `routes_ep` in `api/server.py` |
 | `GET` | `/api/runs` | Every run this engine has performed, live ones and the nights already in the ledger. | `list_runs` in `api/runs.py` |
-| `POST` | `/api/runs` | (no description yet) | `start` in `api/runs.py` |
 | `GET` | `/api/runs/{run_id}` | A live run's detail, or a closed night's, at the same address. | `get_run` in `api/runs.py` |
-| `GET` | `/api/runs/{run_id}/events` | (no description yet) | `events` in `api/runs.py` |
-| `POST` | `/api/runs/{run_id}/stop` | (no description yet) | `stop_run` in `api/runs.py` |
 | `GET` | `/api/sandboxes` | What a dispatched agent is doing right now: its worktree, its declared policy, what it has touched, and any write that policy forbade -- plus the persisted history of every violation this workspace has observed, so a policy is something an operator can check rather than something they must trust. | `sandboxes_ep` in `api/server.py` |
 | `GET` | `/api/search` | The shape of the search: how the candidate graph branches, and how often the budget forced a choice. | `search_ep` in `api/server.py` |
-| `GET` | `/api/status` | (no description yet) | `status_ep` in `api/server.py` |
 | `GET` | `/api/svasthya` | The engine's own survival state (design §5.1), with every failing check named and its detail — the single most useful thing the machines page can say when something is wrong, so it gets its own route rather than being buried in `/doctor`, which judges a workspace's setup, not its health right now. | `svasthya_ep` in `api/server.py` |
 | `GET` | `/api/swarm` | Nothing in the API showed the swarm itself: which agents are routed where, what has been dispatched, what was accepted. Agent availability, the routing table's live per-tier choice, and the last 100 runs of both the objective swarm and the self-build swarm, newest first. | `swarm_ep` in `api/server.py` |
 | `GET` | `/api/swarm/live` | The agent processes actually running on this machine right now, not what the run logs say happened. | `swarm_live_ep` in `api/server.py` |
 | `GET` | `/api/tools` | The tools, connectors and plugins this engine can draw on, each marked available or not on this machine. A catalogue, not an execution layer: listing a tool is not a claim it has been invoked. | `tools_ep` in `api/server.py` |
-| `GET` | `/api/update` | (no description yet) | `update_ep` in `api/server.py` |
 | `POST` | `/api/update/apply` | Apply an update. Runs on FastAPI's sync-route threadpool, so it never blocks the event loop; a second call while one is already running is refused with 409 rather than a 200 that quietly says nothing happened, so the interface can tell the two apart. | `update_apply_ep` in `api/server.py` |
-| `GET` | `/api/update/config` | (no description yet) | `update_config_get` in `api/server.py` |
-| `PUT` | `/api/update/config` | (no description yet) | `update_config_put` in `api/server.py` |
-| `GET` | `/api/update/last-check` | (no description yet) | `update_last_check_ep` in `api/server.py` |
-| `POST` | `/api/update/rollback` | (no description yet) | `update_rollback_ep` in `api/server.py` |
-| `POST` | `/api/v1/analyse-facts` | (no description yet) | `analyse_facts_ep` in `api/partner.py` |
-| `POST` | `/api/v1/analyse-facts/assist` | (no description yet) | `analyse_facts_assist_ep` in `api/partner.py` |
-| `POST` | `/api/v1/analyse-facts/jobs` | (no description yet) | `submit_job_ep` in `api/partner.py` |
-| `GET` | `/api/v1/analyse-facts/jobs/{job_id}` | (no description yet) | `get_job_ep` in `api/partner.py` |
-| `POST` | `/api/v1/analyse-facts/wake` | (no description yet) | `wake_start_ep` in `api/partner.py` |
-| `GET` | `/api/v1/analyse-facts/wake/status` | (no description yet) | `wake_status_ep` in `api/partner.py` |
-| `GET` | `/api/v1/audit` | (no description yet) | `audit_ep` in `api/partner.py` |
-| `POST` | `/api/v1/intake` | (no description yet) | `intake_ep` in `api/partner.py` |
-| `POST` | `/api/v1/intake/assist` | (no description yet) | `intake_assist_ep` in `api/partner.py` |
-| `GET` | `/api/v1/internal/wake-requests` | (no description yet) | `_wake_requests_absent` in `api/partner.py` |
-| `GET` | `/api/v1/internal/wake-requests` | (no description yet) | `wake_requests_ep` in `api/partner.py` |
-| `POST` | `/api/v1/internal/wake-results` | (no description yet) | `_wake_results_absent` in `api/partner.py` |
-| `POST` | `/api/v1/internal/wake-results` | (no description yet) | `wake_results_ep` in `api/partner.py` |
-| `POST` | `/api/v1/orgs` | (no description yet) | `create_org_ep` in `api/partner.py` |
-| `GET` | `/api/v1/orgs/{org_id}/keys` | (no description yet) | `list_keys_ep` in `api/partner.py` |
-| `POST` | `/api/v1/orgs/{org_id}/keys` | (no description yet) | `create_key_ep` in `api/partner.py` |
-| `POST` | `/api/v1/orgs/{org_id}/keys/{key_id}/revoke` | (no description yet) | `revoke_key_ep` in `api/partner.py` |
-| `GET` | `/api/v1/orgs/{org_id}/usage` | (no description yet) | `usage_ep` in `api/partner.py` |
-| `GET` | `/api/v1/orgs/{org_id}/usage/summary` | (no description yet) | `usage_summary_ep` in `api/partner.py` |
-| `GET` | `/api/v1/status` | (no description yet) | `status_ep` in `api/partner.py` |
-| `POST` | `/api/v1/verify-citations` | (no description yet) | `verify_citations_ep` in `api/partner.py` |
+| `POST` | `/api/v1/analyse-facts` | Element-by-element analysis of the facts against the chosen contracts; returns each element's status and the fact it cites. Request and status values are in the partner quickstart. | `analyse_facts_ep` in `api/partner.py` |
+| `POST` | `/api/v1/analyse-facts/assist` | The assisted variant of analyse-facts (the optional assistant, with consent); present only when the assisted route is enabled. | `analyse_facts_assist_ep` in `api/partner.py` |
+| `POST` | `/api/v1/analyse-facts/jobs` | Submit the same body as analyse-facts as an asynchronous job; answers 202 with a job id. | `submit_job_ep` in `api/partner.py` |
+| `GET` | `/api/v1/analyse-facts/jobs/{job_id}` | Status of a job (pending, running, done or failed) and, when done, the result the synchronous call would have returned. | `get_job_ep` in `api/partner.py` |
+| `POST` | `/api/v1/analyse-facts/wake` | Start a cold-start wake of the judges for the signed-in caller (present only when the cold-start wake is on). | `wake_start_ep` in `api/partner.py` |
+| `GET` | `/api/v1/analyse-facts/wake/status` | Progress of the signed-in caller's wake (present only when the cold-start wake is on). | `wake_status_ep` in `api/partner.py` |
+| `GET` | `/api/v1/audit` | Page through the calling key's own call log. | `audit_ep` in `api/partner.py` |
+| `POST` | `/api/v1/intake` | Turns pasted text into numbered facts and lists the citations it finds; works on pasted text only. | `intake_ep` in `api/partner.py` |
+| `POST` | `/api/v1/intake/assist` | The assisted variant of intake (the optional assistant, with consent); present only when the assisted route is enabled. | `intake_assist_ep` in `api/partner.py` |
+| `GET` | `/api/v1/internal/wake-requests` | For the box-side waker: fetch pending wake requests (signed request; present only when the cold-start wake is on). | `_wake_requests_absent` in `api/partner.py` |
+| `POST` | `/api/v1/internal/wake-results` | For the box-side waker: post the result of a wake (signed request; present only when the cold-start wake is on). | `_wake_results_absent` in `api/partner.py` |
+| `POST` | `/api/v1/orgs` | Create an organisation (provisioning credential). | `create_org_ep` in `api/partner.py` |
+| `GET` | `/api/v1/orgs/{org_id}/keys` | List an organisation's keys. | `list_keys_ep` in `api/partner.py` |
+| `POST` | `/api/v1/orgs/{org_id}/keys` | Create an API key for an organisation; the secret is shown once. | `create_key_ep` in `api/partner.py` |
+| `POST` | `/api/v1/orgs/{org_id}/keys/{key_id}/revoke` | Revoke a key (operator or provisioning credential). | `revoke_key_ep` in `api/partner.py` |
+| `GET` | `/api/v1/orgs/{org_id}/usage` | A key's own usage counters. | `usage_ep` in `api/partner.py` |
+| `GET` | `/api/v1/orgs/{org_id}/usage/summary` | Organisation-wide usage summary (operator or provisioning credential). | `usage_summary_ep` in `api/partner.py` |
+| `GET` | `/api/v1/status` | Engine version and, when one is configured, the service window. Needs no key and answers on a fresh install. | `status_ep` in `api/partner.py` |
+| `POST` | `/api/v1/verify-citations` | Look up citations in the citation index and report whether each case is in it (existence only, not what the case held). | `verify_citations_ep` in `api/partner.py` |
 | `GET` | `/api/workspaces` | The caller's workspaces. Each is a separate directory with its own ledger; none shares evidence. | `workspaces_ep` in `api/server.py` |
 | `POST` | `/api/workspaces` | Create (idempotently) a workspace for the caller. Refused without an identity: a workspace has an owner. | `create_workspace` in `api/server.py` |
 | `GET` | `/ping` | RunPod serverless load-balancer liveness: it probes GET /ping, outside /api, so no identity is asked. | `ping` in `api/server.py` |

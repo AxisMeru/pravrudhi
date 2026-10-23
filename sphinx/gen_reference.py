@@ -123,8 +123,8 @@ ENV_NOTES = {
     "PRAVRUDHI_CHAT_RATE_PER_MINUTE": "Per-minute rate limit on chat turns per caller.",
     "PRAVRUDHI_CHECKPOINT_SYNC_ROOT": "Folder that checkpoints are synchronised to between machines.",
     "PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR": "Configuration folder the Claude command-line vendor runs with.",
-    "PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL": "The account the scripted Claude command line must be signed in as; a different account is refused. The value is an address and belongs to the deployment.",
-    "PRAVRUDHI_CLAUDE_CONFIG_DIR": "Configuration folder the engine pins for Claude invocations, so no call can pick up an account by accident.",
+    "PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL": "The account that scripted model calls must be signed in as; a different account is refused. The value is an address and belongs to the deployment.",
+    "PRAVRUDHI_CLAUDE_CONFIG_DIR": "Configuration folder the engine pins for its model calls, so no call can pick up an account by accident.",
     "PRAVRUDHI_CLIENT_IP_SECRET": "Secret used to hash client addresses for the partner API's rate limits (deployment only).",
     "PRAVRUDHI_COLD_START_WAKE": 'Set to exactly `1` to switch the cold-start wake on without editing the packaged yaml (`cold_start_wake: false`); it can only turn the flag on, anything else leaves the yaml in force. The wake routes also need the waker secret to be set.',
     "PRAVRUDHI_DEMO_PRIVATE_NAMES": "Names the demo-publishing check must keep out of any published file (the value lists names; deployment only).",
@@ -141,9 +141,9 @@ ENV_NOTES = {
     "PRAVRUDHI_PROPOSER_ENDPOINT": "Endpoint of the proposer model, used as a fallback for the chat endpoint.",
     "PRAVRUDHI_PROPOSER_ENDPOINT_HOSTS": "Hosts a server-started job may borrow a proposer endpoint from.",
     "PRAVRUDHI_RUN_ENV_PASSTHROUGH": "Names of extra environment variables to pass through to a server-started job.",
-    "PRAVRUDHI_SCRIPTED_CLAUDE_CONFIG_DIR": "Configuration folder used for scripted Claude invocations.",
-    "PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL": "The account scripted Claude calls are expected to use (an address; deployment only).",
-    "PRAVRUDHI_SEATS_LOCAL": "Path to a local file that overrides the seat settings.",
+    "PRAVRUDHI_SCRIPTED_CLAUDE_CONFIG_DIR": "Configuration folder used for scripted model calls.",
+    "PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL": "The account that scripted model calls are expected to use (an address; deployment only).",
+    "PRAVRUDHI_SEATS_LOCAL": "Path to a local file that overrides the account settings.",
     "PRAVRUDHI_SKILL_DIRS": "Extra folders searched for skills and recipes.",
     "PRAVRUDHI_TENANCY_BACKEND": "Selects the tenancy store backend.",
     "PRAVRUDHI_TENANCY_CA_FILE": "Certificate bundle used to verify the tenancy database connection.",
@@ -187,6 +187,102 @@ PACKAGE_NOTES = {
 }
 
 
+
+# ------------------------------------------------------------------------------ public-prose scrubbing
+# Docstrings in this repository carry planning references (issue and decision numbers, team and session names). The
+# documentation is public prose, so a description taken from a docstring or a help string is scrubbed before it is
+# printed; a description that still names the team after scrubbing is replaced by MODULE_NOTES or a plain pointer.
+_BANNED = re.compile(
+    r"track[- ][abc]\b|lead[- ]?2|\bsession[- ]\d|\breviewer\b|\bR[12]\b|dual-signed|\bslice [a-z0-9]\b|"
+    r"\bADR-\d|#\d{2,}|this machine's own|production test|\bgoal\b|\bvia the operator\b",
+    re.I,
+)
+_PAREN = re.compile(r"\s*\((?:[^()]|\([^()]*\))*\)")
+_ISSUE = re.compile(r"\b(?:pravrudhi(?:-app)?|prabhasa-nyaya)?#\d+(?:\s*(?:slice|step|PR)\s*[A-Za-z0-9-]+)?")
+_ADR = re.compile(r"\bADR-\d+(?:\s*§\s*\d+)?'?s?:?")
+_LEAD = re.compile(r"^(?:Track[- ][ABC][^:]{0,160}:|[A-Z]\d+[a-z]?(?:/[A-Z]\d+[a-z]?)? \([^)]*\):|#\d+[^:]{0,80}:|PR-?\d[^:]{0,40}:)\s*")
+
+
+_PREVIEW = re.compile(r"\bPREVIEW\b")
+
+
+def scrub(text: str, cap: bool = True) -> str:
+    """Remove planning references from a description; empty string if nothing presentable is left."""
+    t = text
+    t = _PREVIEW.sub("", t)
+    t = re.sub(r"(?i)prabhasa-nyaya's", "the external", t)
+    t = re.sub(r"(?i)^prabhasa-nyaya\b", "Nyaya", t)
+    t = _LEAD.sub("", t)
+    t = _PAREN.sub(lambda m: "" if _BANNED.search(m.group(0)) or re.search(r"#\d", m.group(0)) or "ADR-" in m.group(0) else m.group(0), t)
+    t = _ISSUE.sub("", t)
+    t = _ADR.sub("", t)
+    t = re.sub(r"\bseat's\b", "account's", t)
+    t = re.sub(r"\bseats\b", "accounts", t)
+    t = re.sub(r"\bseat\b", "account", t)
+    t = re.sub(r"\s+([,.;:])", r"\1", t)
+    t = re.sub(r"\s{2,}", " ", t).strip(" ,;:-")
+    if not t or _BANNED.search(t):
+        return ""
+    return t[0].upper() + t[1:] if cap and t[0].islower() and not t.startswith("`") else t
+
+
+ROUTE_NOTES: dict[tuple[str, str], str] = {
+    ('GET', '/api/v1/status'): 'Engine version and, when one is configured, the service window. Needs no key and answers on a fresh install.',
+    ('POST', '/api/v1/analyse-facts'): "Element-by-element analysis of the facts against the chosen contracts; returns each element's status and the fact it cites. Request and status values are in the partner quickstart.",
+    ('POST', '/api/v1/analyse-facts/assist'): 'The assisted variant of analyse-facts (the optional assistant, with consent); present only when the assisted route is enabled.',
+    ('POST', '/api/v1/intake'): 'Turns pasted text into numbered facts and lists the citations it finds; works on pasted text only.',
+    ('POST', '/api/v1/intake/assist'): 'The assisted variant of intake (the optional assistant, with consent); present only when the assisted route is enabled.',
+    ('POST', '/api/v1/analyse-facts/jobs'): 'Submit the same body as analyse-facts as an asynchronous job; answers 202 with a job id.',
+    ('GET', '/api/v1/analyse-facts/jobs/{job_id}'): 'Status of a job (pending, running, done or failed) and, when done, the result the synchronous call would have returned.',
+    ('GET', '/api/v1/audit'): "Page through the calling key's own call log.",
+    ('POST', '/api/v1/verify-citations'): 'Look up citations in the citation index and report whether each case is in it (existence only, not what the case held).',
+    ('POST', '/api/v1/orgs'): 'Create an organisation (provisioning credential).',
+    ('POST', '/api/v1/orgs/{org_id}/keys'): 'Create an API key for an organisation; the secret is shown once.',
+    ('GET', '/api/v1/orgs/{org_id}/keys'): "List an organisation's keys.",
+    ('POST', '/api/v1/orgs/{org_id}/keys/{key_id}/revoke'): 'Revoke a key (operator or provisioning credential).',
+    ('GET', '/api/v1/orgs/{org_id}/usage/summary'): 'Organisation-wide usage summary (operator or provisioning credential).',
+    ('GET', '/api/v1/orgs/{org_id}/usage'): "A key's own usage counters.",
+    ('GET', '/api/v1/internal/wake-requests'): 'For the box-side waker: fetch pending wake requests (signed request; present only when the cold-start wake is on).',
+    ('POST', '/api/v1/internal/wake-results'): 'For the box-side waker: post the result of a wake (signed request; present only when the cold-start wake is on).',
+    ('POST', '/api/v1/analyse-facts/wake'): 'Start a cold-start wake of the judges for the signed-in caller (present only when the cold-start wake is on).',
+    ('GET', '/api/v1/analyse-facts/wake/status'): "Progress of the signed-in caller's wake (present only when the cold-start wake is on).",
+}
+
+MODULE_NOTES: dict[str, str] = {
+    "pravrudhi.application": "The engine's logic: the night, replay, the gate, screening, matters, citations, panels and the other command and server behaviours.",
+    "pravrudhi.cli": 'The command line package; the commands are defined in `pravrudhi.cli.app`.',
+    "pravrudhi.api.nyaya": 'The Nyaya routes over HTTP: ask a question of Indian law, the audit trail, the corpus and the history. Open to users in both editions.',
+    "pravrudhi.application.nyaya": 'Nyaya in the product: a question of Indian law, answered from sources and checked.',
+    "pravrudhi.application.agenda": 'The review agenda for cheque dishonour under section 138 of the Negotiable Instruments Act. Pure: plain document records in, a page out.',
+    "pravrudhi.application.quashing": 'The quashing categories agenda (relief: quashing of an FIR or complaint under section 528 of the BNSS). Pure: plain records in, a page out.',
+    "pravrudhi.application.tabular": 'The matter table. Pure: plain document and passage records in, a table out.',
+    "pravrudhi.application.loom_interp": "Carries an objective's monitors and gates into a Loom program so the program states them itself.",
+    "pravrudhi.application.maturity_signals": "Tests that watch the engine's own accumulated history and flag when a loop's real operating record crosses a point where a design should be revisited.",
+    "pravrudhi.application.nyaya_loosening_guard": 'A guard for the night loop: a candidate configuration may not loosen the safety operating point.',
+    "pravrudhi.application.scanned_intake_engine": 'The pure core of scanned and garbled-page intake: parsing the character-recognition output, the page floor, the garbled-layer detector and the subprocess runner. Nothing runs while the feature flag is off.',
+    "pravrudhi.application.scanned_intake_ingest": 'The ingest step of scanned-page intake: one document request in, the text for the next stage plus the additional response fields out. Reached only when the feature flag is on.',
+    "pravrudhi.application.scanned_intake_strings": "The customer-visible lines of scanned-page intake; the engine's text must equal the approved lines exactly.",
+    "pravrudhi.application.second_judge_positive_control": 'A standing positive control for the second judge: an endpoint that answers can still be silently miscalibrated or serving the wrong weights, so a known case is checked against it.',
+    "pravrudhi.application.sign_carryover": 'Whether a review sign made on one commit still covers a later commit.',
+    "pravrudhi.application.nyaya_gold_score": "Scores the constructed gold set with an external Lean checker, independent of this repository's own generator, per class with Wilson intervals and never as one aggregate.",
+    "pravrudhi.application.nyaya_lean": 'The live-path Lean checker, generalised to any contract the external compiled `score` binary knows, selected by the wire tag `A3N`.',
+    "pravrudhi.application.nyaya_lean_composition": "The Python consumer for the `COMP` wire tag: scores an answer's element assertions against one of the composed cross-contract predicates.",
+    "pravrudhi.application.nyaya_lean_elements": 'The Python consumer for the `A3E` wire tag, which builds a contract entirely from the wire line instead of looking one up per section.',
+    "pravrudhi.application.nyaya_lean_registry": "The Python consumer for the `REG` wire tag: scores an answer's element assertions against one of the registry contracts.",
+    "pravrudhi.application.nyaya_judge_warmup": "A non-blocking warm-up request to the house judge at startup, so the first real request does not wait out the judge's full cold start on top of the engine's own.",
+    "pravrudhi.application.legalbench_harness": "Closed-book unaided-accuracy scoring for LegalBench's rule-application tasks: reads a task file and compares a vendor's raw yes/no answers with the stored answers.",
+    "pravrudhi.application.rjbench_runner": 'Turns a benchmark row into a judge request.',
+    "pravrudhi_kernel.efe.types": 'The typed records of the controller: belief keys, precision, the expected-free-energy terms, shares, a selection batch and the decorative-controller verdict.',
+    "pravrudhi_kernel.schema": 'The typed schema of ledger rows and the records around them.',
+    "pravrudhi_kernel.schema.candidate": 'A candidate and the prediction committed for it before it runs.',
+    "pravrudhi_kernel.schema.citta": "The controller's belief state: normal beliefs, per-candidate beliefs and the combined record.",
+    "pravrudhi_kernel.schema.evidence_plan": 'The plan for what evidence a candidate or study will produce.',
+    "pravrudhi_kernel.schema.gate_report": 'The gate report: each side of a gate, its layers, the closure report, deviations and sign-offs.',
+    "pravrudhi_kernel.schema.ledger_event": 'The ledger event: the one row type the hash-chained ledger stores.',
+    "pravrudhi_kernel.schema.observation": 'One observation: a measured result recorded against a candidate.',
+    "pravrudhi_kernel.schema.preferences": 'The preferences the controller scores outcomes against.',
+}
+
 # --------------------------------------------------------------------------------------------------- helpers
 def first_line(text: str | None) -> str:
     if not text:
@@ -227,12 +323,12 @@ def page_cli() -> str:
             if p.name == "help":
                 continue
             flags = ", ".join(getattr(p, "opts", []) or [f"<{p.name}>"])
-            kind = "option" if isinstance(p, click.Option) else "argument"
+            kind = getattr(p, "param_type_name", "option")
             dflt = p.default
             show = "" if dflt in (None, ()) or callable(dflt) else str(dflt)
             if getattr(p, "required", False):
                 show = "required"
-            rows.append([flags, kind, show, first_line(getattr(p, "help", "") or "")])
+            rows.append([flags, kind, show, scrub(first_line(getattr(p, "help", "") or ""), cap=False)])
         return rows
 
     def walk(cmd: click.Command, path: list[str]) -> None:
@@ -241,7 +337,7 @@ def page_cli() -> str:
             full = path + [name]
             lines.append(f"## `pravrudhi {' '.join(full)}`")
             lines.append("")
-            lines.append(first_line(sub.help) or "(no description yet)")
+            lines.append(scrub(first_line(sub.help)) or "(no description yet)")
             lines.append("")
             if hasattr(sub, "commands"):
                 lines.append("Subcommands: " + ", ".join(f"`{n}`" for n in sorted(sub.commands)) + ".")
@@ -371,10 +467,17 @@ def page_http() -> str:
                     ):
                         base = prefixes.get(d.func.value.id, "")
                         routes.append(
-                            (f.name, d.func.attr.upper(), base + d.args[0].value, n.name, first_line(ast.get_docstring(n)))
+                            (f.name, d.func.attr.upper(), base + d.args[0].value, n.name, scrub(first_line(ast.get_docstring(n))))
                         )
     routes.sort(key=lambda r: (r[2], r[1]))
-    rows = [[f"`{m}`", f"`{p}`", s or "(no description yet)", f"`{h}` in `api/{mod}`"] for mod, m, p, h, s in routes]
+    rows = []
+    seen: set[tuple[str, str]] = set()
+    for mod, m, p, h, summ in routes:
+        summ = summ or ROUTE_NOTES.get((m, p), "")
+        if not summ or (m, p) in seen:  # a route with no description is left out rather than published as a placeholder
+            continue
+        seen.add((m, p))
+        rows.append([f"`{m}`", f"`{p}`", summ, f"`{h}` in `api/{mod}`"])
     return "\n".join(
         [
             "# HTTP routes",
@@ -424,7 +527,11 @@ def page_packages() -> str:
             else:
                 rel = f.relative_to(pkg).with_suffix("").as_posix().replace("/", ".")
                 mod = name + "." + rel.removesuffix(".__init__")
-            rows.append([f"`{mod}`", module_doc(f) or "(no module docstring yet)"])
+            raw = module_doc(f)
+            desc = MODULE_NOTES.get(mod) or (scrub(raw) if raw else "")
+            if not desc:
+                desc = "(no module docstring yet)" if not raw else "(described in the module docstring)"
+            rows.append([f"`{mod}`", desc])
         out.append(table(["Module", "What it is"], rows))
         out.append("")
     return "\n".join(out)

@@ -60,8 +60,8 @@ deployment's own secret store.
 | `PRAVRUDHI_CITATION_INDEX` | Path to the citation index the partner API looks citations up in. | `src/pravrudhi/api/partner.py` |
 | `PRAVRUDHI_CITATION_WARM` | Set to 0 to skip loading the citation index at startup. | `src/pravrudhi/api/partner.py` |
 | `PRAVRUDHI_CLAUDE_CLI_CONFIG_DIR` | Configuration folder the Claude command-line vendor runs with. | `src/pravrudhi/application/panel.py` |
-| `PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL` | The account the scripted Claude command line must be signed in as; a different account is refused. The value is an address and belongs to the deployment. | `src/pravrudhi/agents/seat_identity.py` |
-| `PRAVRUDHI_CLAUDE_CONFIG_DIR` | Configuration folder the engine pins for Claude invocations, so no call can pick up an account by accident. | `src/pravrudhi/agents/account.py` |
+| `PRAVRUDHI_CLAUDE_CLI_EXPECTED_EMAIL` | The account that scripted model calls must be signed in as; a different account is refused. The value is an address and belongs to the deployment. | `src/pravrudhi/agents/seat_identity.py` |
+| `PRAVRUDHI_CLAUDE_CONFIG_DIR` | Configuration folder the engine pins for its model calls, so no call can pick up an account by accident. | `src/pravrudhi/agents/account.py` |
 | `PRAVRUDHI_CLI` | Names the engine command to run for server-started jobs. | `src/pravrudhi/api/runs.py` |
 | `PRAVRUDHI_CLIENT_IP_SECRET` | Secret used to hash client addresses for the partner API's rate limits (deployment only). | `src/pravrudhi/api/partner.py` |
 | `PRAVRUDHI_CODEX_EFFORT` | Reasoning effort passed to the Codex agent. | `src/pravrudhi/agents/cli_agents.py` |
@@ -92,9 +92,9 @@ deployment's own secret store.
 | `PRAVRUDHI_PROPOSER_ENDPOINT_HOSTS` | Hosts a server-started job may borrow a proposer endpoint from. | `src/pravrudhi/api/runs.py` |
 | `PRAVRUDHI_ROOT` | Default repository root for the assist backstop command. | `src/pravrudhi/application/a0_assist/backstop.py` |
 | `PRAVRUDHI_RUN_ENV_PASSTHROUGH` | Names of extra environment variables to pass through to a server-started job. | `src/pravrudhi/api/runs.py` |
-| `PRAVRUDHI_SCRIPTED_CLAUDE_CONFIG_DIR` | Configuration folder used for scripted Claude invocations. | `src/pravrudhi/agents/account.py` |
-| `PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL` | The account scripted Claude calls are expected to use (an address; deployment only). | `src/pravrudhi/agents/seat_identity.py` |
-| `PRAVRUDHI_SEATS_LOCAL` | Path to a local file that overrides the seat settings. | `src/pravrudhi/agents/seat_identity.py` |
+| `PRAVRUDHI_SCRIPTED_CLAUDE_CONFIG_DIR` | Configuration folder used for scripted model calls. | `src/pravrudhi/agents/account.py` |
+| `PRAVRUDHI_SCRIPTED_CLAUDE_EMAIL` | The account that scripted model calls are expected to use (an address; deployment only). | `src/pravrudhi/agents/seat_identity.py` |
+| `PRAVRUDHI_SEATS_LOCAL` | Path to a local file that overrides the account settings. | `src/pravrudhi/agents/seat_identity.py` |
 | `PRAVRUDHI_SERVICE_WINDOW_ENFORCE` | Turns the partner API's service-window check on. | `src/pravrudhi/api/partner.py` |
 | `PRAVRUDHI_SKILL_DIRS` | Extra folders searched for skills and recipes. | `src/pravrudhi/application/recipes.py` |
 | `PRAVRUDHI_STUDIO_LOOPBACK_ONLY` | Marks a container deployment as reachable only from the local machine (Studio edition). | `src/pravrudhi/application/tenant_vendors.py` |

@@ -14,10 +14,10 @@ The FastAPI server and its routers: the browser interface's routes, the partner 
 | `pravrudhi.api.chat` | The chat surface over HTTP: three routes, and no place for the model to reach the client unfiltered. |
 | `pravrudhi.api.chat_limits` | Per-user spend limits for `/api/chat`. |
 | `pravrudhi.api.edition` | Which of the two products a caller is looking at. |
-| `pravrudhi.api.errors` | Stable error codes for 503 responses (pravrudhi#318): a machine-readable `error` code and a FIXED human `detail`. |
+| `pravrudhi.api.errors` | Stable error codes for 503 responses: a machine-readable `error` code and a FIXED human `detail`. |
 | `pravrudhi.api.identity` | Who is making this request — Supabase identity for Pravrudhi's multi-user surface. |
 | `pravrudhi.api.localguard` | Protecting a local engine from the browser the user is also using. |
-| `pravrudhi.api.nyaya` | The prabhasa-nyaya surface over HTTP: ask, audit, corpus, history. User-facing in both editions. |
+| `pravrudhi.api.nyaya` | The Nyaya routes over HTTP: ask a question of Indian law, the audit trail, the corpus and the history. Open to users in both editions. |
 | `pravrudhi.api.partner` | The partner API (L4, `docs/decisions/LEG-PLAN-2026-09-23.md`): `/api/v1`. |
 | `pravrudhi.api.partner_openapi` | The partner API's OpenAPI contract, generated from the router and checked in at `docs/api/openapi-v1.json`. |
 | `pravrudhi.api.roles` | Tell the operator apart from the people the product is for. |
@@ -32,16 +32,16 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 
 | Module | What it is |
 |---|---|
-| `pravrudhi.application` | (no module docstring yet) |
-| `pravrudhi.application.a0_assist` | A0 screening assistance (pravrudhi-app#125): the engine side of the assisted screening route. |
+| `pravrudhi.application` | The engine's logic: the night, replay, the gate, screening, matters, citations, panels and the other command and server behaviours. |
+| `pravrudhi.application.a0_assist` | A0 screening assistance: the engine side of the assisted screening route. |
 | `pravrudhi.application.a0_assist.assist` | One assisted screening request, end to end. |
 | `pravrudhi.application.a0_assist.backstop` | The backstop sweeper: one pass, from a separate process that holds ONLY the sweeper database role. |
-| `pravrudhi.application.a0_assist.config` | Fail-closed reading of the A0 assist settings from `configs/assistant_tier.yaml` (shared with `assistant_tier`, #388). |
+| `pravrudhi.application.a0_assist.config` | Fail-closed reading of the A0 assist settings from `configs/assistant_tier.yaml`. |
 | `pravrudhi.application.a0_assist.driver` | The eight stage tools of the assisted screening, executed in-process against the engine's own functions. |
 | `pravrudhi.application.a0_assist.guard` | The assisted tier's pause rules, in one place. |
-| `pravrudhi.application.a0_assist.intake` | Intake (Workflows row 2, pravrudhi#414): the pure tools and the deterministic final tool `build_bundle`. |
+| `pravrudhi.application.a0_assist.intake` | Intake: the pure tools and the deterministic final tool `build_bundle`. |
 | `pravrudhi.application.a0_assist.intake_budget` | A wall-clock budget for the intake (pravrudhi 0.6.16): inside `deadline(seconds)` the intake's `tick()` raises `IntakeTimeout` once the time is up. The check is COOPERATIVE (between stages and per paragraph or line, never inside one pattern match), so it bounds the number of steps taken, not a single step: each pattern must still be linear on its own. It changes no result: it only stops a run early. It is a separate module so `intake.py` itself keeps no clock. |
-| `pravrudhi.application.a0_assist.intake_driver` | The intake driver: the agent-facing surface of the intake tools (pravrudhi#414), same shape as the A0 screening driver. |
+| `pravrudhi.application.a0_assist.intake_driver` | The intake driver: the agent-facing surface of the intake tools, same shape as the A0 screening driver. |
 | `pravrudhi.application.a0_assist.limits` | Anti-abuse limits for the assisted route: per user and per org per UTC day, and per client address per minute, counted IN MEMORY. |
 | `pravrudhi.application.a0_assist.preflight` | Pre-flight checks that need both Anthropic keys (the engine's and the backstop's). |
 | `pravrudhi.application.a0_assist.ref_driver` | The by-reference stage driver: the hand-over the pinned product agent's tools use (E4b design; tools file a0_tools_v2_E4b.json, manifest 5fb55e20). |
@@ -50,14 +50,14 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.a0_assist.sweeper` | The retention sweeper: deletes every Anthropic session this product created that is still undeleted, keeps the sweep marker fresh, abandons stale spend reservations, runs the standing canary on its interval and prunes the log. |
 | `pravrudhi.application.a0_assist.transport` | The Anthropic Managed Agents HTTP client for the assisted route. |
 | `pravrudhi.application.acq_replay` | Grade a selection rule on nights already run, off-policy, for no GPU time at all. |
-| `pravrudhi.application.agenda` | A5, slice 1: the review agenda for cheque dishonour under NI Act s.138. Pure: plain document records in, a page out. |
+| `pravrudhi.application.agenda` | The review agenda for cheque dishonour under section 138 of the Negotiable Instruments Act. Pure: plain document records in, a page out. |
 | `pravrudhi.application.agenda_config` | The switch of the review agenda (A5, flag `wf_a5_ingredient_agenda`) and its one cap. |
 | `pravrudhi.application.agenda_matter` | A5 route support: the review agenda for ONE A2 matter (flag `wf_a5_ingredient_agenda`). Imported only when the flag is on. |
 | `pravrudhi.application.anchor` | Score an artifact against the items it drew, so two generations can be compared without spending a rotation. |
 | `pravrudhi.application.app_serve` | `pravrudhi app`: the product, served locally by the engine. |
 | `pravrudhi.application.archive` | Read back the parent the engine has been writing down and never once consulted. |
-| `pravrudhi.application.assistant_tier` | The assistant tier (#122, engine half): is the Anthropic-backed assistant offerable right now? |
-| `pravrudhi.application.audit` | Partner-visible audit log of analyse-facts calls (#148): who (key id), when, which run, which contracts, what outcome and HTTP status. It never holds fact text, narrative, quotes or any judge output beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids. |
+| `pravrudhi.application.assistant_tier` | The assistant tier: is the Anthropic-backed assistant offerable right now? |
+| `pravrudhi.application.audit` | Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It never holds fact text, narrative, quotes or any judge output beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids. |
 | `pravrudhi.application.availability` | Telling a vendor's usage limit apart from an ordinary failure, and remembering it for a while. |
 | `pravrudhi.application.bail_draft` | A4 bail drafting: ONE draft of the GROUNDS section of a bail application, from the lawyer's own applicant-side facts. |
 | `pravrudhi.application.bail_draft_config` | The switch of the bail-drafting slice (A4, flag `wf_a4_bail_drafting`), its caps and its optional drafting endpoint. |
@@ -67,36 +67,36 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.blackboard` | A shared medium so agents dispatched in the same swarm run can affect one another. |
 | `pravrudhi.application.build_config` | What a root declares about its own build-mode loop: `.pravrudhi/config.yaml`'s `build:` block. |
 | `pravrudhi.application.case_index` | SQLite FTS5 case-law index over real judgment text (P3, `docs/decisions/LEG-PLAN-2026-09-23.md`). |
-| `pravrudhi.application.case_index_slim` | The SLIM, existence-only citation index for the hosted engine (#908). |
+| `pravrudhi.application.case_index_slim` | The SLIM, existence-only citation index for the hosted engine. |
 | `pravrudhi.application.chat` | A conversation with the engine that cannot quote a number the engine did not just look up. |
-| `pravrudhi.application.cheque_case` | Cheque-case check, the logic (A6 slice 1; no model, no network). One NI Act s.138 matter, two existing pieces side by side: the papers agenda (A5) and the date checklist (B3). This module adds the one thing neither has: for each date B3 asks for (cheque, presentation, return memo, bank's information, notice, receipt of the notice), the dates a matter's papers show NEXT TO that step's words, taken from A3's chronology rows. They are CANDIDATES for a person to pick and confirm: nothing is filled in, nothing is decided here, and a date written beside a word like "dated" may be the date of a document rather than of the step. |
-| `pravrudhi.application.cheque_case_config` | The switch of the cheque-case check (A6 slice 1, flag `wf_a6_cheque_case_check`) and its one cap. |
+| `pravrudhi.application.cheque_case` | Cheque-case check, the logic. One NI Act s.138 matter, two existing pieces side by side: the papers agenda (A5) and the date checklist (B3). This module adds the one thing neither has: for each date B3 asks for (cheque, presentation, return memo, bank's information, notice, receipt of the notice), the dates a matter's papers show NEXT TO that step's words, taken from A3's chronology rows. They are CANDIDATES for a person to pick and confirm: nothing is filled in, nothing is decided here, and a date written beside a word like "dated" may be the date of a document rather than of the step. |
+| `pravrudhi.application.cheque_case_config` | The switch of the cheque-case check and its one cap. |
 | `pravrudhi.application.cheque_case_route` | A6 route support: the cheque-case check of ONE A2 matter (flag `wf_a6_cheque_case_check`). Imported only when the flag is on. |
 | `pravrudhi.application.choice` | Rendering a multiple-choice item the one way this engine renders them. |
 | `pravrudhi.application.chronology` | A3: the chronology of ONE matter's papers (flag `wf_a3_chronology`, default off). Core: plain span records in, a table out. |
 | `pravrudhi.application.chronology_config` | The switch of the chronology (A3, flag `wf_a3_chronology`) and its caps. |
 | `pravrudhi.application.chronology_dates` | The date scanner of the chronology (A3): date MENTIONS of a document's passages, how each was read, and the counts that prove none was dropped. Contract: A3 v4.1 (d8cc8c6e231d) + addenda 2 (fd4e3eb0fec5), 3 (b683866c908d) + the v4.2 note (7e6843c93fbb). |
 | `pravrudhi.application.chronology_matter` | A3 route support: the chronology of ONE A2 matter (flag `wf_a3_chronology`). Imported only when the flag is on. |
-| `pravrudhi.application.citation_status` | The product wording for a citation check (#533, PREVIEW): the one place a `VerifyResult` becomes a status a reader sees. |
-| `pravrudhi.application.citation_tool` | The P3 citation verifier as a tool for `tool_runner.ToolRunner` (#300 slice B). The index is opened read-only per call; a missing index is an error, never a guessed verdict. A locked database is the one transient fault. |
-| `pravrudhi.application.citation_wording` | What an element's citation claims, by who supplied the cited text (#813). |
+| `pravrudhi.application.citation_status` | The product wording for a citation check: the one place a `VerifyResult` becomes a status a reader sees. |
+| `pravrudhi.application.citation_tool` | The P3 citation verifier as a tool for `tool_runner.ToolRunner`. The index is opened read-only per call; a missing index is an error, never a guessed verdict. A locked database is the one transient fault. |
+| `pravrudhi.application.citation_wording` | What an element's citation claims, by who supplied the cited text. |
 | `pravrudhi.application.citations` | Typed parsers for Indian legal citations (P3, `docs/decisions/LEG-PLAN-2026-09-23.md`). |
 | `pravrudhi.application.citta_view` | Rebuild the controller's belief state from the ledger (plus the kernel's sealed predictions) with L2's pure functions. Nothing here is stored; it is recomputed at every deliberation. |
 | `pravrudhi.application.codex_usage` | Read-only usage reader over the codex rollout files (``<CODEX_HOME>/sessions/Y/M/D/rollout-*.jsonl``). |
-| `pravrudhi.application.cold_start_service` | #1038 cold start with progress, PR-4: the service behind the wake routes, with NO job object and no engine-run screening. |
+| `pravrudhi.application.cold_start_service` | The service behind the wake routes, with NO job object and no engine-run screening. |
 | `pravrudhi.application.completion` | A request reaches `verified` only when something outside the record itself checks the claim. |
 | `pravrudhi.application.config_files` | Where a route's config file is read from. |
 | `pravrudhi.application.confirm_eval` | Post-night paired confirmation: the current incumbent adapter versus the unmodified baseline on a fresh rotation, same sampling seed, per-item pairing. Writes two observe rows (stage confirm) and a `study_end` audit carrying the paired statistics computed by the kernel's vendored functions. This is what the L4 domain gate cites. |
 | `pravrudhi.application.continuity` | What happened when the work had to move -- between agents, between sessions, or off a model that hit its limit. |
-| `pravrudhi.application.convergence` | ADR-0053 §6: a loop's health is whether it is converging, not whether its timer is firing. |
+| `pravrudhi.application.convergence` | A loop's health is whether it is converging, not whether its timer is firing. |
 | `pravrudhi.application.corpus` | Training corpora for a choice-answer track: rows of `{question, answer}` the kernel scorer can verify. |
 | `pravrudhi.application.credentials` | Bring-your-own-key credentials for OpenAI, Anthropic, Google, Alibaba and any OpenAI-compatible endpoint. |
 | `pravrudhi.application.date_parse` | Dates as they are PRINTED in Indian court papers, read without guessing. |
 | `pravrudhi.application.delegate` | Delegating development work to the agent fleet, safely. |
 | `pravrudhi.application.delegation` | Who may close a gate without a person looking, and on what conditions. |
-| `pravrudhi.application.deliberate` | vimarśa: score the live pool with L2, run the decorative check, fill the budget, write `select` rows. |
+| `pravrudhi.application.deliberate` | Vimarśa: score the live pool with L2, run the decorative check, fill the budget, write `select` rows. |
 | `pravrudhi.application.demo_export` | Export a recorded snapshot of this engine for the hosted site. |
-| `pravrudhi.application.deterministic_tools` | Calculator and date tools for `tool_runner.ToolRunner` (#300 slice C). Pure and deterministic: Decimal arithmetic (40 significant digits, so 1/3 is rounded, not exact) over a closed grammar (no eval), calendar-day arithmetic over ISO dates, no clock and no network, so a result is reproducible and an unparseable input is an error, never a guessed answer. Month arithmetic clamps to the last day of a shorter month (31 Jan + 1 month = 28/29 Feb): state that convention wherever a limitation period is computed from it. |
+| `pravrudhi.application.deterministic_tools` | Calculator and date tools for `tool_runner.ToolRunner`. Pure and deterministic: Decimal arithmetic (40 significant digits, so 1/3 is rounded, not exact) over a closed grammar (no eval), calendar-day arithmetic over ISO dates, no clock and no network, so a result is reproducible and an unparseable input is an error, never a guessed answer. Month arithmetic clamps to the last day of a shorter month (31 Jan + 1 month = 28/29 Feb): state that convention wherever a limitation period is computed from it. |
 | `pravrudhi.application.diffs` | Every competitor surveyed leads with a diff viewer. This engine dispatches a swarm whose entire output is diffs, and until now had no way to look at one. |
 | `pravrudhi.application.discordance` | Compare binary outcomes paired by held-out item and sampling seed. |
 | `pravrudhi.application.dispatchboard` | The swarm page reported and could not act. |
@@ -104,16 +104,16 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.draft_check` | A1: the whole-draft citation check, first slice (flag `wf_a1_draft_citation_check`, default off). |
 | `pravrudhi.application.draft_check_config` | The switch of the whole-draft citation check (A1, flag `wf_a1_draft_citation_check`) and its caps. |
 | `pravrudhi.application.evidence` | Render evidence documents from the ledger alone (make reproduce). |
-| `pravrudhi.application.execute` | kriyā and pratyabhijñā for one candidate: train in the sandbox, evaluate paired against the incumbent on one rotation and seed, let the kernel score and admit both arms, apply the sequential boundary, canaries, promote or prune. |
+| `pravrudhi.application.execute` | Kriyā and pratyabhijñā for one candidate: train in the sandbox, evaluate paired against the incumbent on one rotation and seed, let the kernel score and admit both arms, apply the sequential boundary, canaries, promote or prune. |
 | `pravrudhi.application.export` | `pravrudhi export`: hand back the improved artefact. The adapter is copied as-is; merging into base weights is a human act that requires a signed gate and is performed by an explicit flag. |
 | `pravrudhi.application.external` | Admit external-scorer results (lm-eval, EvalPlus) into the ledger and render them. |
 | `pravrudhi.application.fleet` | What an installed engine can say about itself, and about its neighbours on the same machine. |
 | `pravrudhi.application.gate` | Gate emit / check / sign. Gates are never hand-edited; this module is the only writer. |
 | `pravrudhi.application.grahana` | Grahaṇa: the cow's first stomach — cheap, bounded grazing over what is already readable from this host. |
 | `pravrudhi.application.harness_track` | Track H: a fixed model, a mutable harness, MBPP+ hidden tests scored in the sandbox. Same ledger, same boundary. |
-| `pravrudhi.application.hearing_pack` | Hearing preparation (#415): a deterministic pack built from the screening decide result; no model text anywhere in it. |
-| `pravrudhi.application.hearing_pack.driver` | The hearing-pack driver: the by-reference A0 driver plus ONE more tool, `pack`, valid only after `decide` (#415). |
-| `pravrudhi.application.hearing_pack.pack` | The hearing-preparation PACK: a pure function of the engine's own decide result (#415). |
+| `pravrudhi.application.hearing_pack` | Hearing preparation: a deterministic pack built from the screening decide result; no model text anywhere in it. |
+| `pravrudhi.application.hearing_pack.driver` | The hearing-pack driver: the by-reference A0 driver plus ONE more tool, `pack`, valid only after `decide`. |
+| `pravrudhi.application.hearing_pack.pack` | The hearing-preparation PACK: a pure function of the engine's own decide result. |
 | `pravrudhi.application.heartbeat` | OpenClaw's heartbeat: an assistant that wakes on a schedule, looks at what it wants, and does the next small thing about it. |
 | `pravrudhi.application.imagine` | Prior-only recipe imagination; outputs are queue advice, never kernel evidence. |
 | `pravrudhi.application.inbox_sign` | Record a decision on a promotion pack, by a person or under the operator's delegation. |
@@ -121,18 +121,18 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.integrate` | Bring a wave's accepted work back into the main tree without one agent erasing another. |
 | `pravrudhi.application.intent` | An objective named the desired result, but supplied no work the loop could inspect. |
 | `pravrudhi.application.interp` | Prepare and admit Loom milestone 4's first interpretation job: a linear probe of a named feature. |
-| `pravrudhi.application.jobs` | In-memory job store for the partner API's async analyse-facts mode (#146). |
-| `pravrudhi.application.judge_endpoint_state` | Is a serverless judge endpoint parked? (#311) |
-| `pravrudhi.application.judge_wake` | #1038 cold start with progress, PR-1: the pure core (nothing here is reached while `cold_start_wake` is off). |
+| `pravrudhi.application.jobs` | In-memory job store for the partner API's async analyse-facts mode. |
+| `pravrudhi.application.judge_endpoint_state` | Is a serverless judge endpoint parked? |
+| `pravrudhi.application.judge_wake` | The pure core (nothing here is reached while `cold_start_wake` is off). |
 | `pravrudhi.application.kshudha` | Kṣudhā: a measurable appetite, so the engine seeks capability rather than waiting to be told. |
-| `pravrudhi.application.legalbench_harness` | Track A P3 (`research/prereg/B1-tier1-amendment-2.md`): closed-book unaided-accuracy scoring for LegalBench's rule-application tasks (`hearsay`, `personal_jurisdiction` first). Binary Yes/No classification, not the conduct-with-missing-element shape `nyaya_lean_elements.py`'s `A3E` path checks -- `load_task` reads a task's own `.tsv` shape (`index`, `answer`, `text`, `slice`), `score_unaided` compares a vendor's raw Yes/No answers against gold. |
+| `pravrudhi.application.legalbench_harness` | Closed-book unaided-accuracy scoring for LegalBench's rule-application tasks: reads a task file and compares a vendor's raw yes/no answers with the stored answers. |
 | `pravrudhi.application.loom` | A compiled intent plan and a Loom program had no way to check each other, so drift between them was invisible. |
-| `pravrudhi.application.loom_interp` | An objective's monitors and gates lived only in the reviewer's head, so a Loom program never carried them. |
+| `pravrudhi.application.loom_interp` | Carries an objective's monitors and gates into a Loom program so the program states them itself. |
 | `pravrudhi.application.loom_pipeline` | Pure pipeline compilation and binding to the existing NightContext runner. |
 | `pravrudhi.application.loom_run` | Pure job planning and durable dispatch through NightContext.run_raw. |
 | `pravrudhi.application.manthana` | Manthana: the cow's rumination — deciding what a grazed item is worth, and running the one trial that can promote it. |
-| `pravrudhi.application.matter_hearing_pack` | Matter hearing pack, the logic (A7 slice 2; not the #415 decide-result pack in hearing_pack/; no model, no network). One page gathered from three pieces the engine already returns for ONE matter's papers: the dates the papers mention (A3 chronology), the papers the ingredient agenda lists as not added yet (A5), and the citations in the papers that the index could not match or could not check (S1 sweep, when it is switched on). It re-orders and re-labels nothing the pieces say: it only puts them on one page for a person preparing a hearing. It does not say what matters, what is missing from the case or what any case held. |
-| `pravrudhi.application.matter_hearing_pack_config` | The switch of the matter hearing pack (A7 slice 2, flag `wf_a7_matter_hearing_pack`) and its one cap. |
+| `pravrudhi.application.matter_hearing_pack` | Matter hearing pack, the logic. One page gathered from three pieces the engine already returns for ONE matter's papers: the dates the papers mention (A3 chronology), the papers the ingredient agenda lists as not added yet (A5), and the citations in the papers that the index could not match or could not check (S1 sweep, when it is switched on). It re-orders and re-labels nothing the pieces say: it only puts them on one page for a person preparing a hearing. It does not say what matters, what is missing from the case or what any case held. |
+| `pravrudhi.application.matter_hearing_pack_config` | The switch of the matter hearing pack and its one cap. |
 | `pravrudhi.application.matter_hearing_pack_route` | A7 route support: the matter hearing pack of ONE A2 matter (flag `wf_a7_matter_hearing_pack`). Imported only when the flag is on. |
 | `pravrudhi.application.matter_objectstore` | A2 matter store kept in an S3-compatible object store (the fallback to the network volume), behind the same flag `wf_a2_span_index`. |
 | `pravrudhi.application.matter_spans` | A2: the matter span-index, first slice (flag `wf_a2_span_index`, default off). |
@@ -141,7 +141,7 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.matter_sweep` | S1: the matter citation sweep. Pure: plain document and passage records in, a report out. |
 | `pravrudhi.application.matter_sweep_config` | The switch of the matter citation sweep (S1, flag `wf_s1_matter_citation_sweep`) and its caps. |
 | `pravrudhi.application.matter_sweep_matter` | S1 route support: the citation sweep of ONE A2 matter (flag `wf_s1_matter_citation_sweep`). Imported only when the flag is on. |
-| `pravrudhi.application.maturity_signals` | ADR-0056: three tests (`tests/test_archive.py`, `tests/test_procedure_graph.py`) are deliberate tripwires against THIS MACHINE's own real, accumulated `research/ledger.jsonl` and `.pravrudhi/routing.jsonl` -- not fixtures. They detect when a loop's real operational history crosses a design-revisit threshold: the ancestry search no longer folds to two parents, selection pressure starts binding regularly, or the routing log now carries enough per-edge observations to tie-break a route choice (card M6.4). |
+| `pravrudhi.application.maturity_signals` | Tests that watch the engine's own accumulated history and flag when a loop's real operating record crosses a point where a design should be revisited. |
 | `pravrudhi.application.memory` | Memory: what belongs to the user, kept apart from what the ledger already owns. |
 | `pravrudhi.application.memory_store` | Memory storage across engines: the same shape, two homes. |
 | `pravrudhi.application.messaging` | Where a Telegram bot lives, and whose it is. |
@@ -150,22 +150,22 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.night_plan` | Which night to run: the pre-registration, the noise floor that goes with it, and the pool they agree on. |
 | `pravrudhi.application.noise_floor` | `pravrudhi study noise-floor`: the first real evidence. R rotations × S seeds of the unmodified trainee, each a kernel-launched job, kernel-scored, admitted as a real observe row; then σ estimates → variance.json. |
 | `pravrudhi.application.notifications` | Nights, dispatches and workflow runs are start-and-walk-away work, and there was no way to learn that one finished short of sitting on a page and polling it. This module is the record of what happened while nobody was watching: `emit` is called from the places that already know something finished — a run ending, a job accepted or rejected, a beat dispatching, a workflow run completing, a criterion being met — and appends one entry to `.pravrudhi/notifications.jsonl`. Nothing here changes what those call sites return; this is a side record only. |
-| `pravrudhi.application.nyaya` | Prabhasa-nyaya in the product: a question of Indian law, answered from sources, and checked. |
+| `pravrudhi.application.nyaya` | Nyaya in the product: a question of Indian law, answered from sources and checked. |
 | `pravrudhi.application.nyaya_agent` | The Nyaya agentic loop: a user's facts in; per registry Contract, PROOF / DENIAL / ABSTAIN / REFER_TO_LAWYER out; every step on a JSONL audit trail. |
 | `pravrudhi.application.nyaya_gold` | Build a Nyaya validity gold set whose labels are DERIVED, not asserted. |
-| `pravrudhi.application.nyaya_gold_score` | Score the constructed hetvabhasa gold set (`nyaya_gold.build_gold_set`) against prabhasa-nyaya's Lean deciders, independent of this repo's own generator -- so the gold set that ships with this repo cannot grade itself. Per class, with Wilson intervals, never as a single aggregate (measurement-design spec section 4.2). |
-| `pravrudhi.application.nyaya_judge_warmup` | A non-blocking warm-up ping for the house judge (2026-09-24, Lead-2's production test): on a serverless deployment with no warm workers, the engine's own cold start (~24s) and the judge's (~200s) otherwise chain serially -- the engine answers `/ping` quickly, but the FIRST real request still has to wait out the judge's full cold start on top. Firing a real `GET /models` at the judge as soon as the engine itself starts lets the two cold starts overlap instead. |
+| `pravrudhi.application.nyaya_gold_score` | Scores the constructed gold set with an external Lean checker, independent of this repository's own generator, per class with Wilson intervals and never as one aggregate. |
+| `pravrudhi.application.nyaya_judge_warmup` | A non-blocking warm-up request to the house judge at startup, so the first real request does not wait out the judge's full cold start on top of the engine's own. |
 | `pravrudhi.application.nyaya_judges` | Element judges for the Nyaya agentic loop (`nyaya_agent`): one required element of one registry Contract, judged against the user's facts, as `{status, p_established, fact_id, quote}`. A judge never supplies character offsets: `nyaya_quote` locates the quote in the named fact itself (`offsets_source: "system"`). |
-| `pravrudhi.application.nyaya_lean` | Track A P1/P1b (ADR-0003): the live-path Lean checker, generalized to any contract prabhasa-nyaya's compiled `score` binary knows via the `A3N` wire tag (`lean/Score.lean`'s `contractFor`), not hard-wired to one fixture. |
-| `pravrudhi.application.nyaya_lean_composition` | Composition operator §9 wire (dual-signed design, `docs/composition-scoring-wire-design.md` in prabhasa-nyaya): the Python consumer for the `COMP` wire tag, which scores an answer's element assertions against one of the two composed cross-Contract predicates (`compositionForId` in `lean/Score.lean`) -- `ipc416_composed` (`IPC416.cheats` -> IPC 415's two limb Contracts) and `bns47_composed` (`BNS47.abetsCommission` -> BNS 46's three route Contracts). |
-| `pravrudhi.application.nyaya_lean_elements` | Track A P3 (`research/prereg/B1-tier1.md`'s PRIMARY arm, corrected by `B1-tier1-amendment-1.md`): the Python consumer for prabhasa-nyaya's `A3E` wire tag (`lean/Score.lean`'s `scoreA3ELine`, merged main 78bf844). That tag builds a `Contract` entirely from the wire line -- no per-section `Seeds/SectionN.lean` file, no lookup table the way `nyaya_lean._CONTRACTS` keeps one per case citation -- because P3's corpus is a 100-section element-list batch and hand-authoring 100 Lean files does not scale. Nothing called that tag before this module. |
-| `pravrudhi.application.nyaya_lean_registry` | T5b atomic wire (Track A's own input-format call, per `contractForId`'s own doc comment on the prabhasa-nyaya side): the Python consumer for the `REG` wire tag, which scores an answer's element assertions against one of the fourteen BNS/IPC registry Contracts (`contractForId` in `lean/Score.lean`). |
-| `pravrudhi.application.nyaya_loosening_guard` | Night-loop guard for #303: a candidate config may not LOOSEN the safety operating point. |
+| `pravrudhi.application.nyaya_lean` | The live-path Lean checker, generalised to any contract the external compiled `score` binary knows, selected by the wire tag `A3N`. |
+| `pravrudhi.application.nyaya_lean_composition` | The Python consumer for the `COMP` wire tag: scores an answer's element assertions against one of the composed cross-contract predicates. |
+| `pravrudhi.application.nyaya_lean_elements` | The Python consumer for the `A3E` wire tag, which builds a contract entirely from the wire line instead of looking one up per section. |
+| `pravrudhi.application.nyaya_lean_registry` | The Python consumer for the `REG` wire tag: scores an answer's element assertions against one of the registry contracts. |
+| `pravrudhi.application.nyaya_loosening_guard` | A guard for the night loop: a candidate configuration may not loosen the safety operating point. |
 | `pravrudhi.application.nyaya_pin_regression` | Byte-identical regression check between two `score` binaries, for every contract id the OLD binary knows about: `--describe-source`, `--describe-contract` (elements + denials), and `check_registry` for the PROOF path (every required element satisfied), every DENIAL path (each denial individually asserted alongside every element), and every missing-element path (each required element dropped one at a time, not just the first). |
 | `pravrudhi.application.nyaya_quote` | The mechanical quote check between every Nyaya element judge and the Lean wire. |
 | `pravrudhi.application.nyaya_validity` | The kernel's own classical-Nyaya validity check: an evidence row this engine computed itself, not a third-party file admitted by hash. |
 | `pravrudhi.application.objectives` | Objectives: what the user is trying to achieve, and whether it is happening. |
-| `pravrudhi.application.ocr_marks` | Mark, in a tool's answer, each item whose text was read from a scanned page (#575). |
+| `pravrudhi.application.ocr_marks` | Mark, in a tool's answer, each item whose text was read from a scanned page. |
 | `pravrudhi.application.p3_prereg` | Pure helpers for the P3 citation-verification pre-registration (`research/prereg/p3-citation-verification-2026-09-25.md`): the exact Clopper-Pearson interval used for both recall and resolution-precision, Cohen's kappa for the two-labeler agreement, and the two code-exact sampling procedures (prereg §3/§4). None of this touches the real case index -- the sampling functions here take a document/row count and return indices; the caller supplies the actual rows. |
 | `pravrudhi.application.panel` | One prompt set, many vendors, one scoring path. |
 | `pravrudhi.application.paper_data` | Render the paper's results tables from the ledger alone. |
@@ -173,21 +173,21 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.policies` | Selection policies: the arms of H1. |
 | `pravrudhi.application.pool_admin` | Seal a benchmark pool from a parquet file into the kernel's pools directory (an operator act, done once). |
 | `pravrudhi.application.portable_lock` | One exclusive-file-lock helper for the engine, portable across POSIX and Windows. |
-| `pravrudhi.application.pratyabhijna` | pratyabhijñā — re-cognition of testimony (āgama) by execution (pratyakṣa). |
+| `pravrudhi.application.pratyabhijna` | Pratyabhijñā — re-cognition of testimony (āgama) by execution (pratyakṣa). |
 | `pravrudhi.application.preflight` | `pravrudhi preflight`: measure, never quote. Writes research/prereg/measured_stack.json from one real job. |
 | `pravrudhi.application.procedure_graph` | A procedure-transition graph, replayed read-only from the routing log. |
-| `pravrudhi.application.propose` | icchā: the proposer emits K recipes in the grammar; predictions are sealed and hash-committed (§1 of the mutation spec). |
+| `pravrudhi.application.propose` | Icchā: the proposer emits K recipes in the grammar; predictions are sealed and hash-committed (§1 of the mutation spec). |
 | `pravrudhi.application.publish` | Put what the engine has done in front of the operator, without anyone remembering to do it. |
-| `pravrudhi.application.quashing` | S3, slice 1: the quashing categories agenda (relief: quashing of an FIR or complaint under BNSS s.528). Pure: plain records in, a page out. |
+| `pravrudhi.application.quashing` | The quashing categories agenda (relief: quashing of an FIR or complaint under section 528 of the BNSS). Pure: plain records in, a page out. |
 | `pravrudhi.application.quashing_config` | The switch of the quashing categories agenda (S3, flag `wf_b2_quashing_agenda`) and its one cap. |
-| `pravrudhi.application.quashing_gate` | S3 (quashing categories agenda): the BUILD-TIME checks and the corroboration table. Never imported by the route. |
+| `pravrudhi.application.quashing_gate` | The BUILD-TIME checks and the corroboration table. Never imported by the route. |
 | `pravrudhi.application.quashing_matter` | S3 route support: the quashing categories agenda for ONE A2 matter (flag `wf_b2_quashing_agenda`). Imported only when the flag is on. |
 | `pravrudhi.application.ralph` | Feed the same brief back until the work is genuinely finished, and never take the agent's word for it. |
 | `pravrudhi.application.reach` | External messaging (Telegram) for critical notifications when the operator is away from the interface. |
 | `pravrudhi.application.recipes` | The recipe library: published training and evaluation recipes an objective may draw on. |
 | `pravrudhi.application.replay` | `pravrudhi replay`: rebuild research/state.json from the ledger. |
 | `pravrudhi.application.requests` | What the operator actually asked for, kept where it cannot be quietly forgotten. |
-| `pravrudhi.application.rjbench_runner` | RJ-Bench row -> `JudgeRequest` (Track-C, 2026-09-26, pinned by Lead-2 for v2.2). |
+| `pravrudhi.application.rjbench_runner` | Turns a benchmark row into a judge request. |
 | `pravrudhi.application.roster` | Which model can be used right now, how good it has been, and when a spent one comes back. |
 | `pravrudhi.application.route_scope` | The general form of the guard r-workspace-scoped-writes (S11) and r-memory-per-user (S12) each added by hand: a route whose handler is identity-aware (it takes a `user` parameter) but never resolves that identity into a per-caller project or store anywhere in its own body reads the engine's own root instead - exactly the shape both incidents were. `create_objective` took no workspace at all and called `write(root, obj)` directly; `store_for(root, user)` was called with the bare engine root in four places across two files. Neither would have been caught by a schema check (FastAPI dependencies like `user` never appear as OpenAPI parameters), so this reads the route handlers' own source instead. |
 | `pravrudhi.application.routing` | Choosing which agent and model does a piece of delegated work, from measured outcomes rather than from taste. |
@@ -195,59 +195,59 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.s138_checklist_config` | The switch of the s.138 cheque checklist (B3, flag `wf_b3_s138_checklist`) and its caps. |
 | `pravrudhi.application.sandbox_monitor` | An agent dispatched into its own worktree was invisible while it ran: the routing log and the run logs (`application/subagents.py`, `application/selfbuild.py`) record what was dispatched and what came back, but nothing in between showed what a live agent was actually touching, how much of its wall-clock budget it had spent, or whether it had written outside the paths its task declared. NemoClaw names this gap directly for a container sandbox -- a declared network policy, a way to list and check running sandboxes, and a TUI that shows blocked requests -- and OpenClaw's own swarm kept a persisted record of what each dispatched agent had done (`agentMemory.js`) rather than trusting a live view alone. This module is the same idea applied to a git worktree instead of a container. |
 | `pravrudhi.application.sandbox_policy` | A sandboxed subagent's policy was assembled by hand, once, at the one call site that needed it. |
-| `pravrudhi.application.scanned_intake_config` | #1015: the switch and the numbers of scanned/garbled-page intake (flag `wf_c1_scanned_intake`), read once from partner_api.yaml. |
-| `pravrudhi.application.scanned_intake_engine` | #1015 PR 1: the pure core of scanned/garbled-page intake: tesseract TSV parsing, the page floor, the garbled-layer detector and the subprocess runner. Pure functions (a fake runner in tests); nothing here is wired into a route (PR 2) and nothing runs while the flag `wf_c1_scanned_intake` is off. Settings follow Track A's calibration (300 dpi gray, `--psm 3`, tsv, English only). A page below the floor is NEVER guessed: it has no text. |
-| `pravrudhi.application.scanned_intake_ingest` | #1015 PR 2: the ingest seam of scanned/garbled-page intake: one document request in, the text for A2 plus the additive response fields out. Only reached when `wf_c1_scanned_intake` is on (the route decides); PDFs are routed page by page, text passes through, HEIC and other image uploads follow R1's rules. Images other than HEIC are refused with a plain line until a decoder is chosen (no Pillow decision yet). |
-| `pravrudhi.application.scanned_intake_pages` | #1015 PR 2: per-page routing of a PDF's pages through the scanned/garbled-page intake (pure orchestration; the rasteriser and the tesseract runner are injected, so tests need neither). For each page: a good text layer stays `text_layer`; a MISSING layer, or a layer the detector flags as garbled and OCR disagrees with, is read from its image (`ocr`); a page below the floor, over the page cap, too slow or without OCR is `unreadable` and contributes NO text (neither layer is guessed or kept). Indic-script pages stay as their layer (English OCR cannot read them). |
-| `pravrudhi.application.scanned_intake_render` | #1015 PR 2: the page rasteriser for scanned/garbled-page intake: pypdfium2 (the `scanned` extra, imported ONLY here and only when a page needs OCR), grayscale at the configured dpi, the raster size capped BEFORE anything is allocated, dark pixels as a generator, and the PNG that tesseract reads encoded with the standard library (no Pillow). A missing pypdfium2 is `OcrUnavailable`. |
-| `pravrudhi.application.scanned_intake_strings` | #1015: the customer-visible lines of scanned/garbled-page intake. R1's words (OCR_LIMITS_V2/V3, OCR_UPLOAD_LINES), pinned by hash in tests; the engine's text must equal them exactly. Nothing here says "garbled", quotes a share, or claims a page was fully read. |
-| `pravrudhi.application.second_judge_positive_control` | Issue #44 (standing second-judge positive control) + Lead-2's 2026-09-26 dry-run-driven spec clarification: a PRESENT-and-WRONG second judge is not caught by availability monitoring alone -- the endpoint answers, so it reads as healthy even if silently miscalibrated or serving the wrong weights. |
+| `pravrudhi.application.scanned_intake_config` | The switch and the numbers of scanned/garbled-page intake (flag `wf_c1_scanned_intake`), read once from partner_api.yaml. |
+| `pravrudhi.application.scanned_intake_engine` | The pure core of scanned and garbled-page intake: parsing the character-recognition output, the page floor, the garbled-layer detector and the subprocess runner. Nothing runs while the feature flag is off. |
+| `pravrudhi.application.scanned_intake_ingest` | The ingest step of scanned-page intake: one document request in, the text for the next stage plus the additional response fields out. Reached only when the feature flag is on. |
+| `pravrudhi.application.scanned_intake_pages` | Per-page routing of a PDF's pages through the scanned/garbled-page intake (pure orchestration; the rasteriser and the tesseract runner are injected, so tests need neither). For each page: a good text layer stays `text_layer`; a MISSING layer, or a layer the detector flags as garbled and OCR disagrees with, is read from its image (`ocr`); a page below the floor, over the page cap, too slow or without OCR is `unreadable` and contributes NO text (neither layer is guessed or kept). Indic-script pages stay as their layer (English OCR cannot read them). |
+| `pravrudhi.application.scanned_intake_render` | The page rasteriser for scanned/garbled-page intake: pypdfium2 (the `scanned` extra, imported ONLY here and only when a page needs OCR), grayscale at the configured dpi, the raster size capped BEFORE anything is allocated, dark pixels as a generator, and the PNG that tesseract reads encoded with the standard library (no Pillow). A missing pypdfium2 is `OcrUnavailable`. |
+| `pravrudhi.application.scanned_intake_strings` | The customer-visible lines of scanned-page intake; the engine's text must equal the approved lines exactly. |
+| `pravrudhi.application.second_judge_positive_control` | A standing positive control for the second judge: an endpoint that answers can still be silently miscalibrated or serving the wrong weights, so a known case is checked against it. |
 | `pravrudhi.application.section_lookup` | B1 route support: look up an old section (IPC or CrPC) in the Corresponding Section Table the National Crime Records Bureau appends to the official BNS and BNSS texts (flag `wf_b1_section_lookup`). Imported only when the flag is on. |
 | `pravrudhi.application.section_lookup_config` | The switch of the old-section look-up (B1, flag `wf_b1_section_lookup`) and its one cap. |
 | `pravrudhi.application.selfbuild` | Pravrudhi's own swarm has been driven from ad-hoc scripts in a scratch directory: a developer holding a Python shell would write a one-off list of tasks, wire up an agent factory by hand, and throw the result away once the change landed. Nothing about that path was part of the product, so the engine could not turn its own swarm on itself except through someone else's private tooling. |
 | `pravrudhi.application.sensors` | Internal sensors: does anything the loop already observes predict whether a candidate will win? |
 | `pravrudhi.application.service_window` | The hours the hosted engine is open, read from config so partner hours can change without a code edit. |
-| `pravrudhi.application.sign_carryover` | Does a reviewer sign made on one commit still cover a later commit? |
+| `pravrudhi.application.sign_carryover` | Whether a review sign made on one commit still covers a later commit. |
 | `pravrudhi.application.spine` | Shared execution-spine pieces for the engine: paths, model resolution, one kernel-launched eval job. |
 | `pravrudhi.application.status` | `pravrudhi status`: what the ledger says, nothing else. |
 | `pravrudhi.application.statute_citations` | Statute citations for a registry contract, derived from its own source column and resolved against the shipped corpus. Deterministic: the only inputs are the contract's `--list-contracts` sources and the corpus, never a judge's output, so a contract carries the same citations whatever its verdict. |
-| `pravrudhi.application.steps_appendix` | The memo's steps appendix (#416): a deterministic list of the steps an assisted run took, built from the A0 call trace. |
-| `pravrudhi.application.steps_appendix.appendix` | The steps appendix of an assisted run: counts and verdicts read from the recorded calls, nothing else (#416). |
+| `pravrudhi.application.steps_appendix` | The memo's steps appendix: a deterministic list of the steps an assisted run took, built from the A0 call trace. |
+| `pravrudhi.application.steps_appendix.appendix` | The steps appendix of an assisted run: counts and verdicts read from the recorded calls, nothing else. |
 | `pravrudhi.application.subagents` | Subagent building was a capability of the people building Pravrudhi, not of Pravrudhi itself. |
 | `pravrudhi.application.svasthya` | Svāsthya: the survival contract, made a measurable health state instead of an assumption. |
 | `pravrudhi.application.swarm` | Running several agents at once, continuously, without them colliding or overspending. |
 | `pravrudhi.application.synopsis_dates` | A8 synopsis and list of dates: a first draft of the two pages every petition opens with, from the matter's own papers and the facts the lawyer ticks. |
 | `pravrudhi.application.synopsis_dates_config` | The switch of the synopsis and list of dates (A8, flag `wf_a8_synopsis_list_of_dates`). |
 | `pravrudhi.application.synopsis_dates_route` | A8 route support: the synopsis and list of dates of ONE A2 matter (flag `wf_a8_synopsis_list_of_dates`). Imported only when the flag is on. |
-| `pravrudhi.application.tabular` | S2, slice 1: the matter tabular table. Pure: plain document and passage records in, a table out. |
+| `pravrudhi.application.tabular` | The matter table. Pure: plain document and passage records in, a table out. |
 | `pravrudhi.application.tabular_config` | The switch of the matter tabular table (S2, flag `wf_s2_tabular_fact_table`) and its caps. |
 | `pravrudhi.application.tabular_matter` | S2 route support: the matter tabular table for ONE A2 matter (flag `wf_s2_tabular_fact_table`). Imported only when the flag is on AND A2 is on. |
 | `pravrudhi.application.tabular_sections` | S2: the two NEW scanners of the matter tabular table: section mentions and court / police station mentions. Pure: text in, forms out. |
 | `pravrudhi.application.telegram_inbox` | Talking back to the engine from a phone. |
 | `pravrudhi.application.tenancy` | Orgs, memberships and API keys for the partner surface (L4, `docs/decisions/LEG-PLAN-2026-09-23.md`). |
-| `pravrudhi.application.tenancy_store` | The Supabase-backed store for partner orgs, memberships, API key hashes, per-key usage and the partner audit log (#920). |
+| `pravrudhi.application.tenancy_store` | The Supabase-backed store for partner orgs, memberships, API key hashes, per-key usage and the partner audit log. |
 | `pravrudhi.application.tenant_vendors` | Which vendors an API caller may use. Policy is `configs/tenant_vendors.yaml`; this module only enforces it. |
-| `pravrudhi.application.tool_runner` | A bounded tool-call runner (#300 slice A): a registry of typed callables, a hard call budget, retries only for errors a tool declares transient, and a log of every call. It never raises for a tool failure -- the caller gets a typed result, so an infrastructure fault cannot read as an answer. Nothing here is wired into the judge path; a judge verdict stays tool-free until a measured change says otherwise. |
+| `pravrudhi.application.tool_runner` | A bounded tool-call runner: a registry of typed callables, a hard call budget, retries only for errors a tool declares transient, and a log of every call. It never raises for a tool failure -- the caller gets a typed result, so an infrastructure fault cannot read as an answer. Nothing here is wired into the judge path; a judge verdict stays tool-free until a measured change says otherwise. |
 | `pravrudhi.application.tools` | The tools, connectors and plugins an engine like this can draw on, made discoverable inside Pravrudhi itself. |
 | `pravrudhi.application.typed` | The typed layer (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md): a backend-agnostic interface for structured LLM output, absorbing the TypeLLM idea rather than depending on it (v0.1.4, SGLang-only). |
 | `pravrudhi.application.typed.clef` | Clef adapter (E1, research/clef-decoder): a Lean `ContractSchema` as Clef `noul` questions, and a fail-closed reading of Clef's per-option logits back into one probability per element. |
-| `pravrudhi.application.typed.clef_grounding` | Clef as a GROUNDING / span-selection backend (#428 step 2, #427 memo): which of the request's facts support a claim, and the reusable "does a quoted fact tie this accused to this act" check (#618). |
+| `pravrudhi.application.typed.clef_grounding` | Clef as a GROUNDING / span-selection backend: which of the request's facts support a claim, and the reusable "does a quoted fact tie this accused to this act" check. |
 | `pravrudhi.application.typed.decoder` | TypedDecoder: one backend-agnostic protocol for a completions transport with first-token top-k logprobs, plus the decision-field scoring primitive built on it (T1, docs/decisions/ TYPED-LAYER-PLAN-2026-09-24.md). |
 | `pravrudhi.application.typed.house_judge` | HouseJudge re-expressed through the typed layer (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md). |
 | `pravrudhi.application.typed.id_ref` | ID_REF scoring for the judge's fact id (B4, research/clef-decoder; R-2 gap 1). |
 | `pravrudhi.application.typed.lean_schema` | Typed schema generation from a Lean registry Contract (T3a, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md design principle 5): "A contract's element list is a typed schema. Generate the judge schema from the Lean contract... so the judge, the assembler and the Lean checker share one source of truth." |
-| `pravrudhi.application.typed.parity` | T1 typed-layer parity gate (pravrudhi #196): typed `TypedHouseJudge` vs untyped `HouseJudge` on the SAME recorded completion per prompt, so the comparison isolates the scoring/decision path from backend noise (two separate live calls differ by ~0.06 \|dp\| on vLLM, see scripts/typed_layer_parity_c_prime.py). |
+| `pravrudhi.application.typed.parity` | T1 typed-layer parity gate: typed `TypedHouseJudge` vs untyped `HouseJudge` on the SAME recorded completion per prompt, so the comparison isolates the scoring/decision path from backend noise (two separate live calls differ by ~0.06 \|dp\| on vLLM, see scripts/typed_layer_parity_c_prime.py). |
 | `pravrudhi.application.typed.schema` | Field kinds for the typed layer's schemas (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md): enum, bool, int, number, id-ref, span, free-text -- verbatim from the plan. A `Field` only describes what a valid output slot looks like for its kind; decoding a value into that slot is decoder.py's job, not this module's. |
 | `pravrudhi.application.typed.validators` | Mechanical validation for id-ref and span fields (T1, docs/decisions/TYPED-LAYER-PLAN-2026-09-24.md design principles 2-3): schema-valid is necessary, never sufficient, so these checks stay separate from decoding and always run. |
 | `pravrudhi.application.update_apply` | Applying an update, not just noticing one. |
 | `pravrudhi.application.updates` | Whether this checkout is behind the newest tagged release, and the exact command that would catch it up. |
-| `pravrudhi.application.usage_gate` | Usage gates as code: refuse a codex or claude call over the seat's limits, on a stale or unverified reading. |
+| `pravrudhi.application.usage_gate` | Usage gates as code: refuse a codex or claude call over the account's limits, on a stale or unverified reading. |
 | `pravrudhi.application.vardhana` | Vardhana: turning a named gap into an admitted skill, agent adapter, plugin or recipe — never the reverse. |
 | `pravrudhi.application.variation` | Archive variation without changing the kernel's live pool or statistical boundary. |
 | `pravrudhi.application.verify` | `verify(citation, quote_or_proposition)` (P3, `docs/decisions/LEG-PLAN-2026-09-23.md`). |
-| `pravrudhi.application.wake_policy` | #1038 cold start, PR-2: the engine-side wake POLICY (pure; unreachable while `cold_start_wake` is off). |
-| `pravrudhi.application.wake_store` | #1038 PR-4: the coordination state of cold start, behind one small interface so it can be shared by every container. |
-| `pravrudhi.application.wake_ticket` | #1038 PR-4: the wake ticket. A short-lived, user-bound proof that a cold-start wake ended `ready` or `partial`. |
+| `pravrudhi.application.wake_policy` | The engine-side wake POLICY (pure; unreachable while `cold_start_wake` is off). |
+| `pravrudhi.application.wake_store` | The coordination state of cold start, behind one small interface so it can be shared by every container. |
+| `pravrudhi.application.wake_ticket` | The wake ticket. A short-lived, user-bound proof that a cold-start wake ended `ready` or `partial`. |
 | `pravrudhi.application.watchdog` | Look for the shape of a stall, in a system where everything reports success. |
 | `pravrudhi.application.workflows` | A wave used to be a Python script someone wrote by hand for one occasion, then threw away. Nothing let an operator declare a repeatable, multi-step piece of work, run it by name, watch it, or hand it to someone else. |
 | `pravrudhi.application.workspaces` | Per-user workspace layout for Pravrudhi's multi-user surface. |
@@ -258,7 +258,7 @@ The `pravrudhi` command line (Typer).
 
 | Module | What it is |
 |---|---|
-| `pravrudhi.cli` | (no module docstring yet) |
+| `pravrudhi.cli` | The command line package; the commands are defined in `pravrudhi.cli.app`. |
 | `pravrudhi.cli.app` | The `pravrudhi` command line (Typer): one function per command, grouped into sub-apps such as `gate`, `pool`, `study` and `requests`. |
 
 ## `pravrudhi.client`
@@ -307,10 +307,10 @@ The expected-free-energy controller mathematics.
 
 | Module | What it is |
 |---|---|
-| `pravrudhi_kernel.efe` | vimarśa: the expected-free-energy controller as pure functions (T0). No I/O, no global RNG. |
+| `pravrudhi_kernel.efe` | Vimarśa: the expected-free-energy controller as pure functions (T0). No I/O, no global RNG. |
 | `pravrudhi_kernel.efe.decorative` | Decorative-agent check (D9): if scores do not condition on the action, the night fails loudly. |
 | `pravrudhi_kernel.efe.selection` | Softmax with habit prior, Thompson-like sampling and the residency-aware knapsack (§2.3). Pure; RNG injected. |
-| `pravrudhi_kernel.efe.types` | (no module docstring yet) |
+| `pravrudhi_kernel.efe.types` | The typed records of the controller: belief keys, precision, the expected-free-energy terms, shares, a selection batch and the decorative-controller verdict. |
 | `pravrudhi_kernel.efe.update` | Posterior update, EIG, preferences, precision, EFE (02-efe-controller-spec.md §1–§2). Pure functions. |
 
 ## `pravrudhi_kernel.ledger`
@@ -319,9 +319,9 @@ The hash-chained ledger: writer, verifier and replay.
 
 | Module | What it is |
 |---|---|
-| `pravrudhi_kernel.ledger` | smṛti: the append-only, hash-chained ledger (T1) and its replay (anusaṁdhāna). |
+| `pravrudhi_kernel.ledger` | Smṛti: the append-only, hash-chained ledger (T1) and its replay (anusaṁdhāna). |
 | `pravrudhi_kernel.ledger.jcs` | RFC 8785 JSON Canonicalization Scheme, the subset the ledger needs. |
-| `pravrudhi_kernel.ledger.replay` | anusaṁdhāna: rebuild the state view from the ledger alone. A pure fold; byte-stable output. |
+| `pravrudhi_kernel.ledger.replay` | Anusaṁdhāna: rebuild the state view from the ledger alone. A pure fold; byte-stable output. |
 | `pravrudhi_kernel.ledger.verify` | Chain verification: seq contiguity, hash continuity, timestamp monotonicity. |
 | `pravrudhi_kernel.ledger.writer` | Append-only hash-chained JSONL writer. The only path by which evidence enters the ledger. |
 
@@ -355,15 +355,15 @@ Typed schema of ledger rows and the contracts around them.
 
 | Module | What it is |
 |---|---|
-| `pravrudhi_kernel.schema` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.candidate` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.citta` | (no module docstring yet) |
+| `pravrudhi_kernel.schema` | The typed schema of ledger rows and the records around them. |
+| `pravrudhi_kernel.schema.candidate` | A candidate and the prediction committed for it before it runs. |
+| `pravrudhi_kernel.schema.citta` | The controller's belief state: normal beliefs, per-candidate beliefs and the combined record. |
 | `pravrudhi_kernel.schema.common` | Shared enums. Sanskrit primary keys are the identifiers; the wire value is the IAST-stripped ASCII form. |
-| `pravrudhi_kernel.schema.evidence_plan` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.gate_report` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.ledger_event` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.observation` | (no module docstring yet) |
-| `pravrudhi_kernel.schema.preferences` | (no module docstring yet) |
+| `pravrudhi_kernel.schema.evidence_plan` | The plan for what evidence a candidate or study will produce. |
+| `pravrudhi_kernel.schema.gate_report` | The gate report: each side of a gate, its layers, the closure report, deviations and sign-offs. |
+| `pravrudhi_kernel.schema.ledger_event` | The ledger event: the one row type the hash-chained ledger stores. |
+| `pravrudhi_kernel.schema.observation` | One observation: a measured result recorded against a candidate. |
+| `pravrudhi_kernel.schema.preferences` | The preferences the controller scores outcomes against. |
 
 ## `pravrudhi_kernel.stats`
 
