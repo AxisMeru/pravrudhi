@@ -460,3 +460,68 @@ def test_a_non_http_cause_is_never_warming_and_the_screening_with_a_ticket_answe
     paused.__cause__ = HTTPStatusError(404, "model not found")
     plain = r.c.post(SCREEN, json=_req())
     assert plain.status_code == 503 and plain.json() == {"error": "agent_unavailable", "detail": "the nyaya agent is unavailable; retry later"}
+
+
+# ---- #1053: the second-judge breaker is reset on the TRANSITION to READY, never from a ticket; evidence line --------------------
+
+
+def test_the_breaker_resets_when_the_wake_first_reads_ready_and_not_on_later_ready_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import nyaya_judges as NJ
+
+    resets: list[int] = []
+    monkeypatch.setattr(NJ.SecondJudgeCircuitBreaker, "reset", lambda self: resets.append(1))
+    r = Rig(tmp_path, monkeypatch, db=FakeWakeDb(time.time))
+    r.up("ep111", "ep222")
+    assert r.c.post(WAKE).json()["wake"]["state"] == "ready" and resets == [1]  # the transition: reset once
+    assert r.c.get(STATUS).json()["wake"]["state"] == "ready" and resets == [1]  # a later ready read does not reset again
+    r.health["ep222"] = _health()  # the second judge parked again
+    assert r.c.get(STATUS).json()["wake"]["state"] != "ready" and resets == [1]  # a non-ready read never resets
+    r.up("ep222")
+    assert r.c.get(STATUS).json()["wake"]["state"] == "ready" and resets == [1, 1]  # the NEXT transition resets again
+
+
+def test_a_not_serving_judge_never_resets_the_breaker_and_a_ticketed_screening_never_does(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pravrudhi.application import nyaya_judges as NJ
+
+    resets: list[int] = []
+    monkeypatch.setattr(NJ.SecondJudgeCircuitBreaker, "reset", lambda self: resets.append(1))
+    r = Rig(tmp_path, monkeypatch, db=FakeWakeDb(time.time))
+    r.up("ep111", "ep222")
+    r.not_serving.add("ep222")
+    assert r.c.post(WAKE).json()["wake"]["state"] != "ready" and resets == []  # up but not serving: not ready, no reset
+    r.not_serving.clear()
+    ticket = r.c.post(WAKE).json()["ticket"]["value"]
+    assert resets == [1]
+    shot = r.c.post(SCREEN, json=_req(), headers={TICKET: ticket})
+    assert shot.status_code == 200 and resets == [1]  # the ticketed screening did not reset it
+
+
+def test_the_breaker_reset_closes_an_open_window_and_a_new_failure_trips_it_again() -> None:
+    from pravrudhi.application.nyaya_judges import SecondJudgeCircuitBreaker
+
+    now = [0.0]
+    b = SecondJudgeCircuitBreaker(ttl_s=60.0, now=lambda: now[0])
+    b.trip()
+    assert b.is_open() is True
+    b.reset()
+    assert b.is_open() is False  # an old window no longer skips a judge proven up
+    b.trip()
+    assert b.is_open() is True  # a judge that is in fact down trips it again at its next failure
+    now[0] = 61.0
+    assert b.is_open() is False
+
+
+def test_each_finished_screening_logs_one_second_judge_evidence_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    r = Rig(tmp_path, monkeypatch)
+    r.up("ep111", "ep222")
+    ticket = r.c.post(WAKE).json()["ticket"]["value"]
+    with caplog.at_level(logging.INFO, logger=partner_mod._logger.name):
+        res = r.c.post(SCREEN, json=_req(), headers={TICKET: ticket})
+    assert res.status_code == 200
+    lines = [m for m in caplog.messages if m.startswith("second_judge_evidence ")]
+    assert len(lines) == 1
+    line = lines[0]
+    assert "contracts=" in line and "second_judge_unavailable=" in line and "breaker_open=False" in line and "warm_window=True" in line and "reasons={" in line
+    assert "waker" not in line.lower() and "@" not in line  # no person ids or addresses in the evidence line

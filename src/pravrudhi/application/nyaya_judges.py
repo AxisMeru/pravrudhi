@@ -808,6 +808,14 @@ class SecondJudgeCircuitBreaker:
         with self._lock:
             return self._tripped_until is not None and self._now() < self._tripped_until
 
+    def reset(self) -> None:
+        """Closes the breaker now (#1053): called when a wake turns READY, i.e. both judges answered 200 on /models, so a window
+        left open by an EARLIER failure does not skip a judge that is now proven up. It only changes whether the second judge is
+        CALLED (never an outcome: a skipped judge is a REFER, a called one is judged normally); a judge that is in fact down fails
+        its next call and trips the breaker again."""
+        with self._lock:
+            self._tripped_until = None
+
     def trip(self) -> None:
         """Opens the breaker for `ttl_s` seconds from now. A second trip while already open extends the
         window from THIS moment (never shortens it, never accumulates beyond one TTL) -- a still-failing
