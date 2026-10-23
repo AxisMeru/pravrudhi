@@ -303,7 +303,7 @@ Store or amend this workspace's bot. Each argument left out is left alone, so `-
 
 | Flag or argument | Kind | Default | Meaning |
 |---|---|---|---|
-| --token | option |  | Bot token from BotFather; stored once, mode 0600, and is designed not to be read back by any route. |
+| --token | option |  | Bot token from BotFather; stored once, mode 0600, and never read back by any route. |
 | --chat-id | option |  | Chat id to deliver to. |
 | --enabled | option |  | Turn delivery on or off without discarding the stored credential. |
 | --root | option | . | Repository root holding contracts/ and gates/. |

@@ -66,7 +66,7 @@ on the deployment's edition and authentication mode (see the environment page).
 | `GET` | `/api/observations` | The most recent `limit` observation events in the ledger (default 200). | `observations` in `api/server.py` |
 | `GET` | `/api/panel/vendors` | The accounts a comparison can use from this install, and why any of them cannot be used. | `panel_vendors_ep` in `api/server.py` |
 | `GET` | `/api/parity` | The capability parity report: the checked-in capability matrix against the capabilities of other systems. | `parity_ep` in `api/server.py` |
-| `GET` | `/api/providers` | The bring-your-own-key registry, marked configured or not for this caller. It is designed not to return the key or a prefix of it, only the shape a valid key for that provider is expected to have. | `providers_ep` in `api/server.py` |
+| `GET` | `/api/providers` | The bring-your-own-key registry, marked configured or not for this caller. Never the key or a prefix of it — only the shape a valid key for that provider is expected to have (`key_prefix` is the expected start of a valid key for that provider). | `providers_ep` in `api/server.py` |
 | `DELETE` | `/api/providers/{provider_id}/key` | Remove a stored bring-your-own key. | `delete_provider_key` in `api/server.py` |
 | `POST` | `/api/providers/{provider_id}/key` | Validate a bring-your-own key against the provider and store it. The validation reason is redacted before it leaves the process, since a probe failure can otherwise echo the key back in its message. | `set_provider_key` in `api/server.py` |
 | `GET` | `/api/recipes` | The recipe catalogue, each entry marked available or not on this machine. Not evidence: naming a recipe does not claim it has been run. | `recipes_ep` in `api/server.py` |
@@ -98,16 +98,16 @@ on the deployment's edition and authentication mode (see the environment page).
 | `POST` | `/api/v1/analyse-facts/assist` | The assisted variant of analyse-facts (the optional assistant, with consent); present only when the assisted route is enabled. | `analyse_facts_assist_ep` in `api/partner.py` |
 | `POST` | `/api/v1/analyse-facts/jobs` | Submit the same body as analyse-facts as an asynchronous job; answers 202 with a job id. | `submit_job_ep` in `api/partner.py` |
 | `GET` | `/api/v1/analyse-facts/jobs/{job_id}` | Status of a job (pending, running, done or failed) and, when done, the result the synchronous call would have returned. | `get_job_ep` in `api/partner.py` |
-| `POST` | `/api/v1/analyse-facts/wake` | Start a cold-start wake of the judges for the signed-in caller; refused with a 503 (judges_offline) when a wake is not allowed. | `wake_start_ep` in `api/partner.py` |
-| `GET` | `/api/v1/analyse-facts/wake/status` | Progress of the signed-in caller's wake. | `wake_status_ep` in `api/partner.py` |
+| `POST` | `/api/v1/analyse-facts/wake` | Start a cold-start wake of the judges for the signed-in caller (present only when the cold-start wake is on). | `wake_start_ep` in `api/partner.py` |
+| `GET` | `/api/v1/analyse-facts/wake/status` | Progress of the signed-in caller's wake (present only when the cold-start wake is on). | `wake_status_ep` in `api/partner.py` |
 | `GET` | `/api/v1/audit` | Page through the calling key's own call log. | `audit_ep` in `api/partner.py` |
 | `POST` | `/api/v1/intake` | Turns pasted text into numbered facts and lists the citations it finds; works on pasted text only. | `intake_ep` in `api/partner.py` |
 | `POST` | `/api/v1/intake/assist` | The assisted variant of intake (the optional assistant, with consent); present only when the assisted route is enabled. | `intake_assist_ep` in `api/partner.py` |
 | `GET` | `/api/v1/internal/wake-requests` | For the box-side waker: fetch pending wake requests (signed request; always registered, and answers 404 when the cold-start wake is off). | `_wake_requests_absent` in `api/partner.py` |
 | `POST` | `/api/v1/internal/wake-results` | For the box-side waker: post the result of a wake (signed request; always registered, and answers 404 when the cold-start wake is off). | `_wake_results_absent` in `api/partner.py` |
-| `POST` | `/api/v1/orgs` | Create an organisation (provisioning credential). | `create_org_ep` in `api/partner.py` |
-| `GET` | `/api/v1/orgs/{org_id}/keys` | List an organisation's keys. | `list_keys_ep` in `api/partner.py` |
-| `POST` | `/api/v1/orgs/{org_id}/keys` | Create an API key for an organisation; the secret is shown once. | `create_key_ep` in `api/partner.py` |
+| `POST` | `/api/v1/orgs` | Create an organisation (operator or provisioning credential). | `create_org_ep` in `api/partner.py` |
+| `GET` | `/api/v1/orgs/{org_id}/keys` | List an organisation's keys (operator or provisioning credential). | `list_keys_ep` in `api/partner.py` |
+| `POST` | `/api/v1/orgs/{org_id}/keys` | Create an API key for an organisation; the secret is shown once (operator or provisioning credential). | `create_key_ep` in `api/partner.py` |
 | `POST` | `/api/v1/orgs/{org_id}/keys/{key_id}/revoke` | Revoke a key (operator or provisioning credential). | `revoke_key_ep` in `api/partner.py` |
 | `GET` | `/api/v1/orgs/{org_id}/usage` | A key's own usage counters. | `usage_ep` in `api/partner.py` |
 | `GET` | `/api/v1/orgs/{org_id}/usage/summary` | Organisation-wide usage summary (operator or provisioning credential). | `usage_summary_ep` in `api/partner.py` |

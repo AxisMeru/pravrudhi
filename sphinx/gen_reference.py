@@ -116,7 +116,7 @@ ENV_NOTES = {
     "TESSDATA_PREFIX": "Folder of the character-recognition language data, for scanned-page intake.",
     "HF_HUB_OFFLINE": "Set to 1 inside job containers so model downloads are refused (jobs run offline).",
     "NYAYA_SECOND_JUDGE_API_KEY": "Credential for the second judge endpoint (a secret; deployment only).",
-    "PRAVRUDHI_ADMINS": 'The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role is resolved from this list; it is designed not to come from anything a caller sends.',
+    "PRAVRUDHI_ADMINS": 'The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role is resolved from this list; it never comes from a token claim or request field, only from matching the verified account id or e-mail against this list. With sign-in switched off, the local caller is the operator.',
     "PRAVRUDHI_ADMIN_EMAIL": "Identity of the administrator the hosted-model switch recognises.",
     "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE": "How many failed partner-API key attempts are tolerated per minute before callers are throttled.",
     "PRAVRUDHI_CHAT_DAILY_CAP": "Daily cap on chat turns per caller.",
@@ -212,9 +212,7 @@ REWRITES = [
     (" (§1 of the mutation spec)", ""),
     ("Writes research/prereg/measured_stack.json from one real job.", "Writes its measurements from one real job."),
     ("Preview or dispatch a self-build plan", "Show or dispatch a self-build plan"),
-    ("and never read back by any route.", "and is designed not to be read back by any route."),
-    ("Never the key or a prefix of it - only", "It is designed not to return the key or a prefix of it, only"),
-    ("Never the key or a prefix of it \u2014 only", "It is designed not to return the key or a prefix of it, only"),
+    ("only the shape a valid key for that provider is expected to have.", "only the shape a valid key for that provider is expected to have (`key_prefix` is the expected start of a valid key for that provider)."),
 ]
 
 
@@ -253,20 +251,20 @@ ROUTE_NOTES: dict[tuple[str, str], str] = {
     ('GET', '/api/v1/analyse-facts/jobs/{job_id}'): 'Status of a job (pending, running, done or failed) and, when done, the result the synchronous call would have returned.',
     ('GET', '/api/v1/audit'): "Page through the calling key's own call log.",
     ('POST', '/api/v1/verify-citations'): 'Look up citations in the citation index and report whether each case is in it (existence only, not what the case held).',
-    ('POST', '/api/v1/orgs'): 'Create an organisation (provisioning credential).',
-    ('POST', '/api/v1/orgs/{org_id}/keys'): 'Create an API key for an organisation; the secret is shown once.',
-    ('GET', '/api/v1/orgs/{org_id}/keys'): "List an organisation's keys.",
+    ('POST', '/api/v1/orgs'): 'Create an organisation (operator or provisioning credential).',
+    ('POST', '/api/v1/orgs/{org_id}/keys'): 'Create an API key for an organisation; the secret is shown once (operator or provisioning credential).',
+    ('GET', '/api/v1/orgs/{org_id}/keys'): "List an organisation's keys (operator or provisioning credential).",
     ('POST', '/api/v1/orgs/{org_id}/keys/{key_id}/revoke'): 'Revoke a key (operator or provisioning credential).',
     ('GET', '/api/v1/orgs/{org_id}/usage/summary'): 'Organisation-wide usage summary (operator or provisioning credential).',
     ('GET', '/api/v1/orgs/{org_id}/usage'): "A key's own usage counters.",
     ('GET', '/api/v1/internal/wake-requests'): 'For the box-side waker: fetch pending wake requests (signed request; always registered, and answers 404 when the cold-start wake is off).',
     ('POST', '/api/v1/internal/wake-results'): 'For the box-side waker: post the result of a wake (signed request; always registered, and answers 404 when the cold-start wake is off).',
-    ('POST', '/api/v1/analyse-facts/wake'): 'Start a cold-start wake of the judges for the signed-in caller; refused with a 503 (judges_offline) when a wake is not allowed.',
-    ('GET', '/api/v1/analyse-facts/wake/status'): "Progress of the signed-in caller's wake.",
+    ('POST', '/api/v1/analyse-facts/wake'): 'Start a cold-start wake of the judges for the signed-in caller (present only when the cold-start wake is on).',
+    ('GET', '/api/v1/analyse-facts/wake/status'): "Progress of the signed-in caller's wake (present only when the cold-start wake is on).",
 }
 
 MODULE_NOTES: dict[str, str] = {
-    "pravrudhi.application.audit": "Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It is designed not to hold fact text, narrative, quotes or any judge output beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids.",
+    "pravrudhi.application.audit": "Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It holds no fact text, narrative or quotes: free text becomes invalid-id, and only id-shaped values of at most 64 characters are kept. No judge output is stored beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids.",
     "pravrudhi.application.route_scope": "A guard that flags a route whose handler is identity-aware (it takes a `user` parameter) but never resolves that identity into a per-caller project or store in its own body, so that it would read the engine's own root instead.",
     "pravrudhi.application.typed.validators": "Mechanical validation for id-ref and span fields: schema-valid is necessary but not sufficient, so these checks stay separate from decoding and always run.",
     "pravrudhi_kernel.stats.core": "Vendored statistics code; the kernel keeps to this one statistics implementation rather than a third library.",

@@ -57,7 +57,7 @@ The engine's logic: the night, replay, the gate, screening, matters, citations, 
 | `pravrudhi.application.app_serve` | `pravrudhi app`: the product, served locally by the engine. |
 | `pravrudhi.application.archive` | Read back the parent the engine has been writing down and never once consulted. |
 | `pravrudhi.application.assistant_tier` | The assistant tier: is the Anthropic-backed assistant offerable right now? |
-| `pravrudhi.application.audit` | Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It is designed not to hold fact text, narrative, quotes or any judge output beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids. |
+| `pravrudhi.application.audit` | Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It holds no fact text, narrative or quotes: free text becomes invalid-id, and only id-shaped values of at most 64 characters are kept. No judge output is stored beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids. |
 | `pravrudhi.application.availability` | Telling a vendor's usage limit apart from an ordinary failure, and remembering it for a while. |
 | `pravrudhi.application.bail_draft` | A4 bail drafting: ONE draft of the GROUNDS section of a bail application, from the lawyer's own applicant-side facts. |
 | `pravrudhi.application.bail_draft_config` | The switch of the bail-drafting slice (A4, flag `wf_a4_bail_drafting`), its caps and its optional drafting endpoint. |
