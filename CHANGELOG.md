@@ -5,6 +5,20 @@ messages.
 
 Note (22 Oct 2026): Each entry describes its release as shipped. Whether a feature is switched on in a deployment is a setting, not part of the release; this file does not track settings.
 
+## 0.6.34 (2026-10-23)
+
+PATCH release on 0.6.33. Image, plus one value in the shipped configuration.
+
+### Changed
+- **Cold start counts a model as ready only when it answers.** Before, a model counted as ready as soon as its host listed a worker, so a screening could be sent while the model was still loading; on 22 Oct the smaller model took about 2 minutes and the larger about 7.4 minutes to answer, counted from the start of the wake (one observation each). Now a model counts as ready only when its own model list answers with a model; until then the wake stays "waking" and no ticket is issued. The check is made only for a model that already has a worker and starts nothing.
+- **A model that refuses while it is still starting is reported as warming.** If a model answers with a client error (such as 409 ENDPOINT_PAUSED while the host catches up) inside the wake window (the request carries a valid wake ticket), or says ENDPOINT_PAUSED at any time, the screening answers with the existing 503 `judge_unavailable`, reason `judges_warming` and a `Retry-After` of 30 s (the answer 0.6.33 already gave after an exhausted retry in the warming window), instead of "agent unavailable". Outside that window an unknown client error is still treated as a configuration fault (503 `agent_unavailable`).
+- **The second-judge circuit breaker is cleared when a wake first turns ready** (once per user transition, per process; never from a ticket). An old open window from an earlier failure no longer makes a screening skip a model that is now up. A skipped second model refers the contracts to a lawyer and never proves anything. A model that is in fact down trips the breaker again at its next failed call.
+- **Wake budget is 540 s** (`cold_start_budget_s`, was 300 s), so the engine waits up to 540 s per model for a cold start. The status deadline the app sees is the budget plus a 30 s margin, 570 s, inside the waker's 900 s lease. Two bounds moved with it: the largest accepted budget is 600 s (was 420 s; a larger value used to switch cold start off), and a wake is released as dead after the larger of 450 s and the deadline plus 60 s, 630 s here (was a fixed 450 s, which would have ended a slow wake before its deadline).
+- **One log line per finished screening, `second_judge_evidence`:** the number of contracts, how many were referred because of the second model, whether the breaker was open at the end, whether the screening ran in the wake window, and counts of reasons per contract. No case text and no person ids.
+
+### Not changed
+- No new route, response field, environment variable, secret or migration. The waker, the app and every other setting are as in 0.6.33. Rollback is the 0.6.33 image; the shipped configuration travels in the image.
+
 ## 0.6.33 (2026-10-23)
 
 PATCH release on 0.6.32. Image only.
