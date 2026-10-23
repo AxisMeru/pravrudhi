@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import re
 import stat
-import tempfile
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -224,10 +224,19 @@ def problems(root: Path) -> list[tuple[str, str]]:
     return out
 
 
-def _umask() -> int:
-    current = os.umask(0)
-    os.umask(current)
-    return current
+def _final_mode(target: Path, uid: str) -> int:
+    """The mode the written file gets: the existing target's, else what a new file would get under the process umask."""
+    try:
+        return stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        pass
+    probe = target.with_name(f".{target.name}.{uid}.probe")
+    pfd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        return stat.S_IMODE(os.fstat(pfd).st_mode)
+    finally:
+        os.close(pfd)
+        probe.unlink(missing_ok=True)
 
 
 def write(root: Path, obj: Objective) -> Path:
@@ -239,21 +248,22 @@ def write(root: Path, obj: Objective) -> Path:
     if not body.get("created"):
         body["created"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     text = yaml.safe_dump(body, sort_keys=False, allow_unicode=True)
-    # Atomic: a reader never sees a half-written file. Write a UNIQUE sibling (concurrent writers of one objective never
-    # share a temporary name), flush it to disk, give it the old file's mode, then rename it over the target. Stated limits:
-    # a hard link to the file is replaced by a regular file; the directory entry itself is not fsynced.
+    # Atomic: a reader never sees a half-written file. Write a UNIQUE sibling (concurrent writers of one objective never share a
+    # temporary name), flush it to disk, give it the final mode, then rename it over the target. The temporary file is created
+    # 0600 and holds the content only at that mode (a 0600 objective is never readable by the group through its temporary copy);
+    # the final mode is the target's, or for a new file the umask-derived default, read from a probe file created at 0666 (the
+    # kernel applies the umask; os.umask() is never called: it is process-wide). Stated limits: a hard link to the file is
+    # replaced by a regular file; the directory entry itself is not fsynced.
     target = path.resolve() if path.is_symlink() else path  # a symlinked file is updated in place, not replaced by a regular file
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    tmp = Path(tmp_name)
+    uid = uuid.uuid4().hex
+    tmp = target.with_name(f".{target.name}.{uid}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(text)
             fh.flush()
+            os.fchmod(fh.fileno(), _final_mode(target, uid))
             os.fsync(fh.fileno())
-        try:
-            os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))  # keep the mode of the file being replaced
-        except FileNotFoundError:
-            os.chmod(tmp, 0o666 & ~_umask())  # a new file: the mode write_text() would have given it
         os.replace(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)
