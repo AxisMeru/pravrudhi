@@ -7,6 +7,7 @@ from the code's own docstrings; `narrative/` and `reference/` are written (refer
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -38,6 +39,10 @@ extensions = [
     "myst_parser",
 ]
 
+# The hosted copy leaves out the "[source]" pages (full source listings): the signatures and docstrings are the documentation.
+if os.environ.get("PRAVRUDHI_DOCS_NO_SOURCE_PAGES"):
+    extensions.remove("sphinx.ext.viewcode")
+
 source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 master_doc = "index"
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
@@ -53,6 +58,8 @@ autodoc_default_options = {
     "show-inheritance": True,
     "member-order": "bysource",
 }
+# Show a default as written in the source (a name), not its evaluated value: evaluated values leak local paths and constants.
+autodoc_preserve_defaults = True
 autodoc_typehints = "description"
 autodoc_typehints_format = "short"
 autosummary_generate = True
@@ -85,3 +92,20 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 html_title = f"Pravrudhi {release}"
+
+
+def _skip_private_values(app, what, name, obj, skip, options):  # type: ignore[no-untyped-def]
+    """Leave out module data that carries a private identifier or a local path in its value."""
+    if skip or what != "module":
+        return skip
+    if name.startswith("PRIVATE"):
+        return True
+    try:
+        text = repr(obj)
+    except Exception:  # pragma: no cover - an object whose repr fails is left as autodoc decided
+        return skip
+    return True if ("/home/" in text or "fusion-project" in text) else skip
+
+
+def setup(app) -> None:  # type: ignore[no-untyped-def]
+    app.connect("autodoc-skip-member", _skip_private_values)
