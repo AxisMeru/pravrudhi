@@ -176,3 +176,12 @@ def test_a_tiny_p_on_the_page_is_not_printed_as_zero() -> None:
         }
     )
     assert "exact McNemar p < 0.001" in page and "0.000" not in page
+
+
+def test_progress_page_links_the_documentation_only_when_it_was_built() -> None:
+    kwargs = dict(objectives=[], commits=[], version="0", app_present=False, paper_present=False)
+    assert "Documentation" not in render_page(**kwargs)
+    both = render_page(**kwargs, docs_present=True, app_docs_present=True)
+    assert 'href="docs/"' in both and 'href="app-docs/"' in both
+    only_engine = render_page(**kwargs, docs_present=True)
+    assert 'href="docs/"' in only_engine and "app-docs" not in only_engine

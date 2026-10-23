@@ -162,6 +162,8 @@ def render_page(
     version: str,
     app_present: bool,
     paper_present: bool,
+    docs_present: bool = False,
+    app_docs_present: bool = False,
 ) -> str:
     # Introduction
     intro_text = (
@@ -194,6 +196,18 @@ def render_page(
 </div>"""
 
     # Demo and paper section
+    docs_parts = []
+    if docs_present:
+        docs_parts.append('<a href="docs/">Engine documentation</a>')
+    if app_docs_present:
+        docs_parts.append('<a href="app-docs/">App library reference</a>')
+    docs_html = ""
+    if docs_parts:
+        docs_html = f"""<section aria-label="documentation">
+<h2>Documentation</h2>
+<p class="demo-section">{' • '.join(docs_parts)}</p>
+</section>"""
+
     demo_html = ""
     if app_present or paper_present:
         demo_parts = []
@@ -226,6 +240,7 @@ def render_page(
 <main>
 {intro_html}
 {products_html}
+{docs_html}
 {demo_html}
 <section aria-label="progress">
 <h2>What the engine has done</h2>
@@ -248,7 +263,13 @@ def build(repo_root: Path, site_dir: Path) -> None:
     app_present = (site_dir / "app" / "index.html").exists()
     paper_present = (site_dir / "paper" / "main.pdf").exists()
     page = render_page(
-        objectives=objectives, commits=commits, version=version, app_present=app_present, paper_present=paper_present
+        objectives=objectives,
+        commits=commits,
+        version=version,
+        app_present=app_present,
+        paper_present=paper_present,
+        docs_present=(site_dir / "docs" / "index.html").exists(),
+        app_docs_present=(site_dir / "app-docs" / "index.html").exists(),
     )
     site_dir.mkdir(parents=True, exist_ok=True)
     (site_dir / "index.html").write_text(page)

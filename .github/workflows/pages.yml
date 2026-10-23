@@ -57,10 +57,50 @@ jobs:
           mkdir -p site/paper
           cp paper/main.pdf site/paper/main.pdf
 
-      - name: render progress page
+      # Engine documentation (Sphinx): the same commands as docs.yml. continue-on-error keeps the site deploying if the docs build
+      # breaks; docs.yml is the check that fails a change, and the index only links a docs tree that was actually built.
+      - name: install engine and docs requirements
         run: |
           uv sync --all-groups --frozen
-          uv run python scripts/progress_page.py site/
+          uv pip install -r sphinx/requirements.txt
+
+      - name: build engine docs
+        id: engine_docs
+        continue-on-error: true
+        env:
+          PRAVRUDHI_DOCS_NO_SOURCE_PAGES: "1"
+        run: |
+          uv run --no-sync python sphinx/gen_reference.py --check
+          uv run --no-sync sphinx-build -b html sphinx sphinx/_build/html
+          mkdir -p site/docs
+          cp -r sphinx/_build/html/. site/docs/
+
+      # App library reference (typedoc) from the public pravrudhi-app repo: public checkout, no token, no credentials kept.
+      - name: check out the public app repository
+        id: app_src
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: AxisMeru/pravrudhi-app
+          ref: main
+          path: app-src
+          persist-credentials: false
+
+      - name: build app library reference
+        if: steps.app_src.outcome == 'success'
+        id: app_docs
+        continue-on-error: true
+        working-directory: app-src/frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run docs
+          mkdir -p ../../site/app-docs
+          cp -r ../docs/reference/. ../../site/app-docs/
+
+      - name: render progress page
+        run: |
+          touch site/.nojekyll
+          uv run --no-sync python scripts/progress_page.py site/
 
       - uses: actions/configure-pages@v5
         with:
