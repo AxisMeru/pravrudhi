@@ -17,6 +17,7 @@ CHAT_ENDPOINT_UNREACHABLE = "chat_endpoint_unreachable"
 VENDOR_NOT_ALLOWED = "vendor_not_allowed"
 INTAKE_TIMEOUT = "intake_timeout"
 INTERNAL_ERROR = "internal_error"
+ASSISTANT_SESSION_BILLED = "assistant_session_billed"
 
 #: code -> the one fixed message that goes with it.
 MESSAGES: dict[str, str] = {
@@ -28,6 +29,9 @@ MESSAGES: dict[str, str] = {
     VENDOR_NOT_ALLOWED: "vendor not allowed for API callers",
     INTAKE_TIMEOUT: "the intake took too long and was stopped; send a shorter text",
     INTERNAL_ERROR: "an internal error occurred; try again later",
+    ASSISTANT_SESSION_BILLED: (
+        "the assistant session ran and was charged, but the result could not be produced; do not retry automatically"
+    ),
 }
 
 
