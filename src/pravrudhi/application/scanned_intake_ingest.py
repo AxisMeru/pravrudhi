@@ -12,6 +12,7 @@ from typing import Any
 
 from pravrudhi.application import scanned_intake_engine as E
 from pravrudhi.application import scanned_intake_pages as PG
+from pravrudhi.application import scanned_intake_strings as S
 from pravrudhi.application.matter_spans import DocumentRequest, MatterError
 from pravrudhi.application.matter_spans_config import MatterSpansConfig
 from pravrudhi.application.scanned_intake_config import ScannedIntakeConfig
@@ -31,6 +32,41 @@ def _lazy_runner(scan: ScannedIntakeConfig | None = None) -> E.Runner:
     return run
 
 
+def _ingest_image(
+    req: DocumentRequest, a2: MatterSpansConfig, scan: ScannedIntakeConfig, render: PG.Render | None, runner: E.Runner | None
+) -> tuple[str, dict[str, Any]]:
+    """One uploaded photo or scan = one page that has no text layer: it goes straight to OCR. Only reached with images enabled."""
+    from pravrudhi.application import scanned_intake_render as R
+
+    if req.mime in ("image/heic", "image/heif"):
+        raise MatterError("image_format_not_supported", S.HEIC_REFUSED, 415)
+    if len(req.image_base64 or "") > (a2.max_pdf_bytes * 4) // 3 + 16:
+        raise MatterError("image_too_large", f"The file is larger than {a2.max_pdf_bytes} bytes", 413)
+    try:
+        data = base64.b64decode(req.image_base64 or "", validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise MatterError("image_unreadable", S.IMAGE_UNREADABLE, 422) from e
+    if len(data) > a2.max_pdf_bytes:
+        raise MatterError("image_too_large", f"The file is larger than {a2.max_pdf_bytes} bytes", 413)
+    if render is None:
+        failure: Exception | None = None
+        decoded: Any = None
+        try:  # decode once, up front: an unreadable image is the request's error; every other failure is the page's reason
+            decoded = R.render_image(data, req.mime or "", timeout_s=scan.page_timeout_s)
+        except R.ImageUnreadable as e:
+            raise MatterError("image_unreadable", S.IMAGE_UNREADABLE, 422) from e
+        except (E.OcrUnavailable, E.OcrTimeout, E.OcrPageTooLarge) as e:
+            failure = e
+
+        def render(i: int, dpi: int) -> Any:  # noqa: F811, ARG001
+            if failure is not None:
+                raise failure
+            return decoded
+
+    results = PG.process_pages([""], scan, render, runner or _lazy_runner(scan))
+    return PG.assemble(results), PG.summary(results)
+
+
 def ingest_document(
     req: DocumentRequest,
     a2: MatterSpansConfig,
@@ -41,9 +77,11 @@ def ingest_document(
 ) -> tuple[str, dict[str, Any]]:
     """(text for A2, extra response fields). Plain text passes through unchanged with no extra fields."""
     if req.image_base64 is not None:
-        # While images are refused, HEIC gets the SAME answer as any other image: R1's HEIC line ("save it as JPEG or PNG")
-        # would send the user to formats this build also refuses. It returns the day JPEG, PNG and TIFF are accepted.
-        raise MatterError("image_not_supported_yet", IMAGE_NOT_SUPPORTED_YET, 415)
+        if not scan.images_enabled:
+            # While images are refused, HEIC gets the SAME answer as any other image: R1's HEIC line ("save it as JPEG or PNG")
+            # would send the user to formats this build also refuses.
+            raise MatterError("image_not_supported_yet", IMAGE_NOT_SUPPORTED_YET, 415)
+        return _ingest_image(req, a2, scan, render, runner)
     if req.pdf_base64 is None:
         return req.text or "", {}
     from pravrudhi.application.draft_check import DraftRefused, pdf_text

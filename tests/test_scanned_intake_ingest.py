@@ -109,3 +109,80 @@ def test_the_render_child_never_outlives_the_documents_remaining_time(monkeypatc
     seen.clear()
     I.ingest_document(req(pdf_base64=base64.b64encode(blank_pdf(1)).decode()), A2, roomy, runner=runner)
     assert seen == [pytest.approx(3.0, abs=0.5)] or all(t <= 3.0 for t in seen)  # the page timeout still caps a roomy document
+
+
+IMG_SCAN = parse_scanned_intake_config({**GOOD, "ocr_images_enabled": True})
+assert IMG_SCAN is not None and IMG_SCAN.images_enabled and not SCAN.images_enabled
+
+
+def _img(**kw):
+    return req(image_base64=base64.b64encode(b"img").decode(), mime=kw.pop("mime", "image/jpeg"), **kw)
+
+
+def test_an_image_is_read_as_one_page_without_a_text_layer_when_images_are_enabled(monkeypatch: pytest.MonkeyPatch):
+    from pravrudhi.application import scanned_intake_render as R
+
+    render, runner = make(tsv(GOOD_WORDS))
+    seen = {}
+    def fake(data, mime, timeout_s):
+        seen.update(data=data, mime=mime)
+        return render(0, 300)
+    monkeypatch.setattr(R, "render_image", fake)
+    text, extra = I.ingest_document(_img(), A2, IMG_SCAN, runner=runner)
+    assert seen == {"data": b"img", "mime": "image/jpeg"}
+    assert text == OCR_TEXT and extra["pages_unreadable"] == 0 and extra["ocr_line"] == S.OCR_LINE
+    assert [p["source"] for p in extra["pages"]] == ["ocr"]
+
+
+def test_an_unreadable_image_is_the_requests_422_with_r1s_line_not_a_page_reason(monkeypatch: pytest.MonkeyPatch):
+    import hashlib
+
+    from pravrudhi.application import scanned_intake_render as R
+
+    assert hashlib.sha256(S.IMAGE_UNREADABLE.encode()).hexdigest()[:16] == "96054078bc8e5d5c"  # R1
+
+    def boom(data, mime, timeout_s):
+        raise R.ImageUnreadable("corrupt")
+    monkeypatch.setattr(R, "render_image", boom)
+    with pytest.raises(MatterError) as e:
+        I.ingest_document(_img(), A2, IMG_SCAN, runner=make(tsv(GOOD_WORDS))[1])
+    assert (e.value.code, str(e.value), e.value.status_code) == ("image_unreadable", S.IMAGE_UNREADABLE, 422)
+    with pytest.raises(MatterError) as e2:
+        I.ingest_document(req(image_base64="***", mime="image/png"), A2, IMG_SCAN)
+    assert e2.value.code == "image_unreadable"
+
+
+def test_other_image_failures_are_the_pages_reason_and_a_misread_image_keeps_low_confidence(monkeypatch: pytest.MonkeyPatch):
+    from pravrudhi.application import scanned_intake_engine as E
+    from pravrudhi.application import scanned_intake_render as R
+
+    cases = ((E.OcrPageTooLarge(), "page_too_large"), (E.OcrUnavailable("x"), "ocr_unavailable"), (E.OcrTimeout(), "timeout"))
+    for exc, reason in cases:
+        def fail(data, mime, timeout_s, exc=exc):
+            raise exc
+        monkeypatch.setattr(R, "render_image", fail)
+        text, extra = I.ingest_document(_img(), A2, IMG_SCAN, runner=make(tsv(GOOD_WORDS))[1])
+        assert text == "\f" and extra["pages_unreadable"] == 1 and extra["pages"][0]["reason"] == reason
+    render, runner = make(tsv([("a", 30.0, 0)]))
+    monkeypatch.setattr(R, "render_image", lambda data, mime, timeout_s: render(0, 300))
+    _, extra = I.ingest_document(_img(), A2, IMG_SCAN, runner=runner)
+    assert extra["pages"][0]["reason"] == "low_confidence"
+
+
+def test_heic_and_oversized_images_are_refused_when_images_are_enabled():
+    for mime in ("image/heic", "image/heif"):
+        with pytest.raises(MatterError) as e:
+            I.ingest_document(_img(mime=mime), A2, IMG_SCAN)
+        assert (e.value.code, str(e.value), e.value.status_code) == ("image_format_not_supported", S.HEIC_REFUSED, 415)
+    with pytest.raises(MatterError) as e2:
+        I.ingest_document(req(image_base64="A" * 20_000, mime="image/png"), MatterSpansConfig(max_pdf_bytes=1_000), IMG_SCAN)
+    assert (e2.value.code, e2.value.status_code) == ("image_too_large", 413)
+
+
+def test_images_stay_refused_unless_the_config_says_boolean_true():
+    for v in (False, "true", 1, None):
+        cfg = parse_scanned_intake_config({**GOOD, "ocr_images_enabled": v})
+        assert cfg is not None and cfg.images_enabled is False
+    with pytest.raises(MatterError) as e:
+        I.ingest_document(_img(), A2, SCAN)
+    assert e.value.code == "image_not_supported_yet"

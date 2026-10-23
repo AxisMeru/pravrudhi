@@ -62,7 +62,8 @@ def test_every_customer_line_is_r1s_exactly():
         S.REPAIRED_PAGE_LINE: "6d58ad2bbb36f4d0", S.PHOTO_LINE: "b19d6f4a591bfdb7",
         S.REASON_LINES["page_limit"]: "940c7c869c69f005",
         S.REASON_LINES["page_too_large"]: "be4147060076bdfb",
-        S.REASON_LINES["document_time"]: "8de5818f97bb2088", S.HEIC_REFUSED: "6e81ca38216b082b", S.TOO_LARGE: "9d84711266c2da06",
+        S.REASON_LINES["document_time"]: "8de5818f97bb2088", S.HEIC_REFUSED: "6e81ca38216b082b",
+        S.IMAGE_UNREADABLE: "96054078bc8e5d5c", S.TOO_LARGE: "9d84711266c2da06",
     }  # fmt: skip
     for text, want in pins.items():
         assert h(text) == want, text

@@ -38,6 +38,7 @@ class ScannedIntakeConfig:
     tesseract_version: str = ""  # the calibrated engine: an image whose tesseract differs is NOT used (fail closed)
     eng_traineddata_sha256: str = ""
     languages: str = "eng"
+    images_enabled: bool = False  # photos stay refused (415) until Lead-2 switches them on: boolean true only
 
 
 #: key -> (field, kind, lo, hi); all are REQUIRED when the flag is on.
@@ -81,7 +82,7 @@ def parse_scanned_intake_config(body: Any) -> ScannedIntakeConfig | None:
     if langs != "eng":  # English only until Hindi ships: any other value is a typo that must not silently change the engine
         _logger.warning("ocr_languages must be \"eng\": scanned intake stays OFF")
         return None
-    return ScannedIntakeConfig(**values)
+    return ScannedIntakeConfig(**values, images_enabled=body.get("ocr_images_enabled") is True)
 
 
 def load_scanned_intake_config(root: Path) -> ScannedIntakeConfig | None:

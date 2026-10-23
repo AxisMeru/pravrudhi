@@ -107,6 +107,8 @@ def _run_child(argv: list[str], data: bytes, timeout_s: float, what: str) -> tup
         raise OcrPageTooLarge  # too large to render or decode here: never tried, not a timeout
     if proc.returncode == 2:
         raise OcrUnavailable(f"{what} is not installed")
+    if proc.returncode == 6:
+        raise ImageUnreadable(f"the {what} could not open the image")
     if proc.returncode != 0 or len(out) < 8:
         raise OcrUnavailable(f"the {what} child exited {proc.returncode}")
     width, height = struct.unpack(">II", out[:8])
@@ -129,32 +131,53 @@ def render_pdf_page(
 IMAGE_WORKER_CODE = r"""
 import struct, sys
 max_pixels = int(sys.argv[1])
+fmt = sys.argv[2]
 data = sys.stdin.buffer.read()
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps
 except ImportError:
     sys.exit(2)
 try:
     import io
     Image.MAX_IMAGE_PIXELS = max_pixels
-    img = Image.open(io.BytesIO(data), formats=["PNG", "JPEG", "TIFF"])
+    img = Image.open(io.BytesIO(data), formats=[fmt])
     width, height = img.size
     if width * height > max_pixels:
         sys.exit(3)
     img.seek(0)
+    img = ImageOps.exif_transpose(img)  # a phone photo is stored sideways with an orientation tag: turn it upright
+    if img.mode in ("RGBA", "LA", "PA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")  # transparent areas are white paper, not black ink
+        flat = Image.new("RGB", rgba.size, (255, 255, 255))
+        flat.paste(rgba, mask=rgba.getchannel("A"))
+        img = flat
+    elif img.mode.startswith("I"):  # 16 or 32 bit integer gray: scale the range down, never clip it
+        img = img.point(lambda v: v / 256)
     gray = img.convert("L")
+    width, height = gray.size
     raw = gray.tobytes()
 except SystemExit:
     raise
 except (Image.DecompressionBombError, MemoryError):
     sys.exit(3)
+except (OSError, SyntaxError, ValueError, EOFError):  # not an image of the declared type, corrupt, or truncated
+    sys.exit(6)
 except Exception:
     sys.exit(4)
 sys.stdout.buffer.write(struct.pack(">II", width, height) + raw)
 """
 
+IMAGE_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/tiff": "TIFF"}
 
-def render_image(data: bytes, timeout_s: float = 30.0, argv: list[str] | None = None) -> tuple[bytes, Iterator[tuple[int, int]]]:
-    """(PNG bytes, dark pixels) of an uploaded PNG, JPEG or TIFF image, decoded by the isolated child."""
-    worker = [sys.executable, "-I", "-c", IMAGE_WORKER_CODE, str(MAX_PIXELS)]
+
+class ImageUnreadable(OcrUnavailable):
+    """The upload is not a readable image of the type it declared (corrupt, truncated, or the wrong type)."""
+
+
+def render_image(
+    data: bytes, mime: str = "image/png", timeout_s: float = 30.0, argv: list[str] | None = None
+) -> tuple[bytes, Iterator[tuple[int, int]]]:
+    """(PNG bytes, dark pixels) of an uploaded PNG, JPEG or TIFF image, decoded by the isolated child as the declared type.
+    ImageUnreadable when the bytes are not that image."""
+    worker = [sys.executable, "-I", "-c", IMAGE_WORKER_CODE, str(MAX_PIXELS), IMAGE_FORMATS.get(mime, "")]
     return _run_child(argv or worker, data, timeout_s, "the image decoder")

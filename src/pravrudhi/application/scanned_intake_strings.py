@@ -25,6 +25,9 @@ OCR_MARKER_LINE = "Read from a scanned page: check this against the paper."
 REPAIRED_PAGE_LINE = "The text in the file for this page was damaged, so the page was read from its image."
 # R1 b19d6f4a591bfdb7 (replaces the earlier photo line)
 PHOTO_LINE = "Photos and scans of other papers, such as an FIR or a chargesheet, may be read less well than a court order."
+# R1 96054078bc8e5d5c: a corrupt, truncated or wrong-type image (422 image_unreadable); no cause, no promise. It lists TIFF
+# and the HEIC line lists "JPEG or PNG": reconcile the accepted list when photos are switched on.
+IMAGE_UNREADABLE = "This image could not be opened. Save it again as JPEG, PNG or TIFF and add it again."
 HEIC_REFUSED = "This photo format is not supported. Save it as JPEG or PNG and add it again."  # by mime image/heic, image/heif
 # Web's line for pdf_too_large
 TOO_LARGE = "This file is too large. The limit is 8 MB. Make the file smaller, or split it, and add it again."

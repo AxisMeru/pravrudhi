@@ -120,7 +120,7 @@ def test_the_real_image_worker_without_pillow_is_ocr_unavailable():
 
 def test_the_image_worker_is_self_contained_guards_the_header_before_decoding_and_accepts_three_formats_only():
     code = R.IMAGE_WORKER_CODE
-    assert "pravrudhi" not in code and 'formats=["PNG", "JPEG", "TIFF"]' in code
+    assert "pravrudhi" not in code and 'formats=[fmt]' in code
     assert "Image.MAX_IMAGE_PIXELS = max_pixels" in code
     # the size is refused before any pixel is decoded
     assert code.index("width * height > max_pixels") < code.index('convert("L")')
@@ -131,7 +131,8 @@ def test_a_decoded_image_is_validated_and_the_exit_codes_map_like_the_pdf_worker
     ok = "import struct,sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(struct.pack('>II',2,2)+bytes([0,255,255,0]))"
     png, dark = R.render_image(b"x", argv=_child(tmp_path, ok))
     assert png.startswith(b"\x89PNG") and list(dark) == [(0, 0), (1, 1)]
-    for code, exc in ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable)):  # bomb, no Pillow, undecodable
+    codes = ((3, E.OcrPageTooLarge), (2, E.OcrUnavailable), (4, E.OcrUnavailable), (6, R.ImageUnreadable))
+    for code, exc in codes:  # bomb, no Pillow, other failure, unreadable image
         with pytest.raises(exc):
             R.render_image(b"x", argv=_child(tmp_path, f"import sys; sys.stdin.buffer.read(); sys.exit({code})"))
 
@@ -184,6 +185,7 @@ def _fake_module_child(tmp_path, pkg: str, body: str, worker: str, args: list[st
         (mod / "PIL").mkdir(exist_ok=True)
         (mod / "PIL" / "__init__.py").write_text("")
         (mod / "PIL" / "Image.py").write_text(body)
+        (mod / "PIL" / "ImageOps.py").write_text("")
     wrapper = f"import sys; sys.path.insert(0, {str(mod)!r}); exec(compile({worker!r}, 'worker', 'exec'))"
     return [sys.executable, "-I", "-c", wrapper, *args]
 
@@ -196,7 +198,7 @@ def test_a_memory_error_in_the_worker_is_page_too_large_not_a_generic_failure(tm
     img_fake = (
         "MAX_IMAGE_PIXELS = None\nclass DecompressionBombError(Exception):\n    pass\ndef open(*a, **k):\n    raise MemoryError\n"
     )
-    argv2 = _fake_module_child(tmp_path, "PIL", img_fake, R.IMAGE_WORKER_CODE, [str(R.MAX_PIXELS)])
+    argv2 = _fake_module_child(tmp_path, "PIL", img_fake, R.IMAGE_WORKER_CODE, [str(R.MAX_PIXELS), "PNG"])
     with pytest.raises(E.OcrPageTooLarge):
         R.render_image(b"\x89PNG", argv=argv2)
 
@@ -228,3 +230,48 @@ def test_the_rasteriser_and_the_decoder_read_and_fail_closed_with_descriptors_ab
         for fd in held:
             os.close(fd)
         resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def _real_pillow_decode(data: bytes, mime: str):
+    pytest.importorskip("PIL", reason="Pillow is installed in the image gate: the real decode runs there")
+    return R.render_image(data, mime)
+
+
+def test_the_real_decoder_applies_exif_orientation_flattens_alpha_on_white_and_scales_16_bit_without_clipping():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    def enc(img, fmt, **kw):
+        b = io.BytesIO()
+        img.save(b, fmt, **kw)
+        return b.getvalue()
+
+    def size(png: bytes):
+        return (int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big"))
+
+    exif = Image.Exif()
+    exif[274] = 6  # rotated: stored 40 x 20, shown 20 x 40
+    assert size(_real_pillow_decode(enc(Image.new("L", (40, 20), 200), "JPEG", exif=exif), "image/jpeg")[0]) == (20, 40)
+    for mode in ("RGBA", "LA"):
+        _, dark = _real_pillow_decode(enc(Image.new(mode, (4, 4), (0,) * len(mode)), "PNG"), "image/png")
+        assert list(dark) == []  # transparent means white paper, not ink
+    ramp = Image.new("I;16", (256, 1))
+    ramp.putdata([i * 256 for i in range(256)])
+    _, dark16 = _real_pillow_decode(enc(ramp, "TIFF"), "image/tiff")
+    assert len(list(dark16)) == 128  # half the ramp is below 128: scaled, not clipped to all-dark or all-light
+
+
+def test_the_real_decoder_calls_corrupt_truncated_and_wrong_type_images_unreadable():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    b = io.BytesIO()
+    Image.new("L", (50, 50), 9).save(b, "PNG")
+    png = b.getvalue()
+    for data, mime in ((png[: len(png) // 2], "image/png"), (b"not an image", "image/png"), (png, "image/jpeg")):
+        with pytest.raises(R.ImageUnreadable):
+            _real_pillow_decode(data, mime)
