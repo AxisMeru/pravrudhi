@@ -1168,6 +1168,40 @@ def _warm_citation_index(path: str) -> None:
         _logger.warning("citation index warm-up failed; the first lookup will load the titles itself", exc_info=True)
 
 
+def _log_second_judge_evidence(result: Any, breaker: SecondJudgeCircuitBreaker, warm_window: bool) -> None:
+    """#1053: ONE fixed log line per finished screening that says whether the second judge's outage (or the circuit breaker)
+    shaped it: the per-contract `reason` counts, the breaker state at the end of the run and whether the request carried a wake
+    ticket. No fact text, no person ids: it lets the next cold start prove or disprove that the breaker opened (grep
+    `second_judge_evidence`). Never raises and never changes the answer."""
+    try:
+        reasons: dict[str, int] = {}
+        for c in getattr(result, "contracts", []) or []:
+            r = str(getattr(c, "reason", "") or "none")
+            reasons[r] = reasons.get(r, 0) + 1
+        second = sum(n for r, n in reasons.items() if r.startswith("second_judge_unavailable"))
+        _logger.info(
+            "second_judge_evidence contracts=%d second_judge_unavailable=%d breaker_open=%s warm_window=%s reasons=%s",
+            sum(reasons.values()), second, breaker.is_open(), warm_window, json.dumps(reasons, sort_keys=True),
+        )
+    except Exception:  # noqa: BLE001 - a log line must never fail a screening
+        return
+
+
+def _judge_fault_is_warmup(e: BaseException, warm_window: bool) -> bool:
+    """#1041: is this judge configuration fault really a judge that is still starting? True for a 409 whose body names
+    ENDPOINT_PAUSED (a paused front door is a state, never a bad key or model), and, inside the warm window (the request carries a
+    valid wake ticket, i.e. the judges were woken within the ticket's lifetime), for any other 4xx except 429. Anything else
+    (an unknown 4xx outside the window) stays a configuration fault. Pure."""
+    from pravrudhi.models.openai_compat import HTTPStatusError
+
+    seen: BaseException | None = e
+    while seen is not None:
+        if isinstance(seen, HTTPStatusError) and 400 <= seen.status < 500 and seen.status != 429:
+            return (seen.status == 409 and "ENDPOINT_PAUSED" in str(seen)) or warm_window
+        seen = seen.__cause__
+    return False
+
+
 def build_partner_router(
     root: Path,
     *,
@@ -1539,7 +1573,8 @@ def build_partner_router(
             return _run(req, admitted, debug_second_judge)
         _tickets[0].extend()  # best effort, rate-deduped, never raises
         try:
-            return _run(req, admitted, debug_second_judge, breaker=_wp_breaker() if ticket == "partial" else None)
+            breaker = _wp_breaker() if ticket == "partial" else None
+            return _run(req, admitted, debug_second_judge, breaker=breaker, warm_window=True)
         finally:
             _tickets[0].extend()
 
@@ -1616,7 +1651,7 @@ def build_partner_router(
 
     def _run(
         req: AnalyseFactsRequest, admitted: _Admitted, debug_second_judge: bool, *, slot_held: bool = False,
-        breaker: SecondJudgeCircuitBreaker | None = None,
+        breaker: SecondJudgeCircuitBreaker | None = None, warm_window: bool = False,
     ) -> dict[str, Any] | JSONResponse:
         cfg, concurrency, authenticated = admitted.cfg, admitted.concurrency, admitted.authenticated
         if not slot_held and not concurrency.acquire():
@@ -1637,7 +1672,20 @@ def build_partner_router(
             raise HTTPException(422, str(e)) from e
         except reg.UnknownContractError as e:
             raise HTTPException(422, str(e)) from e
-        except (JudgeMisconfigured, BinaryShaMismatch, OSError):  # FileNotFoundError is an OSError
+        except JudgeMisconfigured as e:
+            if _judge_fault_is_warmup(e, warm_window):
+                # #1041: a judge that was just woken answered 4xx (e.g. 409 ENDPOINT_PAUSED while RunPod's front door catches up):
+                # not a bad key or model, so the answer is "warming, retry", never the agent-unavailable marker
+                _logger.warning("judge refused during warm-up; answering judges_warming", exc_info=True)
+                retry = int(cfg.judge_warm_retry_s)
+                return JSONResponse(
+                    status_code=503,
+                    content={"error": "judge_unavailable", "reason": "judges_warming", "retry_after_s": retry},
+                    headers={"Retry-After": str(retry)},
+                )
+            _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
+            return coded_503(AGENT_UNAVAILABLE)
+        except (BinaryShaMismatch, OSError):  # FileNotFoundError is an OSError
             _logger.warning("nyaya agent unavailable", exc_info=True)  # the exception is logged server-side only (#318)
             return coded_503(AGENT_UNAVAILABLE)
         finally:
@@ -1676,6 +1724,7 @@ def build_partner_router(
                 )
             return JSONResponse(status_code=503, content={"error": "judge_unavailable"})
         _judge_seen.update(state="ready", at=_now(), first_failure=None)
+        _log_second_judge_evidence(result, breaker if breaker is not None else _get_state()[4], warm_window)
         listed = getattr(result, "listed_sources", None)
         return _shape_body(agent, result.to_dict(), listed, authenticated, debug_second_judge, cfg)
 
@@ -3910,7 +3959,10 @@ def build_partner_router(
                         return "ready"
                     key = os.environ.get("NYAYA_HOUSE_JUDGE_API_KEY" if role == "first" else "NYAYA_SECOND_JUDGE_API_KEY")
                     _offline_check.ttl_s = _get_state()[0].judge_health_ttl_s  # the same cache lifetime as the offline check
-                    return str(_offline_check.state(url, key or block.get("api_key")).status)
+                    reading = str(_offline_check.state(url, key or block.get("api_key")).status)
+                    if reading == "ready" and not _offline_check.serving_state(url, key or block.get("api_key")):
+                        return "warming"  # #1041: a worker is up but the judge does not serve yet: not ready
+                    return reading
                 except Exception:  # noqa: BLE001 - a failed reading is `unknown`, which is never ready
                     return "unknown"
 
@@ -3966,6 +4018,22 @@ def build_partner_router(
                     return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
                 return None
 
+            _ready_reported: dict[str, bool] = {}  # per user: has THIS process already reported `ready` for the current wake?
+
+            def _breaker_reset_on_ready(user_id: str, body: Any) -> None:
+                """#1053: on the TRANSITION to ready (not on every later ready read, never from a ticket) close this process's
+                second-judge breaker: both judges just answered 200 on /models, so an old open window is stale."""
+                try:
+                    state = (body.get("wake") or {}).get("state") if isinstance(body, dict) else None
+                    if state != "ready":
+                        _ready_reported[user_id] = False
+                        return
+                    if not _ready_reported.get(user_id):
+                        _ready_reported[user_id] = True
+                        _get_state()[4].reset()
+                except Exception:  # noqa: BLE001 - never let a bookkeeping step fail a wake answer
+                    return
+
             @router.post("/analyse-facts/wake", include_in_schema=False)
             def wake_start_ep(user: User | None = CurrentUserDep) -> Any:
                 refused = _wake_refused(user)
@@ -3974,6 +4042,7 @@ def build_partner_router(
                 outcome, body = _cold_svc.start(user.id)
                 if outcome == "not_allowed":
                     return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
+                _breaker_reset_on_ready(user.id, body)
                 if outcome == "ready":
                     return JSONResponse(status_code=200, content=body)
                 return JSONResponse(status_code=202, content=body, headers={"Retry-After": str(_cold_cfg.poll_after_s)})
@@ -3984,7 +4053,9 @@ def build_partner_router(
                 if refused is not None or user is None:
                     return refused
                 try:
-                    return JSONResponse(status_code=200, content=_cold_svc.status(user.id))
+                    status_body = _cold_svc.status(user.id)
+                    _breaker_reset_on_ready(user.id, status_body)
+                    return JSONResponse(status_code=200, content=status_body)
                 except Exception:  # noqa: BLE001 - a store that cannot answer is a refusal, never a state
                     return JSONResponse(status_code=503, content={"error": "judges_offline", "wake": "not_allowed"})
 

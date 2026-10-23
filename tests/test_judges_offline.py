@@ -242,3 +242,44 @@ def test_a_ready_fallback_with_no_passing_record_does_not_keep_the_judge_availab
 def test_a_fallback_without_a_record_dir_configured_keeps_the_earlier_rule(tmp_path: Path) -> None:
     c, _ = _with_fallback(tmp_path, None)  # not a deployment the engine would load for a RunPod fallback; the check stays lenient
     assert c.post("/api/v1/analyse-facts", json=_req()).status_code == 200
+
+
+# ---- #1041: a judge is "serving" only when its own /models answers with a model ----------------------------------------------
+
+
+def test_serving_needs_a_models_answer_with_at_least_one_model_and_never_raises() -> None:
+    from pravrudhi.application import judge_endpoint_state as jes
+
+    base = "https://api.runpod.ai/v2/ep111/openai/v1"
+    seen: list[str] = []
+
+    def ok(url: str, headers: Any) -> dict[str, Any]:
+        seen.append(url)
+        return {"data": [{"id": "m"}]}
+
+    assert jes.serving(base + "/", "k", fetch=ok) is True and seen == [base + "/models"]  # a trailing slash is tolerated
+    for body in ({"data": []}, {"data": "x"}, {}, {"error": "x"}):
+        assert jes.serving(base, "k", fetch=lambda u, h, b=body: b) is False
+
+    def paused(url: str, headers: Any) -> dict[str, Any]:
+        raise OSError("409 ENDPOINT_PAUSED")
+
+    assert jes.serving(base, "k", fetch=paused) is False  # the front door says paused, or the call fails: not serving
+    assert jes.serving(base, None, fetch=lambda u, h: (_ for _ in ()).throw(ValueError("bad json"))) is False
+
+
+def test_the_serving_reading_is_cached_for_the_ttl() -> None:
+    from pravrudhi.application import judge_endpoint_state as jes
+
+    now = [0.0]
+    calls: list[str] = []
+
+    def fetch(url: str, headers: Any) -> dict[str, Any]:
+        calls.append(url)
+        return {"data": [{"id": "m"}]}
+
+    chk = jes.JudgeOfflineCheck(ttl_s=5.0, fetch=fetch, clock=lambda: now[0])
+    base = "https://api.runpod.ai/v2/ep111/openai/v1"
+    assert chk.serving_state(base, "k") and chk.serving_state(base, "k") and len(calls) == 1
+    now[0] = 6.0
+    assert chk.serving_state(base, "k") and len(calls) == 2

@@ -94,7 +94,7 @@ judge_warm_retry_s: 30
 # coordination rows only); the user reads GET .../analyse-facts/wake/status and submits the screening itself with the ticket
 # it returns. Any bad value keeps it off. The HMAC secret is read from the env var NAMED below (secret by reference).
 cold_start_wake: false
-cold_start_budget_s: 300
+cold_start_budget_s: 540  # per judge; the 32B's cold start was measured at 7.4 min (22 Oct). deadline = this + the margin below, inside the waker's 900 s lease
 cold_start_poll_after_s: 5
 cold_start_deadline_margin_s: 30
 cold_start_wake_second: parallel

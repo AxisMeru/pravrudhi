@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from pravrudhi.application.judge_wake import NonceStore, WakeBoard, WakeConfig
+from pravrudhi.application.judge_wake import NonceStore, WakeBoard, WakeConfig, active_ttl_s
 from pravrudhi.application.wake_policy import WakeLimiter
 
 LIMIT_RESULTS = ("new", "existing", "cooldown", "limit")
@@ -51,7 +51,7 @@ class MemoryWakeStore:
         self._clock = clock
         self._board = WakeBoard(cfg.request_ttl_s, clock=clock, nonce=nonce)
         self._nonces = NonceStore(clock=clock)
-        self._limiter = WakeLimiter(cfg.user_wakes_per_day, cfg.failed_cooldown_s, clock=clock)
+        self._limiter = WakeLimiter(cfg.user_wakes_per_day, cfg.failed_cooldown_s, clock=clock, active_ttl_s=active_ttl_s(cfg))
 
     def ensure_wake(self, label: str, budget_s: float) -> None:
         latest = self._board.latest(label)
@@ -102,7 +102,7 @@ class PgWakeStore:
         self._call, self._cfg, self._nonce = call, cfg, nonce
         self._req_ttl = float(cfg.request_ttl_s)
         self._row_ttl = float(cfg.row_ttl_s)
-        self._active_ttl = 450.0  # the same dead-wake bound as the in-process limiter
+        self._active_ttl = active_ttl_s(cfg)  # the same dead-wake bound as the in-process limiter, beyond the wake deadline
 
     def ensure_wake(self, label: str, budget_s: float) -> None:
         self._call("wake_ensure", label, self._nonce(), float(budget_s), self._req_ttl, self._row_ttl)

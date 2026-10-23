@@ -125,6 +125,20 @@ def endpoint_state(base_url: str, api_key: str | None, *, fetch: Fetch = _http_f
     return classify(health)
 
 
+def serving(base_url: str, api_key: str | None, *, fetch: Fetch = _http_fetch) -> bool:
+    """True only when the judge's own `{base_url}/models` answers 200 with at least one model (#1041: the wake is READY only when
+    the judge can serve, not when RunPod merely lists a worker as up; a front door that still answers 409 ENDPOINT_PAUSED, a
+    worker that is up but whose model is not loaded, or any failure is NOT serving). Never raises. `/models` starts nothing:
+    the caller asks only for an endpoint whose health already shows a worker up."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        body = fetch(base_url.rstrip("/") + "/models", headers)
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+    data = body.get("data") if isinstance(body, Mapping) else None
+    return isinstance(data, list) and len(data) > 0
+
+
 class JudgeOfflineCheck:
     """The judges the engine needs, checked together and cached for `ttl_s` (so a burst of requests is one health
     read per endpoint, and the health endpoint is not a load amplifier)."""
@@ -132,6 +146,7 @@ class JudgeOfflineCheck:
     def __init__(self, *, ttl_s: float = 5.0, fetch: Fetch = _http_fetch, clock: Callable[[], float] = time.monotonic):
         self.ttl_s, self._fetch, self._clock = ttl_s, fetch, clock
         self._cache: dict[str, tuple[float, EndpointState]] = {}
+        self._serving_cache: dict[str, tuple[float, bool]] = {}
 
     def state(self, base_url: str, api_key: str | None) -> EndpointState:
         now = self._clock()
@@ -141,6 +156,16 @@ class JudgeOfflineCheck:
         st = endpoint_state(base_url, api_key, fetch=self._fetch)
         self._cache[base_url] = (now, st)
         return st
+
+    def serving_state(self, base_url: str, api_key: str | None) -> bool:
+        """`serving()`, cached for `ttl_s` like `state()` (a burst of status polls is one /models read per endpoint)."""
+        now = self._clock()
+        hit = self._serving_cache.get(base_url)
+        if hit is not None and now - hit[0] <= self.ttl_s:
+            return hit[1]
+        ok = serving(base_url, api_key, fetch=self._fetch)
+        self._serving_cache[base_url] = (now, ok)
+        return ok
 
     def _fallback_can_answer(
         self, url: str, key: str | None, block: Mapping[str, Any],

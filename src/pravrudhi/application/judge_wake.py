@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 FLAG = "cold_start_wake"
 ROLES = ("first", "second")
-HARD_MAX_BUDGET_S = 420.0
+HARD_MAX_BUDGET_S = 600.0  # the 32B's measured cold start was 7.4 min (22 Oct); the waker's lease is 900 s
 WAKER_PATH = "/wake"
 
 ModelState = Literal["waiting", "starting", "ready", "failed"]
@@ -51,6 +51,13 @@ class WakeConfig:
     failed_cooldown_s: float = 120.0  # after a failed wake the same user waits this long (no retry storm)
     ticket_ttl_s: float = 600.0  # PR-4: how long a wake ticket (issued with a ready/partial status) is honoured
     row_ttl_s: float = 900.0  # PR-4: how long a shared judge-wake request row lives (then it is purged)
+
+
+def active_ttl_s(cfg: WakeConfig) -> float:
+    """How long a user's wake may stay active before it is released as DEAD (failed + cooldown): never shorter than 450 s, and
+    always beyond the wake's own deadline (budget + margin) by a minute, so a slow but live wake is never released mid-flight.
+    Derived from the config so the two cannot drift apart (a fixed 450 s released a wake whose deadline was later than that)."""
+    return max(450.0, min(cfg.budget_s, HARD_MAX_BUDGET_S) + cfg.deadline_margin_s + 60.0)
 
 
 _ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]{2,63}")
