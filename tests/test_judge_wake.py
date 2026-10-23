@@ -43,7 +43,7 @@ def test_the_defaults_and_the_flag() -> None:
 @pytest.mark.parametrize(
     "bad",
     [
-        {"cold_start_budget_s": 29}, {"cold_start_budget_s": 421}, {"cold_start_budget_s": True}, {"cold_start_budget_s": "300"},
+        {"cold_start_budget_s": 29}, {"cold_start_budget_s": 601}, {"cold_start_budget_s": True}, {"cold_start_budget_s": "300"},
         {"cold_start_poll_after_s": 0}, {"cold_start_poll_after_s": 61}, {"cold_start_deadline_margin_s": -1},
         {"cold_start_deadline_margin_s": 301}, {"cold_start_request_ttl_s": 29}, {"cold_start_request_ttl_s": 601},
         {"cold_start_user_wakes_per_day": 0}, {"cold_start_user_wakes_per_day": 51}, {"cold_start_user_wakes_per_day": True},
@@ -139,16 +139,16 @@ def test_the_budget_fails_what_is_still_waiting_or_starting() -> None:
 
 def test_the_hard_maximum_caps_the_budget() -> None:
     clock = Clock()
-    w = W.JudgeWake(cfg(cold_start_budget_s=420), clock=clock)
+    w = W.JudgeWake(cfg(cold_start_budget_s=600), clock=clock)
     w.start({"first": "parked", "second": "parked"})
     w.waker_answered("first", "granted")
     w.waker_answered("second", "granted")
-    clock.t += 419
+    clock.t += 599
     w.tick()
     assert w.state() == "waking"
     clock.t += 2
     w.tick()
-    assert w.state() == "timeout" and w.block()["deadline_s"] == 450
+    assert w.state() == "timeout" and w.block()["deadline_s"] == 630
 
 
 def test_the_four_b_ready_and_the_second_failed_is_partial() -> None:
@@ -411,7 +411,7 @@ def test_the_packaged_config_ships_the_feature_off_with_valid_defaults() -> None
     assert body["cold_start_wake"] is False
     assert W.parse_cold_start_config(body) is None  # off
     c = W.parse_cold_start_config({**body, "cold_start_wake": True})  # the shipped defaults all parse once switched on
-    assert c is not None and (c.budget_s, c.poll_after_s, c.deadline_margin_s, c.request_ttl_s) == (300.0, 5, 30.0, 120.0)
+    assert c is not None and (c.budget_s, c.poll_after_s, c.deadline_margin_s, c.request_ttl_s) == (540.0, 5, 30.0, 120.0)
 
 
 def test_a_failed_first_judge_ends_the_wake_at_once_even_while_the_second_is_still_waiting() -> None:
