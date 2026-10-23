@@ -640,7 +640,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/health")
     def health(http_request: HttpRequest, response: Response) -> HealthResponse:
-        """Public health: version, kernel, ledger, assistant tier and tenancy store state; it does not include an address or a secret."""
+        """Public health: version, kernel, ledger, assistant tier, tenancy store state; no address or secret is included."""
         from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
         from pravrudhi.application import assistant_tier, tenancy
 
