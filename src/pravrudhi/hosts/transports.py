@@ -94,6 +94,7 @@ class OrcaTransport:
 
 
 def transport_for(spec: HostSpec) -> LocalTransport | SshTransport | OrcaTransport:
+    """The transport (local, ssh or orca) that a host spec asks for."""
     if spec.transport == "local":
         return LocalTransport(spec)
     if spec.transport == "ssh":

@@ -50,6 +50,9 @@ SCRATCH_DIRNAME = ".pravrudhi-scratch"
 
 @dataclass(frozen=True)
 class AgentRun:
+    """The outcome of one coding-agent run: the agent, success, exit code, wall time, text, workspace and optional
+    session, cost and token figures.
+    """
     agent: str
     ok: bool
     exit_code: int
@@ -81,6 +84,9 @@ class AgentRun:
 
 @dataclass(frozen=True)
 class Diff:
+    """The changes an agent made in its workspace: files, counts and the patch. `violations` lists any protected path it
+    touched.
+    """
     files: list[str] = field(default_factory=list)
     insertions: int = 0
     deletions: int = 0
@@ -98,6 +104,7 @@ class Diff:
 
 @runtime_checkable
 class CodingAgent(Protocol):
+    """What a coding agent must provide: availability, a workspace, a run, a diff of its changes and a way to stop."""
     name: str
 
     def available(self) -> bool: ...
@@ -108,6 +115,7 @@ class CodingAgent(Protocol):
 
 
 def git(args: list[str], cwd: Path, timeout_s: int = 120) -> subprocess.CompletedProcess[str]:
+    """Run a git command in a folder, with a timeout, and return the completed process."""
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout_s)
 
 
@@ -195,6 +203,7 @@ class GitWorktreeMixin:
 
 
 def timed(fn: Callable[..., Any]) -> Callable[..., tuple[Any, float]]:
+    """Wrap a function so that it returns its result together with the seconds it took."""
     def wrapper(*a: Any, **k: Any) -> tuple[Any, float]:
         t0 = time.monotonic()
         out = fn(*a, **k)

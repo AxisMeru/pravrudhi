@@ -1,3 +1,6 @@
+"""The `pravrudhi` command line (Typer): one function per command, grouped into sub-apps such as `gate`, `pool`, `study`
+and `requests`.
+"""
 import contextlib
 import json
 from pathlib import Path
@@ -113,6 +116,7 @@ def _root(ctx: typer.Context, version: bool = VERSION_OPT) -> None:
 
 @gate_app.command("emit")
 def gate_emit(card_id: str, evidence: Path = EVIDENCE_OPT, root: Path = ROOT_OPT) -> None:
+    """Emit a gate JSON for a card from an evidence file."""
     out = emit_gate(
         card_id,
         contracts_dir=root / "contracts",
@@ -134,11 +138,13 @@ def _check(path: Path, root: Path) -> None:
 
 @gate_app.command("check")
 def gate_check(path: Path, root: Path = ROOT_OPT) -> None:
+    """Check a gate JSON against its contract."""
     _check(path, root)
 
 
 @contract_app.command("check")
 def contract_check(path: Path, root: Path = ROOT_OPT) -> None:
+    """Check a gate JSON (the house alias of `gate check`)."""
     _check(path, root)
 
 
@@ -152,6 +158,7 @@ def gate_sign(
     ),
     root: Path = ROOT_OPT,
 ) -> None:
+    """Sign a gate: with --by as a person's name, or with --delegated as the delegation's identity under its conditions."""
     if delegated:
         from pravrudhi.application.gate import sign_gate_delegated
 
@@ -197,6 +204,7 @@ def pool_seal(
     offset: int = typer.Option(0, "--offset"),
     count: int | None = typer.Option(None, "--count"),
 ) -> None:
+    """Seal a benchmark pool from a parquet file into the kernel state directory."""
     from pravrudhi.application.pool_admin import seal_gsm8k
 
     m = seal_gsm8k(root, parquet, bench, offset=offset, count=count)
@@ -1569,6 +1577,7 @@ def workflow_run_cmd(
 
 
 def main() -> None:
+    """Entry point of the `pravrudhi` command."""
     app()
 
 

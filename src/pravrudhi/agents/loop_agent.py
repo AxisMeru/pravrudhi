@@ -122,11 +122,13 @@ TOOLS_SCHEMA: list[dict[str, Any]] = [
 
 @dataclass(frozen=True)
 class ToolsConfig:
+    """Settings for the loop agent's command tool: the allowed command prefixes and a timeout."""
     allow_prefixes: tuple[str, ...]
     command_timeout_s: int
 
 
 def load_tools_config(path: Path | None = None) -> ToolsConfig:
+    """Read the tools configuration from a file, or the packaged default."""
     raw: dict[str, Any] = yaml.safe_load((path or PACKAGED_TOOLS_CONFIG).read_text()) or {}
     return ToolsConfig(
         allow_prefixes=tuple(str(p) for p in (raw.get("allow_prefixes") or ())),

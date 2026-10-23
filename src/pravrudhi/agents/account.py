@@ -108,6 +108,7 @@ class AdminSeatRefused(RuntimeError):
 
 
 def is_forbidden_seat_dir(path: str | Path) -> bool:
+    """True if the folder is one that must never be used as a scripted-call account folder."""
     return Path(path).expanduser().name in FORBIDDEN_SEAT_DIR_NAMES
 
 
@@ -129,6 +130,9 @@ class ScriptedSeatMismatch(RuntimeError):
 
 
 def project_claude_home() -> Path:
+    """The Claude configuration folder the project pins for its own calls: the environment override if set, otherwise the
+    default.
+    """
     return Path(os.environ.get(HOME_ENV) or PROJECT_CLAUDE_HOME).expanduser()
 
 
@@ -403,6 +407,7 @@ def mismatches(root: Path | None = None, *, live: bool = False) -> list[str]:
 
 
 def scripted_claude_home() -> Path:
+    """The configuration folder for scripted Claude calls; refuses a folder that is forbidden as a scripted-call account."""
     home = Path(os.environ.get(SCRIPTED_CLAUDE_HOME_ENV) or SCRIPTED_CLAUDE_HOME_DEFAULT).expanduser()
     if is_forbidden_seat_dir(home):
         raise AdminSeatRefused(f"{home} is the team login's directory, which is never a scripted-call seat; refusing")

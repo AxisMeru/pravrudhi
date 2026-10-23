@@ -14,6 +14,7 @@ EXECUTION_FAMILIES = ("data_mixture", "optimiser", "adapter", "grpo", "template"
 
 
 class LoraParams(BaseModel):
+    """Bounded LoRA adapter settings: rank, alpha, dropout and which modules are adapted."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     r: int = Field(default=8, ge=1, le=64)
     alpha: int = Field(default=16, ge=1, le=256)
@@ -22,6 +23,9 @@ class LoraParams(BaseModel):
 
 
 class SftParams(BaseModel):
+    """Bounded settings for the rejection-sampling fine-tune: how many kept samples, who samples, the filter, the start
+    point, epochs and learning rate.
+    """
     model_config = ConfigDict(extra="forbid", frozen=True)
     n_kept: int = Field(default=512, ge=32, le=4096)  # how many kept (verified-correct) samples to train on
     teacher: Literal["incumbent", "Qwen/Qwen3-4B"] = (
@@ -37,6 +41,7 @@ class SftParams(BaseModel):
 
 
 class GrpoParams(BaseModel):
+    """Bounded settings for verifiable-reward GRPO training, sized to fit one card."""
     model_config = ConfigDict(extra="forbid", frozen=True)
     # fp32 master weights on a 32 GiB card (bf16 LoRA-GRPO produced NaN gradients on this stack: ADR-0006 request);
     # the bounds keep peak memory under the card with the measured 28.4 GiB at group 4 x 128 tokens.
@@ -49,6 +54,9 @@ class GrpoParams(BaseModel):
 
 
 class LoraRecipe(BaseModel):
+    """A model-track candidate as the proposer may write it: a strategy, an execution family, the adapter, SFT and GRPO
+    settings, the evaluation template and a short rationale.
+    """
     model_config = ConfigDict(extra="forbid", frozen=True)
     strategy: Literal["sft_rejection", "grpo_verifiable"]
     execution_family: Literal["data_mixture", "optimiser", "adapter", "grpo", "template"]

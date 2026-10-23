@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ChatResult(BaseModel):
+    """One chat answer: the text, the model that served it, token counts, wall time and finish reason."""
     model_config = ConfigDict(frozen=True, extra="forbid")
     text: str
     model: str
@@ -47,6 +48,7 @@ class HTTPStatusError(RuntimeError):
 
 
 class ChatClient:
+    """Client for an OpenAI-compatible chat endpoint, local or hosted."""
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:8080/v1",
