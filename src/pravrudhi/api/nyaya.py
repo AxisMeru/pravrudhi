@@ -261,7 +261,7 @@ def build_nyaya_router(root: Path, ask_fn: panel.AskFn | None = None) -> APIRout
     def ask_ep(
         req: AskRequest, workspace: str | None = None, user: User | None = CurrentUserDep
     ) -> dict[str, Any] | JSONResponse:
-        """Ask vendors a question against retrieved statute text; returns the verdict (422 bad input, 403 vendor refused)."""
+        """Ask vendors a question against retrieved statute text; returns the answer (422 bad input, 403 vendor refused)."""
         if not req.question.strip():
             raise HTTPException(422, "an empty question asks nothing")
         project, store = _session(user, workspace)

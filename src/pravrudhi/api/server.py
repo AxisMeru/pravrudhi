@@ -531,7 +531,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/parity", response_model=ParityResponse)
     def parity_ep() -> ParityResponse:
-        """The capability parity report: the checked-in capability matrix against rival capabilities."""
+        """The capability parity report: the checked-in capability matrix against the capabilities of other systems."""
         from pravrudhi.application.parity import report
 
         return ParityResponse.model_validate(report(root).model_dump())
@@ -629,7 +629,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/h1/{track}/{nights}")
     def h1(track: str, nights: str) -> MarkdownResponse:
-        """The H1 report as markdown for a track over dash-separated night numbers (400 for a malformed list)."""
+        """A markdown report for a track over dash-separated night numbers (400 for a malformed list)."""
         if not re.fullmatch(r"[0-9]+(?:-[0-9]+)*", nights):
             raise HTTPException(400, "nights must be dash-separated non-negative integers")
         try:
@@ -640,7 +640,7 @@ def create_app(root: Path, *, nyaya_ask_fn: Any | None = None) -> FastAPI:
 
     @api.get("/health")
     def health(http_request: HttpRequest, response: Response) -> HealthResponse:
-        """Public health: version, kernel, ledger, assistant tier and tenancy store state; never an address or a secret."""
+        """Public health: version, kernel, ledger, assistant tier and tenancy store state; it does not include an address or a secret."""
         from pravrudhi.api.partner import client_ip_and_source, client_ip_proof, load_partner_api_config
         from pravrudhi.application import assistant_tier, tenancy
 
