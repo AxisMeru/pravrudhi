@@ -175,8 +175,29 @@ def test_a_scanned_pdf_added_through_the_route_is_marked_on_the_list_and_the_pas
     assert listing[0]["from_ocr"] is True and listing[0]["ocr_pages"] == [1, 2]
     spans = c.post("/api/v1/matter-spans/query", json={"matter_id": m, "q": "zephyrquillon"}).json()["spans"]
     assert spans and all(sp["from_ocr"] is True and sp["source"] == "ocr" for sp in spans)
-    assert assert_marked(listing) == 1 and assert_marked(spans) == len(spans)
+    assert [(p["source"], p["from_ocr"], p["ocr_marker"]) for p in listing[0]["pages"]] == [("ocr", True, MARKER)] * 2
+    assert assert_marked(listing) == 1 + 2 and assert_marked(spans) == len(spans)  # the paper and each of its two image pages
     assert not _hits(root, b"image_base64") and _files(root)
+
+
+def test_the_stored_page_rows_follow_the_marker_rule(tmp_path: Path) -> None:
+    s = _store(tmp_path)
+    m = s.create_matter(T)
+    rows = [
+        {"page": 1, "source": "text_layer", "confidence": None, "readable": True, "reason": None, "line": None},
+        {"page": 2, "source": "ocr", "confidence": 88.0, "readable": True, "reason": None, "line": None},
+        {"page": 3, "source": "unreadable", "confidence": 50.0, "readable": False, "reason": "low_confidence", "line": "x"},
+    ]
+    s.add_document(T, m, PAPER, "scan.pdf", ocr_pages=[2], page_rows=rows)
+    listing = s.list_documents(T, m)
+    pages = listing["documents"][0]["pages"]
+    assert [(p["source"], p.get("from_ocr"), p.get("ocr_marker")) for p in pages] == [
+        ("text_layer", False, None), ("ocr", True, MARKER), ("unreadable", None, None),
+    ]  # fmt: skip
+    assert assert_marked(listing) == 2 and assert_marked(s.query(T, m, "notice")) >= 2  # the paper and its one image page
+    s.add_document(T, m, PAPER, "typed.pdf")
+    typed = [d for d in s.list_documents(T, m)["documents"] if d["name"] == "typed.pdf"][0]
+    assert "pages" not in typed  # a paper with no image page lists no per-page rows (unchanged)
 
 
 def test_the_marker_walker_fails_an_ocr_row_without_the_marker_and_a_text_row_with_it() -> None:

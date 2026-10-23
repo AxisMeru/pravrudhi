@@ -2803,9 +2803,14 @@ def build_partner_router(
                     if _a2_scan is not None:  # #1015: wf_c1_scanned_intake on: pages routed text layer / image, additive fields
                         from pravrudhi.application import scanned_intake_ingest as _c1i
 
-                        text, extra = _c1i.ingest_document(req, _a2_cfg_eff, _a2_scan)
+                        layout: dict[int, dict[str, Any]] = {}
+                        text, extra = _c1i.ingest_document(req, _a2_cfg_eff, _a2_scan, layout_out=layout)
                         ocr = [int(p["page"]) for p in extra.get("pages", []) if p.get("source") == "ocr"]  # kept: from_ocr
-                        return {**store.add_document(tenant, req.matter_id, text, req.name, ocr or None), **extra}
+                        stored = store.add_document(
+                            tenant, req.matter_id, text, req.name, ocr or None,
+                            ocr_layout=layout or None, page_rows=extra.get("pages") if ocr else None,
+                        )  # fmt: skip
+                        return {**stored, **extra}
                     text = _a2.read_document(req, _a2_cfg_eff)
                     return store.add_document(tenant, req.matter_id, text, req.name)  # type: ignore[no-any-return]
 

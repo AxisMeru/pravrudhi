@@ -25,10 +25,21 @@ class PageResult:
     confidence: float | None = None
     reason: str | None = None
     repaired: bool = False  # a text-layer page that was re-read from its image
+    # OCR pages only: (start, end, left, top, width, height) of each word, start/end = its character range in `text`, the box in
+    # page-raster pixels at the configured dpi; and the raster's (width, height). Empty for every other page.
+    layout: tuple[tuple[int, int, int, int, int, int], ...] = ()
+    size: tuple[int, int] | None = None
 
     @property
     def readable(self) -> bool:
         return self.source != "unreadable"
+
+
+def _png_size(png: bytes) -> tuple[int, int] | None:
+    """(width, height) from a PNG's IHDR chunk, or None when the bytes are not a PNG."""
+    if len(png) < 24 or not png.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    return int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
 
 
 def _unreadable(page: int, reason: str, conf: float | None = None) -> PageResult:
@@ -53,7 +64,9 @@ def _ocr_page(page: int, cfg: ScannedIntakeConfig, render: Render, runner: E.Run
     ok, reason = E.decide(stats, cfg)
     if not ok:
         return _unreadable(page, reason or "low_confidence", stats.mean_conf)
-    return PageResult(page, "ocr", E.words_to_text(words), stats.mean_conf)
+    text, offsets = E.words_with_offsets(words)
+    layout = tuple((s, e, w.left, w.top, w.width, w.height) for s, e, w in offsets)
+    return PageResult(page, "ocr", text, stats.mean_conf, layout=layout, size=_png_size(png))
 
 
 def process_pages(
@@ -83,7 +96,7 @@ def process_pages(
         if flagged and res.source == "ocr" and not E.ocr_replaces_layer(layer, res.text, cfg):
             out.append(PageResult(i, "text_layer", layer))  # OCR agrees with the layer: it was not really garbled
         elif flagged and res.source == "ocr":
-            out.append(PageResult(i, "ocr", res.text, res.confidence, repaired=True))
+            out.append(replace(res, repaired=True))
         else:
             out.append(
                 res
@@ -125,3 +138,12 @@ def summary(results: list[PageResult]) -> dict[str, object]:
     if n_bad:
         out["document_line"] = S.DOCUMENT_LINE.format(n=n_bad)
     return out
+
+
+def ocr_layout(results: list[PageResult], dpi: int) -> dict[int, dict[str, object]]:
+    """page (1-based) -> {size, dpi, words} for the pages read from an image: what A2 needs to give each passage its crop box."""
+    return {
+        r.page: {"size": r.size, "dpi": dpi, "confidence": r.confidence, "words": r.layout}
+        for r in results
+        if r.source == "ocr" and r.layout and r.size
+    }

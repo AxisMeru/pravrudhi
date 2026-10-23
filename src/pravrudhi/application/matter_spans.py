@@ -379,10 +379,20 @@ class MatterStore:
 
     # -- documents
     def add_document(
-        self, tenant: str, matter_id: str, text: str, name: str, ocr_pages: list[int] | None = None
+        self,
+        tenant: str,
+        matter_id: str,
+        text: str,
+        name: str,
+        ocr_pages: list[int] | None = None,
+        *,
+        ocr_layout: dict[int, dict[str, Any]] | None = None,
+        page_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """`ocr_pages`: the 1-based pages whose text was read from a page image (scanned intake). Kept with the document so the
-        tools that quote its passages can say so; None or empty (every flag-off path) stores nothing extra."""
+        tools that quote its passages can say so; None or empty (every flag-off path) stores nothing extra. `ocr_layout` (page ->
+        word boxes, from scanned intake) gives each passage on such a page its crop box; `page_rows` is the per-page result list
+        the ingest answered with, shown on the paper's listing. Both are stored only with `ocr_pages`."""
         if not text.strip():
             raise MatterError("no_text", "The document has no text to index (a scanned PDF has no text layer)")
         if len(text) > self.cfg.max_chars:
@@ -397,11 +407,13 @@ class MatterStore:
         if len(spans) > self.cfg.max_spans_per_doc:
             raise MatterError("too_many_spans", f"A document may hold at most {self.cfg.max_spans_per_doc} passages", 413)
         with self._tenant_lock(tenant):
-            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans, ocr_pages)
+            return self._ingest(tenant, matter_id, text, name, pages, without_text, spans, ocr_pages, ocr_layout, page_rows)
 
     def _ingest(
         self, tenant: str, matter_id: str, text: str, name: str, pages: list[str], without_text: list[int],
         spans: list[tuple[int, int, int]], ocr_pages: list[int] | None = None,
+        ocr_layout: dict[int, dict[str, Any]] | None = None,
+        page_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """The write, under the tenant lock: the tenant-bytes check and the bytes it spends are one step, so two ingests of one
         tenant cannot both pass the cap."""
@@ -436,11 +448,20 @@ class MatterStore:
                     (doc_id, name.strip()[:MAX_NAME_CHARS] or "document", len(text), len(pages), len(spans), sha,
                      datetime.now(UTC).isoformat(timespec="seconds"), json.dumps(without_text)),
                 )
+                page_starts = [0]
+                for pg in pages:
+                    page_starts.append(page_starts[-1] + len(pg) + 1)  # + the form feed that ends it
+                boxes: list[tuple[int, str]] = []
                 for page, start, end in spans:
                     cur = conn.execute(
                         "INSERT INTO span (doc_id, page, start, end, text) VALUES (?, ?, ?, ?, ?)",
                         (doc_id, page, start, end, text[start:end]),
                     )
+                    lay = (ocr_layout or {}).get(page)
+                    if lay and ocr_pages and page in ocr_pages and cur.lastrowid is not None:
+                        box = _crop_for(start - page_starts[page - 1], end - page_starts[page - 1], lay)
+                        if box is not None:
+                            boxes.append((cur.lastrowid, json.dumps({"crop": box, "confidence": lay.get("confidence")})))
                     conn.execute(
                         "INSERT INTO span_fts (rowid, text, joined) VALUES (?, ?, ?)",
                         (cur.lastrowid, *_fts_columns(text[start:end])),
@@ -449,6 +470,12 @@ class MatterStore:
                     _ensure_ocr_column(conn)  # the column appears only when a scanned page is first stored
                     pages_json = json.dumps(sorted(set(ocr_pages)))
                     conn.execute("UPDATE document SET ocr_pages = ? WHERE doc_id = ?", (pages_json, doc_id))
+                    if page_rows:
+                        _ensure_column(conn, "document", "pages_meta")
+                        conn.execute("UPDATE document SET pages_meta = ? WHERE doc_id = ?", (json.dumps(page_rows), doc_id))
+                    if boxes:
+                        _ensure_column(conn, "span", "ocr_box")
+                        conn.executemany("UPDATE span SET ocr_box = ? WHERE id = ?", [(b, i) for i, b in boxes])
                 conn.execute("UPDATE document SET ingest_done = 1 WHERE doc_id = ?", (doc_id,))
                 conn.execute("COMMIT")
             except BaseException:
@@ -469,8 +496,9 @@ class MatterStore:
                 "WHERE span_fts MATCH ? AND d.ingest_done = 1",
                 (match,),
             ).fetchone()[0]
+            box_col = "s.ocr_box" if _has_column(conn, "span", "ocr_box") else "NULL"
             rows = conn.execute(
-                "SELECT s.id, s.doc_id, d.name, s.page, s.start, s.end, s.text FROM span_fts f "
+                f"SELECT s.id, s.doc_id, d.name, s.page, s.start, s.end, s.text, {box_col} FROM span_fts f "
                 "JOIN span s ON s.id = f.rowid JOIN document d ON d.doc_id = s.doc_id "
                 "WHERE span_fts MATCH ? AND d.ingest_done = 1 ORDER BY bm25(span_fts), s.id LIMIT ?",
                 (match, self.cfg.max_results),
@@ -495,13 +523,18 @@ class MatterStore:
         spans = [
             {"span_id": r[0], "doc_id": r[1], "name": r[2], "page": r[3], "start": r[4], "end": r[5], "text": r[6]} for r in rows
         ]
+        boxes = {r[0]: json.loads(r[7]) if r[7] else None for r in rows}
         ocr = {d["doc_id"]: d["ocr_pages"] for d in docs if "ocr_pages" in d}
         if any("from_ocr" in d for d in docs):  # a matter with an image-read page: each passage says where its text came from
             from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
 
             for sp in spans:
+                box = boxes.get(sp["span_id"])
+                sp["crop"] = {"page": sp["page"], **box["crop"]} if box else None
+                sp["confidence"] = box["confidence"] if box else None
                 sp["from_ocr"] = sp["page"] in ocr.get(sp["doc_id"], ())
                 sp["source"] = "ocr" if sp["from_ocr"] else "text_layer"
+                sp["read_from"] = "ocr" if sp["from_ocr"] else "text_layer"
                 if sp["from_ocr"]:
                     sp["ocr_marker"] = OCR_MARKER_LINE
         truncated = total > len(spans)
@@ -609,6 +642,52 @@ def _ensure_ocr_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE document ADD COLUMN ocr_pages TEXT NOT NULL DEFAULT '[]'")
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str) -> None:
+    """Inside the caller's transaction: a nullable TEXT column that only a matter holding a page read from an image gets (the
+    released schema of every other matter file is unchanged). `table` and `column` are constants of this module."""
+    if not any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})")):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+
+
+def _crop_for(lo: int, hi: int, layout: dict[str, Any]) -> dict[str, Any] | None:
+    """The union box (page-raster pixels) of the words of one page that overlap the character range [lo, hi) of that page's
+    text, with the raster size; None when no word does or the size is unknown. Clamped to the page."""
+    size = layout.get("size")
+    if not size:
+        return None
+    page_w, page_h = int(size[0]), int(size[1])
+    hits = [(left, top, width, height) for s, e, left, top, width, height in layout["words"] if s < hi and e > lo]
+    if not hits:
+        return None
+    x0 = max(0, min(h[0] for h in hits))
+    y0 = max(0, min(h[1] for h in hits))
+    x1 = min(page_w, max(h[0] + h[2] for h in hits))
+    y1 = min(page_h, max(h[1] + h[3] for h in hits))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "page_w": page_w, "page_h": page_h, "unit": "px at ocr_dpi",
+            "ocr_dpi": layout.get("dpi")}  # fmt: skip
+
+
+def _marked_page_rows(rows: list[dict[str, Any]], marker: str) -> list[dict[str, Any]]:
+    """The stored per-page results with R1's rule applied: a page read from an image says so (`from_ocr` true and the one marker
+    line), a text-layer page says false and carries no marker; an unreadable page has neither (it has no text)."""
+    out = []
+    for r in rows:
+        row = dict(r)
+        if row.get("source") == "ocr":
+            row["from_ocr"] = True
+            row["ocr_marker"] = marker
+        elif row.get("source") == "text_layer":
+            row["from_ocr"] = False
+        out.append(row)
+    return out
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})"))
+
+
 def _ocr_pages_by_doc(conn: sqlite3.Connection) -> dict[str, list[int]]:
     """doc id -> the pages read from an image, only for documents that have some (a file without the column has none)."""
     if not _has_ocr_column(conn):
@@ -628,6 +707,11 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         out.append({"doc_id": r[0], "name": r[1], "n_pages": r[2], "n_spans": r[3], "n_chars": r[4], "ingest_done": bool(r[5]),
                     "pages_without_text": unread, "indexed_complete": bool(r[5]) and not unread})
     ocr = _ocr_pages_by_doc(conn)
+    meta = (
+        {r[0]: json.loads(r[1]) for r in conn.execute("SELECT doc_id, pages_meta FROM document WHERE pages_meta IS NOT NULL")}
+        if _has_column(conn, "document", "pages_meta")
+        else {}
+    )
     if ocr:  # only a matter that holds a page read from an image says which papers did; any other matter is unchanged
         from pravrudhi.application.scanned_intake_strings import OCR_MARKER_LINE
 
@@ -635,6 +719,8 @@ def _documents(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             d["from_ocr"] = d["doc_id"] in ocr
             if d["from_ocr"]:
                 d["ocr_pages"] = ocr[d["doc_id"]]
+                if meta.get(d["doc_id"]):
+                    d["pages"] = _marked_page_rows(meta[d["doc_id"]], OCR_MARKER_LINE)
                 d["ocr_marker"] = OCR_MARKER_LINE  # R1: the same words wherever from_ocr is true
     return out
 
