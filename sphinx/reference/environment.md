@@ -46,7 +46,7 @@ deployment's own secret store.
 | `NYAYA_SHIM_BACKEND` | Backend of the local shim server (a stub unless set). | `src/pravrudhi/serving/nyaya_local_shim.py` |
 | `NYAYA_SHIM_MODEL` | Model the local shim loads when it has a real backend. | `src/pravrudhi/serving/nyaya_local_shim.py` |
 | `NYAYA_SPAN_RELEVANCE_ENABLED` | Switches the span-relevance check on or off. | `src/pravrudhi/application/nyaya_agent.py` |
-| `PRAVRUDHI_ADMINS` | The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role comes only from this list, never from anything a caller sends. | `src/pravrudhi/api/roles.py` |
+| `PRAVRUDHI_ADMINS` | The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role is resolved from this list; it is designed not to come from anything a caller sends. | `src/pravrudhi/api/roles.py` |
 | `PRAVRUDHI_ADMIN_EMAIL` | Identity of the administrator the hosted-model switch recognises. | `src/pravrudhi/models/hosted.py` |
 | `PRAVRUDHI_ALLOWED_ORIGINS` | Cross-origin sites the local engine may answer; off unless named. | `src/pravrudhi/api/localguard.py` |
 | `PRAVRUDHI_AUTH` | Authentication mode of the deployment: `disabled` (default; a local single-user engine, nobody is identified and the local caller is the operator), `optional` (a bearer token is verified when present) or `required` (every `/api` route except the liveness check needs a verified sign-in). An unrecognised value is treated as `required`; the engine refuses to start in a non-`required` mode when a deployment-platform marker is set. | `src/pravrudhi/api/identity.py` |

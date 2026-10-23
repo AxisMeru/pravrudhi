@@ -116,7 +116,7 @@ ENV_NOTES = {
     "TESSDATA_PREFIX": "Folder of the character-recognition language data, for scanned-page intake.",
     "HF_HUB_OFFLINE": "Set to 1 inside job containers so model downloads are refused (jobs run offline).",
     "NYAYA_SECOND_JUDGE_API_KEY": "Credential for the second judge endpoint (a secret; deployment only).",
-    "PRAVRUDHI_ADMINS": 'The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role comes only from this list, never from anything a caller sends.',
+    "PRAVRUDHI_ADMINS": 'The operators of the deployment: a comma-separated list of user ids or e-mail addresses (compared case-insensitively). Empty or unset names nobody. The role is resolved from this list; it is designed not to come from anything a caller sends.',
     "PRAVRUDHI_ADMIN_EMAIL": "Identity of the administrator the hosted-model switch recognises.",
     "PRAVRUDHI_BAD_KEY_BUDGET_PER_MINUTE": "How many failed partner-API key attempts are tolerated per minute before callers are throttled.",
     "PRAVRUDHI_CHAT_DAILY_CAP": "Daily cap on chat turns per caller.",
@@ -206,9 +206,26 @@ _LEAD = re.compile(r"^(?:Track[- ][ABC][^:]{0,160}:|[A-Z]\d+[a-z]?(?:/[A-Z]\d+[a
 _PREVIEW = re.compile(r"\bPREVIEW\b")
 
 
+REWRITES = [
+    (" (`research/prereg/p3-citation-verification-2026-09-25.md`)", ""),
+    (" (prereg §3/§4)", ""),
+    (" (§1 of the mutation spec)", ""),
+    ("Writes research/prereg/measured_stack.json from one real job.", "Writes its measurements from one real job."),
+    ("Preview or dispatch a self-build plan", "Show or dispatch a self-build plan"),
+    ("and never read back by any route.", "and is designed not to be read back by any route."),
+    ("Never the key or a prefix of it - only", "It is designed not to return the key or a prefix of it, only"),
+    ("Never the key or a prefix of it \u2014 only", "It is designed not to return the key or a prefix of it, only"),
+]
+
+
 def scrub(text: str, cap: bool = True) -> str:
     """Remove planning references from a description; empty string if nothing presentable is left."""
     t = text
+    for _a, _b in REWRITES:
+        t = t.replace(_a, _b)
+    t = re.sub(r"\s*\((?:T\d\w*)[^()]*\)", "", t)
+    t = re.sub(r"\s*\([^()]*docs/decisions/[^()]*\)", "", t)
+    t = re.sub(r"docs/decisions/\S+", "", t)
     t = _PREVIEW.sub("", t)
     t = re.sub(r"(?i)prabhasa-nyaya's", "the external", t)
     t = re.sub(r"(?i)^prabhasa-nyaya\b", "Nyaya", t)
@@ -242,13 +259,17 @@ ROUTE_NOTES: dict[tuple[str, str], str] = {
     ('POST', '/api/v1/orgs/{org_id}/keys/{key_id}/revoke'): 'Revoke a key (operator or provisioning credential).',
     ('GET', '/api/v1/orgs/{org_id}/usage/summary'): 'Organisation-wide usage summary (operator or provisioning credential).',
     ('GET', '/api/v1/orgs/{org_id}/usage'): "A key's own usage counters.",
-    ('GET', '/api/v1/internal/wake-requests'): 'For the box-side waker: fetch pending wake requests (signed request; present only when the cold-start wake is on).',
-    ('POST', '/api/v1/internal/wake-results'): 'For the box-side waker: post the result of a wake (signed request; present only when the cold-start wake is on).',
-    ('POST', '/api/v1/analyse-facts/wake'): 'Start a cold-start wake of the judges for the signed-in caller (present only when the cold-start wake is on).',
-    ('GET', '/api/v1/analyse-facts/wake/status'): "Progress of the signed-in caller's wake (present only when the cold-start wake is on).",
+    ('GET', '/api/v1/internal/wake-requests'): 'For the box-side waker: fetch pending wake requests (signed request; always registered, and answers 404 when the cold-start wake is off).',
+    ('POST', '/api/v1/internal/wake-results'): 'For the box-side waker: post the result of a wake (signed request; always registered, and answers 404 when the cold-start wake is off).',
+    ('POST', '/api/v1/analyse-facts/wake'): 'Start a cold-start wake of the judges for the signed-in caller; refused with a 503 (judges_offline) when a wake is not allowed.',
+    ('GET', '/api/v1/analyse-facts/wake/status'): "Progress of the signed-in caller's wake.",
 }
 
 MODULE_NOTES: dict[str, str] = {
+    "pravrudhi.application.audit": "Partner-visible audit log of analyse-facts calls: who (key id), when, which run, which contracts, what outcome and HTTP status. It is designed not to hold fact text, narrative, quotes or any judge output beyond the outcome label: the writer takes only the fields below, and contract ids are stored only when they look like ids.",
+    "pravrudhi.application.route_scope": "A guard that flags a route whose handler is identity-aware (it takes a `user` parameter) but never resolves that identity into a per-caller project or store in its own body, so that it would read the engine's own root instead.",
+    "pravrudhi.application.typed.validators": "Mechanical validation for id-ref and span fields: schema-valid is necessary but not sufficient, so these checks stay separate from decoding and always run.",
+    "pravrudhi_kernel.stats.core": "Vendored statistics code; the kernel keeps to this one statistics implementation rather than a third library.",
     "pravrudhi.application": "The engine's logic: the night, replay, the gate, screening, matters, citations, panels and the other command and server behaviours.",
     "pravrudhi.cli": 'The command line package; the commands are defined in `pravrudhi.cli.app`.',
     "pravrudhi.api.nyaya": 'The Nyaya routes over HTTP: ask a question of Indian law, the audit trail, the corpus and the history. Open to users in both editions.',

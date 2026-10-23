@@ -34,7 +34,7 @@ What the engine wants right now, and why, from measured drives rather than intro
 
 ## `pravrudhi build`
 
-Preview or dispatch a self-build plan against the engine's own tree, one task per line.
+Show or dispatch a self-build plan against the engine's own tree, one task per line.
 
 | Flag or argument | Kind | Default | Meaning |
 |---|---|---|---|
@@ -303,7 +303,7 @@ Store or amend this workspace's bot. Each argument left out is left alone, so `-
 
 | Flag or argument | Kind | Default | Meaning |
 |---|---|---|---|
-| --token | option |  | Bot token from BotFather; stored once, mode 0600, and never read back by any route. |
+| --token | option |  | Bot token from BotFather; stored once, mode 0600, and is designed not to be read back by any route. |
 | --chat-id | option |  | Chat id to deliver to. |
 | --enabled | option |  | Turn delivery on or off without discarding the stored credential. |
 | --root | option | . | Repository root holding contracts/ and gates/. |

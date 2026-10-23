@@ -8,7 +8,7 @@ This page says **which kind of caller each HTTP route accepts**. The routes them
 |---|---|
 | **Nobody (open)** | no credential; only the routes in "Open routes" below |
 | **Member** | a signed-in account: a verified bearer token (the identity provider's session) |
-| **Operator** | a member whose user id or e-mail is on the allowlist named by `PRAVRUDHI_ADMINS`. The role is resolved from that list only, never from anything the caller sends (a `role` claim in a token is ignored). An empty or unset list names nobody |
+| **Operator** | a member whose user id or e-mail is on the allowlist named by `PRAVRUDHI_ADMINS`. The role is resolved from that list and is designed not to come from anything the caller sends (a `role` claim in a token is ignored). An empty or unset list names nobody |
 | **Partner key** | a request carrying `X-Pravrudhi-Api-Key` that verifies (a key header that does not verify is a 401, never an anonymous call) |
 | **Tenancy admin** | a request carrying the tenancy secret header (`X-Pravrudhi-Tenancy-Secret`) for organisation and key management |
 | **Waker** | the box-side waker's signed request (`X-Waker-Signature`: a 60-second window, each nonce once); only the two wake-queue routes |
