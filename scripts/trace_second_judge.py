@@ -93,7 +93,8 @@ def main() -> int:
                                prompt_sha256=j.prompt_sha256, first_token=j.first_token)
                     labels = (j.first_token or {}).get("labels", {})
                     logit = math.log(j.p_established / (1 - j.p_established)) if 0 < j.p_established < 1 else None
-                    print(f"{name:<22} {el[:38]:<38} p={j.p_established:.3f} logit*8={'—' if logit is None else round(logit * 8, 3)!s:<6} "
+                    k8 = "—" if logit is None else str(round(logit * 8, 3))
+                    print(f"{name:<22} {el[:38]:<38} p={j.p_established:.3f} logit*8={k8:<6} "
                           f"clamp={j.clamp:<11} top1={(j.first_token or {}).get('top1')!r} labels={labels} raw={j.raw[:40]!r}")
                 except Exception as e:  # noqa: BLE001 -- reported, never retried
                     failures += 1
