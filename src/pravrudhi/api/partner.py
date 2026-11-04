@@ -662,7 +662,7 @@ class IntakeRequest(BaseModel):
 _SECOND_JUDGE_DEBUG_FIELDS = (
     "p_established_second", "tau_second", "second_skip_reason", "second_logit_distance",
     "second_refer_band_fired", "second_unavailable", "second_fact_id", "fact_id_disagreement",
-    "defeater_second_disagreement",
+    "defeater_second_disagreement", "second_trace",
 )
 
 
@@ -724,6 +724,9 @@ class ElementResultOut(BaseModel):
     second_fact_id: str | None = None
     fact_id_disagreement: bool | None = None
     defeater_second_disagreement: bool | None = None
+    #: The second judge's scoring trace (raw completion, clamp, prompt sha256, first-token label logprobs, served
+    #: model id): same gate as the fields above, diagnostic only.
+    second_trace: dict[str, Any] | None = None
 
     #: #832 S1 source value; never returned (the signal below is derived from it). Excluded from the response.
     screening_supported: bool | None = Field(default=None, exclude=True)

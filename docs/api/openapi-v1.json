@@ -887,6 +887,18 @@
             ],
             "title": "Second Skip Reason"
           },
+          "second_trace": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Second Trace"
+          },
           "second_unavailable": {
             "anyOf": [
               {
