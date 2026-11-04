@@ -199,9 +199,41 @@ class ElementJudgment:
     #: `"span_relevance_unavailable: <exception>"` when the check was asked and errored (fail closed: the
     #: element is NOT established). None whenever the check answered or was never asked.
     span_relevance_skip_reason: str | None = None
+    #: Scoring trace (diagnostic only; never read by any decision). For a `HouseJudge` call: the sha256 of the exact
+    #: prompt sent, and the first generated token's label logprobs plus its top few alternatives (`first_token_digest`).
+    #: No credential, endpoint key or fact text is held here; the raw completion is already in `raw`.
+    prompt_sha256: str | None = None
+    first_token: dict[str, Any] | None = None
+    #: The second judge's own trace, copied by `AndGateJudge` when the second answered (None otherwise): its raw
+    #: completion, clamp, prompt sha256, first-token digest and served model id. The primary's own fields above stay
+    #: the primary's; this never substitutes for them.
+    second_trace: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+#: How many of the first token's highest-logprob alternatives a trace keeps besides the label tokens.
+FIRST_TOKEN_TRACE_TOP = 5
+
+
+def first_token_digest(top: Mapping[str, float], *, keep: int = FIRST_TOKEN_TRACE_TOP) -> dict[str, Any]:
+    """The first generated token's scoring evidence, for the audit trail: each label token's logprob (None when it was
+    not among the returned top-k, which is exactly when `p_established_from_top_logprobs` returns a bound), the top-1
+    token, and the `keep` highest alternatives. Pure; reads only what the server already returned."""
+    ranked = sorted(top.items(), key=lambda kv: kv[1], reverse=True)
+    return {
+        "labels": {t: (float(top[t]) if t in top else None) for t in (*_EST_TOKENS, *_NOT_TOKENS)},
+        "top1": ranked[0][0] if ranked else None,
+        "top": [[t, float(v)] for t, v in ranked[:keep]],
+        "k": len(top),
+    }
+
+
+def _prompt_sha(prompt: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
 
 
 class Judge(Protocol):
@@ -659,6 +691,7 @@ class HouseJudge:
         p, clamp = p_established_from_top_logprobs(res.top_logprobs[0], label_mass_floor=self.label_mass_floor)
         if not math.isfinite(p):
             raise JudgeOutputError(f"non-finite established probability {p!r}: {dict(res.top_logprobs[0])}")
+        psha, ftok = _prompt_sha(prompt), first_token_digest(res.top_logprobs[0])
         backend_idx = res.backend_index
         # Conservative decision rule (2026-09-28, G-28): a BOUND (clamp != "none") only ever lets a
         # caller conclude "established" when the bound ITSELF already clears tau -- since the true
@@ -674,17 +707,19 @@ class HouseJudge:
         if p < self.tau or bound_undetermined:
             return ElementJudgment("not_established", p, raw=res.text, backend_used=backend_idx, clamp=clamp,
                                    backend_endpoint=res.backend_endpoint_id, backend_model=res.model,
-                                   bound_undetermined=bound_undetermined)
+                                   bound_undetermined=bound_undetermined, prompt_sha256=psha, first_token=ftok)
         fact_id = parse_house_fact_id(res.text)
         if fact_id is None:
             return ElementJudgment("established", p, raw=res.text, backend_used=backend_idx, clamp=clamp,
-                                   backend_endpoint=res.backend_endpoint_id, backend_model=res.model)
+                                   backend_endpoint=res.backend_endpoint_id, backend_model=res.model,
+                                   prompt_sha256=psha, first_token=ftok)
         # Fact granularity (module doc): the claim is "this fact, whole". A fact id not among the facts gets no
         # quote -- never a nearest-match fact -- so the quote check rejects it as unknown.
         text = dict(request.facts).get(fact_id)
         return ElementJudgment(
             "established", p, fact_id, text, "whole_fact" if text is not None else None, raw=res.text,
-            backend_used=backend_idx, backend_endpoint=res.backend_endpoint_id, backend_model=res.model, clamp=clamp
+            backend_used=backend_idx, backend_endpoint=res.backend_endpoint_id, backend_model=res.model, clamp=clamp,
+            prompt_sha256=psha, first_token=ftok,
         )
 
 
@@ -980,7 +1015,24 @@ class AndGateJudge:
             fact_id_disagreement=disagreement,
             vetoed_by=None if established or defeater_disagreement else "second",
             defeater_second_disagreement=defeater_disagreement,
+            prompt_sha256=p.prompt_sha256,
+            first_token=p.first_token,
+            second_trace=_second_trace(s),
         )
+
+
+def _second_trace(s: ElementJudgment) -> dict[str, Any]:
+    """The second judge's own scoring trace (diagnostic; no decision reads it). Logged once per call so an operator can
+    follow a disagreement on the engine's own log without the audit file: no prompt text, facts, key or endpoint URL."""
+    trace = {
+        "raw": s.raw[:200], "clamp": s.clamp, "bound_undetermined": s.bound_undetermined,
+        "prompt_sha256": s.prompt_sha256, "first_token": s.first_token, "model": s.backend_model,
+        "endpoint_id": s.backend_endpoint, "p": s.p_established, "status": s.status,
+    }
+    import logging
+
+    logging.getLogger(__name__).info("second_judge_trace %s", json.dumps(trace, sort_keys=True, default=str))
+    return trace
 
 
 # -- Gate 1: NLI entailment check ---------------------------------------------------------------------------

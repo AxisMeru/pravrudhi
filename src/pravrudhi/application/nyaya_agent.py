@@ -1044,6 +1044,10 @@ class ElementResult:
     #: stays established (the second never vetoes one) and the contract is REFER_TO_LAWYER
     #: (`second_judge_defeater_disagreement`), never PROOF.
     defeater_second_disagreement: bool = False
+    #: The second judge's own scoring trace (`nyaya_judges._second_trace`: raw completion, clamp, prompt sha256,
+    #: first-token label logprobs, served model id). Diagnostic only, gated like the fields above; None whenever the
+    #: second was not asked or did not answer. No decision reads it.
+    second_trace: dict[str, Any] | None = None
     #: Issue #37 (single-judge fix, #57): which judge's tau this non-established element failed to clear --
     #: "primary" (it rejected outright; also single-judge mode's ONLY possible value, since there is no
     #: second judge to blame instead) or "second" (the primary passed but the second didn't). None whenever
@@ -1261,10 +1265,11 @@ def _second_band_info(anchor: ElementJudgment | None, delta: float | None) -> di
         "p_established_second": None, "tau_second": None, "second_skip_reason": None,
         "second_logit_distance": None, "second_refer_band_fired": False, "second_unavailable": False,
         "second_fact_id": None, "fact_id_disagreement": False,
-        "defeater_second_disagreement": False,
+        "defeater_second_disagreement": False, "second_trace": None,
     }
     if anchor is None:
         return out
+    out["second_trace"] = anchor.second_trace  # diagnostic only: no decision below reads it
     out["second_skip_reason"] = anchor.second_skip_reason
     out["tau_second"] = anchor.tau_second
     out["second_unavailable"] = bool(
