@@ -190,9 +190,11 @@ def main() -> int:
     for cid in CONTRACTS:
         registry.describe(cid)  # fail at start, not mid-demo, if the binary does not know the contract
     port = int(os.environ.get("REVIEWER_DEMO_PORT", "8765"))
+    #: 127.0.0.1 by default; the container sets 0.0.0.0 and the host publishes it on its own loopback only.
+    host = os.environ.get("REVIEWER_DEMO_HOST", "127.0.0.1")
     print(f"Lean score binary verified: sha256 {registry.sha256}")
-    print(f"Reviewer demo on http://127.0.0.1:{port}  (record: {RECORD})")
-    uvicorn.run(create_app(registry), host="127.0.0.1", port=port, log_level="warning")
+    print(f"Reviewer demo listening on {host}:{port}  (record: {RECORD})")
+    uvicorn.run(create_app(registry), host=host, port=port, log_level="warning")
     return 0
 
 
